@@ -11,7 +11,14 @@ those calls.
 
 from importlib.metadata import PackageNotFoundError, version
 
-from effaced.adapters.sqlalchemy import collect_data_map, pii, resolve_subject_graph, subject_link
+from effaced.adapters.sqlalchemy import (
+    EffacedTables,
+    bind_tables,
+    collect_data_map,
+    pii,
+    resolve_subject_graph,
+    subject_link,
+)
 from effaced.annotations import PiiSpec, RetentionPolicy, SubjectLink, SubjectRef
 from effaced.audit import AuditEvent, AuditEventType, AuditSink, DatabaseAuditSink
 from effaced.categories import ErasureStrategy, LegalBasis, PiiCategory
@@ -56,6 +63,7 @@ __all__ = [
     "DataMap",
     "DatabaseAuditSink",
     "EffacedError",
+    "EffacedTables",
     "ErasurePlan",
     "ErasurePlanner",
     "ErasureResult",
@@ -87,6 +95,7 @@ __all__ = [
     "TableAccessPlan",
     "TableEntry",
     "__version__",
+    "bind_tables",
     "collect_data_map",
     "fk_safe_deletion_order",
     "pii",

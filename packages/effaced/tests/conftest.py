@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import os
+from collections.abc import Iterator
 from typing import Any, ClassVar
 
 import pytest
-from sqlalchemy import Column, ForeignKey, Integer, MetaData, Table
+from sqlalchemy import Column, Engine, ForeignKey, Integer, MetaData, Table, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, registry, relationship
 
 from effaced import (
@@ -127,3 +129,14 @@ def metadata() -> MetaData:
 def orm_registry() -> registry:
     """The annotated test schema's ORM registry (mappers + metadata)."""
     return Base.registry
+
+
+@pytest.fixture()
+def pg_engine() -> Iterator[Engine]:
+    """An engine on the integration-test Postgres; skips when no URL is set."""
+    url = os.environ.get("EFFACED_TEST_DATABASE_URL")
+    if not url:
+        pytest.skip("EFFACED_TEST_DATABASE_URL not set")
+    engine = create_engine(url)
+    yield engine
+    engine.dispose()

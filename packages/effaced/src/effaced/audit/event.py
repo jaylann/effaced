@@ -29,6 +29,6 @@ class AuditEvent(BaseModel):
 
     event_id: UUID
     event_type: AuditEventType
-    subject_ref: str = Field(min_length=1)
+    subject_ref: str = Field(min_length=1, max_length=255)
     occurred_at: datetime
     payload: dict[str, str | int | bool] = Field(default_factory=dict)
