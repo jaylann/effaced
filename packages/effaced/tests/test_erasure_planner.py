@@ -244,6 +244,56 @@ def test_unannotated_not_fully_owned_table_emits_no_step() -> None:
     )
 
 
+def test_retention_conflict_names_the_retention_reason() -> None:
+    """The refusal cites the legal reason the retained column declares."""
+    data_map = DataMap(
+        tables=(
+            _entry("people", "", email=ErasureStrategy.DELETE),
+            _entry("contracts", "person", terms=ErasureStrategy.RETAIN),
+        )
+    )
+    graph = SubjectGraph(
+        subject_table="people",
+        subject_id_column="id",
+        accesses=(
+            TableAccessPlan(
+                table="contracts",
+                hops=(_hop("contracts", "people"),),
+                fully_pii_owned=True,
+            ),
+            TableAccessPlan(table="people", fully_pii_owned=True),
+        ),
+    )
+    with pytest.raises(RetentionViolationError, match="test duty"):
+        ErasurePlanner(data_map, graph).plan("42")
+
+
+def test_conflict_detection_scans_past_conflict_free_tables() -> None:
+    """A clean first table must not end conflict checking for later tables."""
+    data_map = DataMap(
+        tables=(
+            _entry("people", "", email=ErasureStrategy.ANONYMIZE),
+            _entry("orders", "person", note=ErasureStrategy.DELETE),
+            _entry("contracts", "order.person", terms=ErasureStrategy.RETAIN),
+        )
+    )
+    graph = SubjectGraph(
+        subject_table="people",
+        subject_id_column="id",
+        accesses=(
+            TableAccessPlan(table="people", fully_pii_owned=False),
+            TableAccessPlan(table="orders", hops=(_hop("orders", "people"),), fully_pii_owned=True),
+            TableAccessPlan(
+                table="contracts",
+                hops=(_hop("contracts", "orders"), _hop("orders", "people")),
+                fully_pii_owned=True,
+            ),
+        ),
+    )
+    with pytest.raises(RetentionViolationError, match=r"contracts.*orders"):
+        ErasurePlanner(data_map, graph).plan("42")
+
+
 def test_mismatched_graph_and_data_map_raise_at_construction() -> None:
     data_map = DataMap(tables=(_entry("people", "", email=ErasureStrategy.DELETE),))
     graph = SubjectGraph(

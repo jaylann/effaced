@@ -184,6 +184,31 @@ def test_history_spans_all_purposes_of_subject(harness: LedgerHarness) -> None:
         assert harness.ledger.history(session, "alice") == records
 
 
+def test_history_breaks_recorded_at_ties_by_record_id(harness: LedgerHarness) -> None:
+    """Identical timestamps order by record_id, not by insertion order.
+
+    Rows are written through the public table handle because the tiebreaker
+    is only observable with chosen record ids; the larger id is inserted
+    first so storage order and record_id order disagree.
+    """
+    with harness.session_factory() as session:
+        for record_id, source in ((UUID(int=2), "second-by-id"), (UUID(int=1), "first-by-id")):
+            session.execute(
+                harness.tables.consent_records.insert().values(
+                    record_id=record_id,
+                    subject_id="alice",
+                    purpose="newsletter",
+                    policy_version="2026-01",
+                    granted=True,
+                    recorded_at=T1,
+                    source=source,
+                )
+            )
+        session.commit()
+        history = harness.ledger.history(session, "alice")
+    assert [record.source for record in history] == ["first-by-id", "second-by-id"]
+
+
 def test_record_mirrors_grant_event(harness: LedgerHarness) -> None:
     with harness.session_factory() as session:
         harness.ledger.record(session, consent("alice", "newsletter", granted=True, at=T1))
