@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from typing import Any, ClassVar
 
 import pytest
@@ -11,6 +11,7 @@ from sqlalchemy import Column, Engine, ForeignKey, Integer, MetaData, Table, cre
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, registry, relationship
 
 from effaced import (
+    AuditEvent,
     ErasureStrategy,
     LegalBasis,
     PiiCategory,
@@ -18,6 +19,26 @@ from effaced import (
     pii,
     subject_link,
 )
+
+
+class RecordingAuditSink:
+    """In-memory ``AuditSink`` fake that records every appended event.
+
+    Lets unit tests assert on the audit mirror without a second database
+    connection (which SQLite's single write lock would block on).
+    """
+
+    def __init__(self) -> None:
+        self.events: list[AuditEvent] = []
+
+    def append(self, event: AuditEvent) -> None:
+        """Record one event in arrival order."""
+        self.events.append(event)
+
+    def read(self, subject_ref: str) -> Sequence[AuditEvent]:
+        """Return the subject's events, oldest first."""
+        matching = (event for event in self.events if event.subject_ref == subject_ref)
+        return tuple(sorted(matching, key=lambda event: event.occurred_at))
 
 
 class Base(DeclarativeBase):
