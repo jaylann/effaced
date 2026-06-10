@@ -47,16 +47,21 @@ class Invoice(Base):
 Then the entire integration surface is three calls:
 
 ```python
-from effaced import ConsentLedger, ErasurePlanner, Exporter, ResolverRegistry, collect_data_map
+from effaced import (
+    ConsentLedger, DatabaseAuditSink, ErasurePlanner, Exporter,
+    ResolverRegistry, bind_tables, collect_data_map,
+)
 from effaced_stripe import StripeResolver
 
 data_map = collect_data_map(Base.metadata)
+tables = bind_tables(Base.metadata)        # effaced-owned tables ride your migrations
+audit = DatabaseAuditSink(session_factory, tables.audit_events)
 registry = ResolverRegistry()
 registry.register(StripeResolver(api_key="rk_live_..."))   # explicit — the registry doubles
                                                            # as your "where is my PII" list
-await ConsentLedger().record(session, record)              # Art. 7 — withdraw == grant
-await Exporter(data_map, registry).export_subject(session, user_id)   # Art. 15
-await ErasurePlanner(data_map, registry).erase_subject(session, user_id)  # Art. 17
+ConsentLedger(tables.consent_records, audit).record(session, record)  # Art. 7 — withdraw == grant
+Exporter(data_map, registry).export_subject(session, user_id)         # Art. 15
+ErasurePlanner(data_map, registry).erase_subject(session, user_id)    # Art. 17
 ```
 
 Everything else — FK-safe ordering, anonymize-vs-delete, the durable outbox for external calls, retries, idempotency, the audit trail — is bookkeeping effaced does between those calls.

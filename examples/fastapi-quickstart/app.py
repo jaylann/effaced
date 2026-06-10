@@ -14,14 +14,16 @@ from datetime import UTC, datetime
 from fastapi import FastAPI
 from fastapi.concurrency import run_in_threadpool
 from models import Base
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from effaced import (
     ConsentLedger,
     ConsentRecord,
+    DatabaseAuditSink,
     ErasurePlanner,
     Exporter,
     ResolverRegistry,
+    bind_tables,
     collect_data_map,
 )
 from effaced_stripe import StripeResolver
@@ -29,17 +31,22 @@ from effaced_stripe import StripeResolver
 app = FastAPI()
 
 data_map = collect_data_map(Base.metadata)
+tables = bind_tables(Base.metadata)  # effaced-owned tables ride your migrations
 
 registry = ResolverRegistry()
 registry.register(StripeResolver(api_key="rk_test_..."))
 
-exporter = Exporter(data_map, registry)
-planner = ErasurePlanner(data_map, registry)
-consent = ConsentLedger()
-
 
 def get_session() -> Session:  # placeholder: use your real session dependency
     raise NotImplementedError
+
+
+session_factory: sessionmaker[Session] = sessionmaker()  # placeholder: bind your engine
+
+exporter = Exporter(data_map, registry)
+planner = ErasurePlanner(data_map, registry)
+audit = DatabaseAuditSink(session_factory, tables.audit_events)
+consent = ConsentLedger(tables.consent_records, audit)
 
 
 @app.post("/me/consent")
