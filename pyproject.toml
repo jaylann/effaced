@@ -71,6 +71,8 @@ convention = "google"
 # test doubles legitimately ignore arguments
 "**/tests/**" = ["S101", "D", "ANN", "PLR2004", "ARG"]
 "examples/**" = ["D", "S", "ANN"]
+# the conformance suite is shipped test code: asserts are its whole point
+"packages/effaced/src/effaced/testing/**" = ["S101"]
 
 # ---------------------------------------------------------------------------
 # Types — strict everywhere. PII machinery must not have untyped seams.

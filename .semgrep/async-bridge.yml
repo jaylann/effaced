@@ -1,18 +1,21 @@
 # ADR 0006: the sync core drives async resolvers through asyncio.run in ONE
 # internal helper. Scattered asyncio.run calls break under already-running
 # loops; new bridge sites need an ADR, not a quiet call.
+# ADR 0011 sanctions a second site: effaced/testing/ drives resolver
+# coroutines from sync pytest test methods.
 rules:
   - id: no-asyncio-run-outside-bridge
     languages: [python]
     severity: ERROR
     message: >
-      asyncio.run is allowed only in the designated sync→async bridge helper
-      (currently export/exporter.py, ADR 0006). Reuse that bridge; adding
-      another asyncio.run site needs an ADR.
+      asyncio.run is allowed only in the designated sync→async bridge helpers
+      (export/exporter.py per ADR 0006; effaced/testing/ per ADR 0011). Reuse
+      those bridges; adding another asyncio.run site needs an ADR.
     paths:
       include:
         - packages/effaced/src/
         - packages/effaced-stripe/src/
       exclude:
         - packages/effaced/src/effaced/export/exporter.py
+        - packages/effaced/src/effaced/testing/
     pattern: asyncio.run(...)

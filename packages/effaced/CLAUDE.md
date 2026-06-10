@@ -17,8 +17,9 @@ Storage-agnostic core. **No module outside `adapters/` may import SQLAlchemy or 
 | `audit/` | `AuditEvent(+Type)`, `AuditSink` protocol, `DatabaseAuditSink(session_factory, audit_events)` | append-only by construction; payloads are small scalars, never rich PII; the database sink commits each append in its own short transaction (ADR 0006); unreadable `event_type` on read ⇒ `AuditIntegrityError`, never skipped |
 | `resolvers/` | `Resolver` protocol, `ResolverRegistry`, result models | public API, additive-only; explicit registration, no discovery |
 | `saga/` | `Outbox(session_factory, outbox)`, `OutboxEntry(+Status)`, `BackoffPolicy`, `SagaRunner(registry, outbox, audit, *, max_attempts, batch_size, backoff)` | `enqueue` writes flattened entries through the CALLER's session (same transaction as local erasure), never commits; `entry_id` is the idempotency key; `claim_batch`/`mark_*` use the constructor's `session_factory`; one `next_attempt_at` gate is both crash lease and backoff schedule, attempts count claims, `ResolverError` ⇒ immediate abandon, `ERASURE_COMPLETED` needs every subject entry SUCCEEDED (ADR 0010 — changing any is MAJOR) |
+| `testing/` | `ResolverConformanceSuite`, `InMemoryResolver` | public API, additive-only; imports pytest at runtime by design (ADR 0011) — NEVER re-export from root `__init__.py`; its `_run` is the second sanctioned `asyncio.run` bridge |
 
-`__init__.py` files: docstring + re-exports only. New public class ⇒ new file ⇒ re-export ⇒ add to root `__all__` (test_public_api guards it).
+`__init__.py` files: docstring + re-exports only. New public class ⇒ new file ⇒ re-export ⇒ add to root `__all__` (test_public_api guards it). Exception: `testing/` stays out of the root `__all__` so `import effaced` never pulls pytest.
 
 ## When implementing engine logic
 

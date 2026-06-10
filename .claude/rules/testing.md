@@ -13,10 +13,11 @@ paths: ["**/tests/**"]
   - idempotent convergence (re-running a saga step == running it once),
   - fault-injection outcomes (resolver failure leaves a known, audited state).
 - No live network calls. External systems are faked behind the `Resolver` protocol.
+- Every resolver package subclasses `effaced.testing.ResolverConformanceSuite` in its tests (protocol shape, export shape, erase idempotency, error taxonomy — ADR 0011). `effaced.testing.InMemoryResolver` is the reference fake; the stripe package fakes at the HTTP boundary instead (`stripe.HTTPClient` subclass) so the SDK's real status→exception mapping is exercised.
 - SQLite silently drops `FOR UPDATE`/`SKIP LOCKED` from compiled SQL — locking/concurrency claims are only provable in the Postgres integration suite; SQLite unit tests cover everything else.
 - Extend the shared annotated schema in `packages/effaced/tests/conftest.py` instead of creating parallel fixture schemas.
 - Floats via `pytest.approx`; time frozen where timestamps matter.
-- Test files stay small and named for what they prove.
+- Test files stay small and named for what they prove. Basenames must be unique across every `packages/*/tests/` dir — they share one pytest import namespace (no `__init__.py`), so same-named modules collide at collection.
 
 ## Mutation testing (the weekly truth serum)
 
