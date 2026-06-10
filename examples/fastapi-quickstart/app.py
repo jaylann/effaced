@@ -23,14 +23,17 @@ from effaced import (
     ErasurePlanner,
     Exporter,
     ResolverRegistry,
+    SubjectRef,
     bind_tables,
     collect_data_map,
+    resolve_subject_graph,
 )
 from effaced_stripe import StripeResolver
 
 app = FastAPI()
 
 data_map = collect_data_map(Base.metadata)
+graph = resolve_subject_graph(data_map, Base.registry)
 tables = bind_tables(Base.metadata)  # effaced-owned tables ride your migrations
 
 registry = ResolverRegistry()
@@ -43,9 +46,9 @@ def get_session() -> Session:  # placeholder: use your real session dependency
 
 session_factory: sessionmaker[Session] = sessionmaker()  # placeholder: bind your engine
 
-exporter = Exporter(data_map, registry)
-planner = ErasurePlanner(data_map, registry)
 audit = DatabaseAuditSink(session_factory, tables.audit_events)
+exporter = Exporter(data_map, graph, Base.metadata, audit, registry)
+planner = ErasurePlanner(data_map, graph, registry)
 consent = ConsentLedger(tables.consent_records, audit)
 
 
@@ -71,7 +74,10 @@ def record_consent(purpose: str, granted: bool) -> dict[str, str]:
 @app.get("/me/export")
 async def export_me() -> dict[str, object]:
     """Trigger point 2: Art. 15 export across DB + Stripe."""
-    bundle = await run_in_threadpool(exporter.export_subject, get_session(), "current-user-id")
+    stripe_ref = SubjectRef(kind="stripe", value="cus_current_user")  # kind == resolver name
+    bundle = await run_in_threadpool(
+        exporter.export_subject, get_session(), "current-user-id", refs=(stripe_ref,)
+    )
     return bundle.model_dump(mode="json")
 
 

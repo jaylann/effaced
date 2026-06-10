@@ -26,7 +26,7 @@ def test_local_and_external_steps_partition() -> None:
 
 
 def test_refs_round_trip_on_the_plan() -> None:
-    refs = (SubjectRef(kind="stripe_customer", value="cus_1"),)
+    refs = (SubjectRef(kind="stripe", value="cus_1"),)
     plan = ErasurePlan(subject_id="42", refs=refs)
     assert plan.refs == refs
     assert ErasurePlan(subject_id="42").refs == ()

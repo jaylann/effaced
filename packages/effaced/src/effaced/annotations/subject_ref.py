@@ -12,7 +12,9 @@ class SubjectRef(BaseModel):
     subject's rich PII — the library moves identifiers, not data.
 
     Attributes:
-        kind: Namespace of the identifier (``"stripe_customer"``, ``"email"``).
+        kind: Namespace of the identifier (``"stripe"``, ``"email"``). Refs
+            are routed to the resolver whose ``name`` equals the ref's
+            ``kind`` (ADR 0008).
         value: The identifier itself.
         extra: Additional identifiers a resolver may need (string-typed on
             purpose — refs must stay loggable and PII-light).
