@@ -111,6 +111,8 @@ def test_erasure_on_any_schema_never_bleeds_and_preserves_retained(
             for row in subject_rows(session, schema, name, 1):
                 for column, spec in specs.items():
                     if spec.erasure is not ErasureStrategy.RETAIN:
+                        # Rewritten to a surrogate (ADR 0007: never NULLed).
+                        assert row[column] is not None
                         assert "<s1>" not in str(row[column])
     world.engine.dispose()
 

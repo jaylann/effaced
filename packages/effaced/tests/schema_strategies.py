@@ -13,6 +13,11 @@ unannotated ``payload`` column, so it is never fully PII-owned and never
 row-deleted — no surviving table's subject path can pass through a
 row-deleted ancestor, which keeps the planner's conflict checks (ADR 0007)
 out of the drawn space without burning ``assume()`` budget.
+
+Scope: generated schemas are local-database-only — no resolvers, refs, or
+outbox legs. Saga re-execution and external-failure semantics are proven
+separately (``test_saga_runner_properties.py``,
+``test_end_to_end_fault_injection.py``).
 """
 
 from __future__ import annotations

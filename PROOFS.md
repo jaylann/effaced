@@ -13,7 +13,9 @@ All test paths are relative to `packages/effaced/tests/`. Tags:
 - **[generated]** — hypothesis property on *arbitrary generated schemas*
   (`schema_strategies.py` draws table trees, subject-link paths, and
   per-column strategies, derived through the real `collect_data_map` +
-  `resolve_subject_graph` path)
+  `resolve_subject_graph` path). Generated schemas are local-database-only —
+  no resolver legs; saga/external semantics are proven by the saga
+  properties and the fault matrix below
 - **[pg]** — Postgres integration test (`just test-pg`); locking and
   concurrency claims are only provable here, because SQLite silently drops
   `FOR UPDATE` / `SKIP LOCKED`

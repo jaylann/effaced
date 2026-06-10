@@ -10,6 +10,20 @@ from effaced import ErasurePlanner, ErasureStrategy
 
 pytestmark = pytest.mark.property
 
+_IMPORT_TIME_BUDGET = scaled_examples(1)
+
+
+def test_hypothesis_profile_was_active_when_budgets_were_read() -> None:
+    """The proof suite's claimed depth depends on profile-before-import ordering.
+
+    ``scaled_examples`` reads ``settings.default.max_examples`` at module
+    import; profiles activate in ``pytest_configure``, which runs first. If
+    that ordering ever breaks, every generated-schema test silently degrades
+    to the 100-example dev default — this guard makes it fail loudly instead.
+    """
+    assert scaled_examples(1) == _IMPORT_TIME_BUDGET
+    assert max(20, settings.default.max_examples) == _IMPORT_TIME_BUDGET
+
 
 @given(schema=annotated_schemas())
 @settings(max_examples=scaled_examples(4), deadline=None)
