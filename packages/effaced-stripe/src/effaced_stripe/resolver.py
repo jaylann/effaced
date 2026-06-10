@@ -12,7 +12,8 @@ if TYPE_CHECKING:
 class StripeResolver:
     """Exports and erases a subject's PII held in Stripe.
 
-    Expects refs of kind ``"stripe_customer"`` whose value is the Stripe
+    Expects refs of kind ``"stripe"`` (refs are routed to the resolver
+    whose name equals their kind — ADR 0008) whose value is the Stripe
     customer id. Erasure uses Stripe's customer deletion, which Stripe
     itself implements as a GDPR-aware redaction.
 
@@ -38,7 +39,7 @@ class StripeResolver:
         """Collect the customer's Stripe-held PII (Art. 15).
 
         Args:
-            ref: ``kind="stripe_customer"``, ``value=<customer id>``.
+            ref: ``kind="stripe"``, ``value=<customer id>``.
 
         Returns:
             Customer profile, addresses, and payment-method metadata —
@@ -50,7 +51,7 @@ class StripeResolver:
         """Delete the customer in Stripe (Art. 17).
 
         Args:
-            ref: ``kind="stripe_customer"``, ``value=<customer id>``.
+            ref: ``kind="stripe"``, ``value=<customer id>``.
 
         Returns:
             The outcome; ``already_absent=True`` if Stripe already had no
