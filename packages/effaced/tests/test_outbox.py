@@ -50,6 +50,7 @@ def entry(
 ) -> OutboxEntry:
     return OutboxEntry(
         entry_id=entry_id,
+        subject_id="1",
         resolver=resolver,
         ref=SubjectRef(kind="stripe_customer", value="cus_123", extra=extra or {}),
         enqueued_at=ENQUEUED_AT,
@@ -89,6 +90,7 @@ def test_commit_persists_flattened_entries(harness: OutboxHarness) -> None:
         session.commit()
     first, second = stored_rows(harness)
     assert first["entry_id"] == UUID(int=1)
+    assert first["subject_id"] == "1"
     assert first["resolver"] == "stripe"
     assert first["ref_kind"] == "stripe_customer"
     assert first["ref_value"] == "cus_123"
@@ -96,6 +98,7 @@ def test_commit_persists_flattened_entries(harness: OutboxHarness) -> None:
     assert first["status"] == OutboxStatus.PENDING.value
     assert first["attempts"] == 0
     assert first["last_attempt_at"] is None
+    assert first["next_attempt_at"] is None
     assert first["last_error"] is None
     assert second["resolver"] == "crm"
     assert second["ref_extra"] == {}
@@ -112,6 +115,7 @@ def test_lifecycle_fields_round_trip_non_default_values(harness: OutboxHarness) 
     """status/attempts/timestamps/error persist as given, not as column defaults."""
     attempted = OutboxEntry(
         entry_id=UUID(int=7),
+        subject_id="1",
         resolver="stripe",
         ref=SubjectRef(kind="stripe_customer", value="cus_123"),
         status=OutboxStatus.FAILED,
@@ -124,6 +128,7 @@ def test_lifecycle_fields_round_trip_non_default_values(harness: OutboxHarness) 
         harness.outbox.enqueue(session, [attempted])
         session.commit()
     (row,) = stored_rows(harness)
+    assert row["subject_id"] == "1"
     assert row["status"] == OutboxStatus.FAILED.value
     assert row["attempts"] == 3
     assert row["enqueued_at"] == ENQUEUED_AT.replace(tzinfo=None)
@@ -131,7 +136,14 @@ def test_lifecycle_fields_round_trip_non_default_values(harness: OutboxHarness) 
     assert row["last_error"] == "resolver timed out"
 
 
-def test_claim_batch_is_not_yet_implemented(harness: OutboxHarness) -> None:
-    """Pins the stub loudly until the saga runner lands (ADR 0006)."""
-    with pytest.raises(NotImplementedError):
-        harness.outbox.claim_batch()
+def test_claim_batch_default_limit_is_fifty(harness: OutboxHarness) -> None:
+    """One default claim takes at most 50 entries, oldest first."""
+    entries = [entry(UUID(int=n)) for n in range(51)]
+    with harness.session_factory() as session:
+        harness.outbox.enqueue(session, entries)
+        session.commit()
+
+    claimed = harness.outbox.claim_batch()
+
+    assert len(claimed) == 50
+    assert {e.entry_id for e in claimed} == {UUID(int=n) for n in range(50)}

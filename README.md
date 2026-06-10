@@ -86,6 +86,8 @@ erase_subject(...)
       └── audit trail records every outcome, including abandonment
 ```
 
+The runner half is one call — `await SagaRunner(...).run_once()` — driven by whatever you already operate: a worker process, a cron job, or a FastAPI background thread ([wiring examples](docs/runbooks/saga-runner-wiring.md)). Failures retry on an exponential backoff; an entry that keeps failing is **abandoned loudly** (audited, surfaced for operators — never silently dropped), and `ERASURE_COMPLETED` lands in the audit trail when a subject's last external call succeeds. Concurrent runners are safe: claiming uses `FOR UPDATE SKIP LOCKED`, and a crashed runner's claims heal via a lease (ADR 0010).
+
 ## Why not …
 
 | Alternative | The gap |
