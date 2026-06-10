@@ -151,7 +151,12 @@ def _table_steps(entry: TableEntry, *, row_deleted: bool) -> tuple[ErasureStep, 
 
 
 def _check_conflicts(data_map: DataMap, graph: SubjectGraph, deleted: frozenset[str]) -> None:
-    """Reject plans where surviving rows depend on a row-deleted table."""
+    """Reject plans where surviving rows depend on a row-deleted table.
+
+    Detection walks subject hop chains only (ADR 0007): an FK reference to
+    a row-deleted table *outside* the survivor's subject path is not visible
+    here and surfaces at execution time as a database integrity error.
+    """
     for entry in data_map.tables:
         if entry.name in deleted:
             continue

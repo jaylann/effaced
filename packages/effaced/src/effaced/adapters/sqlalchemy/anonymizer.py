@@ -79,8 +79,10 @@ def default_surrogate_registry() -> SurrogateRegistry:
     """A registry covering the common SQLAlchemy scalar types.
 
     Strings become unique opaque tokens (``anon-…``), numbers and booleans
-    become zero-values, dates collapse to the Unix epoch (naive — override
-    for timezone-aware columns), and UUIDs become fresh random UUIDs.
+    become zero-values, dates collapse to the Unix epoch, and UUIDs become
+    fresh random UUIDs. The epoch datetime is naive and also resolves (via
+    MRO) for ``DateTime(timezone=True)`` columns — register a tz-aware
+    factory when your dialect rejects naive values there.
 
     Returns:
         A new, independently extensible registry.

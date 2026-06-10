@@ -126,6 +126,11 @@ def _fully_pii_owned(entry: TableEntry, mapper: Mapper[Any]) -> bool:
     member, or a foreign-key member. Anything else (an unannotated payload
     column) means row deletion would erase more than the manifest declares,
     so the planner must fall back to column-level anonymization.
+
+    Keys are exempt as structural plumbing (ADR 0007). A content-bearing
+    *natural* primary key (an email used as PK, say) therefore counts as
+    owned — annotate such columns as PII anyway; collection keeps them in
+    the manifest either way.
     """
     table = mapper.local_table
     if not isinstance(table, Table):  # pragma: no cover - filtered out by _mappers_by_table
