@@ -19,8 +19,15 @@ The same GitHub App used by XCStringsTranslator (App ID 3987809):
 1. github.com/settings/apps → lanfermann-release-bot → Install App → add `jaylann/effaced`.
 2. `gh secret set RP_APP_KEY -R jaylann/effaced < path/to/private-key.pem`
 3. `RP_APP_ID` repo variable is already set to `3987809`.
+4. Add the app as bypass actor on BOTH rulesets so it can push the main→stage sync (and so release-please can manage its branches). For each ruleset id (`gh api repos/jaylann/effaced/rulesets --jq '.[].id'`):
+   ```bash
+   gh api repos/jaylann/effaced/rulesets/<id> --jq '{name,bypass_actors}'   # inspect
+   # then PUT the ruleset back with bypass_actors:
+   #   [{"actor_id": 3987809, "actor_type": "Integration", "bypass_mode": "always"}]
+   ```
+   (Repo → Settings → Rules → ruleset → Bypass list → add the app works too.)
 
-Until installed, `release-please.yml` fails at token minting — harmless before the first promotion to main.
+Until installed, `release-please.yml` and `sync-stage.yml` fail at token minting — harmless before the first promotion to main.
 
 ## 3. Kodus (self-hosted reviewer)
 
