@@ -48,8 +48,9 @@ def resolve_subject_graph(data_map: DataMap, orm_registry: registry) -> SubjectG
             subject link, a table is not ORM-mapped, a path segment is not
             a relationship, a path joins through a many-to-many secondary
             table, a path does not end at the subject table, the declared
-            subject id column does not exist, or the foreign keys between
-            resolved tables form a cycle.
+            subject id column does not exist or is declared on a
+            non-subject table, or the foreign keys between resolved
+            tables form a cycle.
     """
     subject = _find_subject(data_map)
     mappers = _mappers_by_table(orm_registry)
@@ -129,6 +130,13 @@ def _resolve_path(
             f"subject_link; declare how its rows reach the subject"
         )
         raise SubjectResolutionError(msg)
+    if not link.is_subject_table and link.subject_id_column != "id":
+        msg = (
+            f"table {entry.name!r}: subject_id_column "
+            f"{link.subject_id_column!r} is only meaningful on the subject "
+            f'table itself (subject_link("")); it would be silently ignored here'
+        )
+        raise SubjectResolutionError(msg)
     mapper = _mapper_for(entry, mappers)
     hops: list[JoinHop] = []
     for segment in link.path.split(".") if link.path else ():
@@ -178,7 +186,13 @@ def _hop(relationship: RelationshipProperty[Any]) -> JoinHop:
             f"tables; not supported in subject-link paths"
         )
         raise SubjectResolutionError(msg)
-    pairs = relationship.local_remote_pairs or []
+    pairs = relationship.local_remote_pairs
+    if not pairs:
+        msg = (
+            f"relationship {relationship.key!r} has no local/remote column "
+            f"pairs to join on; not supported in subject-link paths"
+        )
+        raise SubjectResolutionError(msg)
     return JoinHop(
         source_table=source.name,
         source_columns=tuple(local.name for local, _ in pairs),

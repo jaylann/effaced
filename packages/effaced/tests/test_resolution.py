@@ -219,6 +219,14 @@ def test_many_to_many_path_raises(orm_registry: registry) -> None:
         resolve_subject_graph(DataMap(tables=(USERS, via_secondary)), orm_registry)
 
 
+def test_subject_id_column_on_non_subject_table_raises(orm_registry: registry) -> None:
+    misplaced = TableEntry(
+        name="invoices", subject_link=SubjectLink(path="user", subject_id_column="uuid")
+    )
+    with pytest.raises(SubjectResolutionError, match="only meaningful on the subject table"):
+        resolve_subject_graph(DataMap(tables=(USERS, misplaced)), orm_registry)
+
+
 def test_unknown_subject_id_column_raises(orm_registry: registry) -> None:
     bad_subject = TableEntry(
         name="users", subject_link=SubjectLink(path="", subject_id_column="uuid")
