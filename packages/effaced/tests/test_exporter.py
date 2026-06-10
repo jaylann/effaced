@@ -8,8 +8,10 @@ from typing import NamedTuple
 
 import pytest
 from conftest import Base, RecordingAuditSink, seed_two_subjects
-from sqlalchemy import Engine, MetaData
+from sqlalchemy import Column, Engine, MetaData, String, Table, create_engine
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
+from sqlalchemy.types import UserDefinedType
 
 from effaced import (
     MANIFEST_SCHEMA_VERSION,
@@ -20,10 +22,16 @@ from effaced import (
     LegalBasis,
     ManifestError,
     PiiCategory,
+    PiiSpec,
+    SubjectGraph,
+    SubjectLink,
     SubjectResolutionError,
+    TableAccessPlan,
+    TableEntry,
     collect_data_map,
     resolve_subject_graph,
 )
+from effaced.manifest import ColumnEntry
 
 
 class ExportHarness(NamedTuple):
@@ -197,6 +205,53 @@ def test_malformed_subject_id_raises_before_any_audit_event(
     with pytest.raises(SubjectResolutionError):
         export(harness, "not-a-number")
     assert harness.sink.events == []
+
+
+class OpaqueId(UserDefinedType):
+    """An id type effaced cannot interpret (``python_type`` is undefined)."""
+
+    cache_ok = True
+
+    def get_col_spec(self, **kw: object) -> str:
+        """Render as TEXT."""
+        return "TEXT"
+
+
+def test_uninterpretable_id_column_type_passes_subject_id_through() -> None:
+    """No ``python_type`` on the id column: the dialect, not effaced, decides."""
+    metadata = MetaData()
+    members = Table(
+        "members",
+        metadata,
+        Column("id", OpaqueId(), primary_key=True),
+        Column("email", String()),
+    )
+    data_map = DataMap(
+        tables=(
+            TableEntry(
+                name="members",
+                subject_link=SubjectLink(path=""),
+                columns=(ColumnEntry(name="email", spec=PiiSpec(category=PiiCategory.CONTACT)),),
+            ),
+        )
+    )
+    graph = SubjectGraph(
+        subject_table="members",
+        subject_id_column="id",
+        accesses=(TableAccessPlan(table="members"),),
+    )
+    engine = create_engine("sqlite://", poolclass=StaticPool)
+    metadata.create_all(engine)
+    exporter = Exporter(data_map, graph, metadata, RecordingAuditSink())
+    with sessionmaker(engine)() as session:
+        session.execute(members.insert().values(id="m-1", email="member@example.com"))
+        session.execute(members.insert().values(id="m-2", email="other@example.com"))
+        session.commit()
+        bundle = exporter.export_subject(session, "m-1")
+    assert [(record.source, record.field, record.value) for record in bundle.records] == [
+        ("members", "email", "member@example.com")
+    ]
+    engine.dispose()
 
 
 def _snapshot(session_factory: sessionmaker[Session]) -> list[tuple[tuple[object, ...], ...]]:

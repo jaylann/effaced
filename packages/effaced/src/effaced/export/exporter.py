@@ -83,7 +83,10 @@ class Exporter:
         call that fails puts the resolver's name in ``incomplete_sources``
         instead of failing the export. A local database failure propagates
         after ``EXPORT_REQUESTED`` was appended — a requested-but-never-
-        completed trail is the abandonment marker.
+        completed trail is the abandonment marker. Input validation
+        (subject id coercion, ref-kind matching) raises *before*
+        ``EXPORT_REQUESTED`` is appended: a malformed call never became a
+        data-subject request, so it deliberately leaves no audit trace.
 
         Blocking call; resolver fan-out runs on an internal event loop, so
         it must not be invoked on a running event-loop thread — in async
@@ -184,7 +187,9 @@ def _coerce_subject_id(column: Column[Any], subject_id: str) -> object:
     """
     try:
         python_type = column.type.python_type
-    except NotImplementedError:  # pragma: no cover - exotic column types only
+    except NotImplementedError:
+        # The type is one effaced cannot interpret (e.g. a UserDefinedType);
+        # pass the string through and let the dialect be the authority.
         return subject_id
     if python_type is str:
         return subject_id
