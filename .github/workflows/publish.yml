@@ -1,3 +1,4 @@
+# registered: PyPI trusted publishing per package tag
 name: Publish to PyPI
 
 on:

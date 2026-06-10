@@ -1,3 +1,4 @@
+# registered: labels sync for .github/labels.yml
 name: Sync labels
 
 on:
