@@ -19,10 +19,17 @@ jobs:
     name: Build distributions
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    permissions:
+      contents: read
+      # provenance attestation for the built distributions
+      id-token: write
+      attestations: write
     outputs:
       package: ${{ steps.resolve.outputs.package }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
 
       - name: Resolve package from tag
         id: resolve
@@ -36,14 +43,60 @@ jobs:
           esac
 
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          # release artifacts must not be built from restorable caches
+          enable-cache: false
 
       - name: Build sdist and wheel
-        run: uv build --package "${{ steps.resolve.outputs.package }}" --out-dir dist
+        env:
+          PACKAGE: ${{ steps.resolve.outputs.package }}
+        run: uv build --package "$PACKAGE" --out-dir dist
+
+      - name: Check distribution metadata
+        run: uvx twine@6.2.0 check dist/*
+
+      - name: Generate CycloneDX SBOM
+        env:
+          PACKAGE: ${{ steps.resolve.outputs.package }}
+        run: |
+          mkdir -p sbom
+          uv export --locked --no-emit-workspace --package "$PACKAGE" --format requirements.txt > sbom/requirements.txt
+          uvx --from cyclonedx-bom@7.3.0 cyclonedx-py requirements sbom/requirements.txt --of JSON -o "sbom/${PACKAGE}-sbom.cdx.json"
+
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: dist/*
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: dist
           path: dist/
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: sbom
+          path: sbom/*.cdx.json
+
+  attach-sbom:
+    name: Attach SBOM to GitHub release
+    needs: build
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: sbom
+          path: sbom/
+
+      - name: Upload SBOM to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$TAG" sbom/*.cdx.json --clobber --repo "$GITHUB_REPOSITORY"
 
   publish:
     name: Publish ${{ needs.build.outputs.package }} (Trusted Publishing)
@@ -63,3 +116,6 @@ jobs:
         uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
         with:
           skip-existing: true
+          # PEP 740 digital attestations — default with Trusted Publishing,
+          # declared explicitly so it can't regress silently
+          attestations: true

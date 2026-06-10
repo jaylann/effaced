@@ -1,0 +1,79 @@
+# Weekly deep correctness checks — too slow for the PR gate.
+# Hypothesis at high example counts + mutation testing on the erasure-critical
+# modules. Mutation score is reported, not (yet) enforced: first runs establish
+# the baseline.
+name: Deep checks
+
+on:
+  schedule:
+    - cron: "0 4 * * 0" # Sun 04:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  hypothesis-deep:
+    name: Hypothesis (deep profile)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: true
+
+      - name: Sync workspace
+        run: uv sync --locked --all-packages
+
+      - name: Restore Hypothesis example database
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .hypothesis/examples
+          key: hypothesis-deep-${{ github.run_id }}
+          restore-keys: |
+            hypothesis-deep-
+            hypothesis-
+
+      - name: pytest (deep profile)
+        run: uv run pytest -m "not integration" --hypothesis-profile=deep
+
+  mutation:
+    name: Mutation testing (mutmut)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: true
+
+      - name: Sync workspace
+        run: uv sync --locked --all-packages
+
+      - name: mutmut run
+        working-directory: packages/effaced
+        run: uv run mutmut run || true # report-only until a baseline exists
+
+      - name: Mutation results to job summary
+        working-directory: packages/effaced
+        run: |
+          {
+            echo '## Mutation testing results'
+            echo '```'
+            uv run mutmut results
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload mutants directory
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: mutmut-results
+          path: packages/effaced/mutants/
+          retention-days: 30

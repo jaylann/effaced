@@ -38,3 +38,6 @@ coverage.xml
 
 # Logs
 *.log
+
+# mutmut (weekly mutation testing)
+mutants/

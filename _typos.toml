@@ -1,0 +1,10 @@
+# typos (crate-ci/typos) — spell check for code, docstrings, and docs.
+# Add false positives here as they surface, narrowest scope first.
+
+[default.extend-words]
+# "effaced" and GDPR vocabulary are fine out of the box; this section is for
+# identifiers typos misreads (e.g. abbreviations). Keep entries commented with
+# the reason they exist.
+
+[files]
+extend-exclude = ["uv.lock", "*.svg"]

@@ -1,0 +1,25 @@
+# Audit events carry references and small scalars, never rich PII
+# (.claude/rules/gdpr-semantics.md). Heuristic: PII-shaped keys in a payload
+# literal are a red flag regardless of the value.
+rules:
+  - id: no-pii-keys-in-audit-payload
+    languages: [python]
+    severity: ERROR
+    message: >
+      Audit event payloads must not carry PII — references and small scalars
+      only (counts, table names, versions). This key looks like personal data;
+      store an opaque reference instead.
+    paths:
+      include:
+        - packages/
+    patterns:
+      - pattern-either:
+          - pattern: |
+              AuditEvent(..., payload={..., $KEY: $VAL, ...}, ...)
+          - pattern: |
+              payload = {..., $KEY: $VAL, ...}
+              ...
+              AuditEvent(..., payload=payload, ...)
+      - metavariable-regex:
+          metavariable: $KEY
+          regex: (?i)^["'](email|e_mail|mail|phone|telephone|mobile|address|street|city|zip|postcode|full_name|first_name|last_name|surname|username|user_name|ip|ip_address|dob|date_of_birth|birthdate|ssn|iban|passport|national_id)["']$

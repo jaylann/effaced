@@ -11,6 +11,7 @@ dev = [
     "ruff>=0.8",
     "pre-commit>=4.0",
     "psycopg[binary]>=3.2",
+    "mutmut>=3.6",
 ]
 
 [tool.uv]
@@ -113,3 +114,6 @@ branch = true
 
 [tool.coverage.report]
 exclude_also = ["raise NotImplementedError"]
+# an untested branch in an erasure library is a potential data-protection bug
+fail_under = 95
+show_missing = true

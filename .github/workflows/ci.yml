@@ -20,6 +20,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
 
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
@@ -37,12 +39,52 @@ jobs:
       - name: File-length architecture gate
         run: uv run python scripts/check_file_length.py
 
+      - name: Spell check (typos)
+        uses: crate-ci/typos@37bb98842b0d8c4ffebdb75301a13db0267cef89 # v1.47.2
+
+  semgrep:
+    name: Semgrep (GDPR invariants)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+
+      - name: Semgrep scan (local rules only)
+        env:
+          SEMGREP_ENABLE_VERSION_CHECK: "0"
+        run: uvx semgrep@1.165.0 scan --config .semgrep --error --metrics=off
+
+  workflow-lint:
+    name: Workflow lint (zizmor + actionlint)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+
+      - name: zizmor
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: uvx zizmor@1.25.2 .github/workflows/
+
+      - name: actionlint
+        uses: raven-actions/actionlint@205b530c5d9fa8f44ae9ed59f341a0db994aa6f8 # v2.1.2
+
   typecheck:
     name: Types (mypy --strict)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
 
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
@@ -64,6 +106,8 @@ jobs:
         python-version: ["3.11", "3.12", "3.13"]
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
 
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
@@ -73,8 +117,38 @@ jobs:
       - name: Sync workspace
         run: uv sync --locked --all-packages
 
+      - name: Restore Hypothesis example database
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .hypothesis/examples
+          key: hypothesis-${{ matrix.python-version }}-${{ github.run_id }}
+          restore-keys: hypothesis-${{ matrix.python-version }}-
+
       - name: pytest
-        run: uv run pytest -m "not integration" --cov --cov-report=term-missing
+        run: uv run pytest -m "not integration" --hypothesis-profile=ci --cov --cov-report=term-missing
+
+  test-lowest:
+    name: Tests (lowest dependency floors)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: true
+          python-version: "3.11"
+
+      - name: Re-lock at lowest direct dependency versions
+        run: uv lock --resolution lowest-direct
+
+      - name: Sync workspace (lowest floors)
+        run: uv sync --all-packages
+
+      - name: pytest
+        run: uv run pytest -m "not integration" -q
 
   test-postgres:
     name: Integration tests (Postgres 16)
@@ -97,6 +171,8 @@ jobs:
       EFFACED_TEST_DATABASE_URL: postgresql+psycopg://effaced:effaced@localhost:5432/effaced_test
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
 
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
         with:
@@ -114,6 +190,8 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          persist-credentials: false
 
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
 
