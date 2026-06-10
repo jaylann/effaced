@@ -11,7 +11,7 @@ those calls.
 
 from importlib.metadata import PackageNotFoundError, version
 
-from effaced.adapters.sqlalchemy import collect_data_map, pii, subject_link
+from effaced.adapters.sqlalchemy import collect_data_map, pii, resolve_subject_graph, subject_link
 from effaced.annotations import PiiSpec, RetentionPolicy, SubjectLink, SubjectRef
 from effaced.audit import AuditEvent, AuditEventType, AuditSink, DatabaseAuditSink
 from effaced.categories import ErasureStrategy, LegalBasis, PiiCategory
@@ -27,7 +27,15 @@ from effaced.exceptions import (
     SubjectResolutionError,
 )
 from effaced.export import ExportBundle, Exporter, ExportRecord
-from effaced.manifest import MANIFEST_SCHEMA_VERSION, DataMap, TableEntry
+from effaced.manifest import (
+    MANIFEST_SCHEMA_VERSION,
+    DataMap,
+    JoinHop,
+    SubjectGraph,
+    TableAccessPlan,
+    TableEntry,
+    fk_safe_deletion_order,
+)
 from effaced.resolvers import Resolver, ResolverErasure, ResolverExport, ResolverRegistry
 from effaced.saga import Outbox, OutboxEntry, OutboxStatus, SagaRunner
 
@@ -56,6 +64,7 @@ __all__ = [
     "ExportBundle",
     "ExportRecord",
     "Exporter",
+    "JoinHop",
     "LegalBasis",
     "ManifestError",
     "Outbox",
@@ -71,12 +80,16 @@ __all__ = [
     "RetentionPolicy",
     "RetentionViolationError",
     "SagaRunner",
+    "SubjectGraph",
     "SubjectLink",
     "SubjectRef",
     "SubjectResolutionError",
+    "TableAccessPlan",
     "TableEntry",
     "__version__",
     "collect_data_map",
+    "fk_safe_deletion_order",
     "pii",
+    "resolve_subject_graph",
     "subject_link",
 ]
