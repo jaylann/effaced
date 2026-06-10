@@ -1,6 +1,10 @@
 """The three trigger points — the entire integration surface.
 
 Run with: uvicorn app:app --reload  (requires fastapi + uvicorn)
+
+The effaced engines are sync (ADR 0006): in async routes dispatch them
+via ``run_in_threadpool``; plain ``def`` routes need nothing — FastAPI
+runs them in its threadpool automatically.
 """
 
 from __future__ import annotations
@@ -8,6 +12,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from fastapi import FastAPI
+from fastapi.concurrency import run_in_threadpool
 from models import Base
 from sqlalchemy.orm import Session
 
@@ -38,8 +43,12 @@ def get_session() -> Session:  # placeholder: use your real session dependency
 
 
 @app.post("/me/consent")
-async def record_consent(purpose: str, granted: bool) -> dict[str, str]:
-    """Trigger point 1: record consent (grant or withdrawal — same call)."""
+def record_consent(purpose: str, granted: bool) -> dict[str, str]:
+    """Trigger point 1: record consent (grant or withdrawal — same call).
+
+    A plain ``def`` route — FastAPI runs it in its threadpool, so the
+    sync call needs no wrapping.
+    """
     record = ConsentRecord(
         subject_id="current-user-id",
         purpose=purpose,
@@ -48,19 +57,19 @@ async def record_consent(purpose: str, granted: bool) -> dict[str, str]:
         recorded_at=datetime.now(UTC),
         source="api",
     )
-    await consent.record(get_session(), record)
+    consent.record(get_session(), record)
     return {"status": "recorded"}
 
 
 @app.get("/me/export")
 async def export_me() -> dict[str, object]:
     """Trigger point 2: Art. 15 export across DB + Stripe."""
-    bundle = await exporter.export_subject(get_session(), "current-user-id")
+    bundle = await run_in_threadpool(exporter.export_subject, get_session(), "current-user-id")
     return bundle.model_dump(mode="json")
 
 
 @app.delete("/me")
 async def erase_me() -> dict[str, object]:
     """Trigger point 3: Art. 17 erasure — atomic locally, saga externally."""
-    result = await planner.erase_subject(get_session(), "current-user-id")
+    result = await run_in_threadpool(planner.erase_subject, get_session(), "current-user-id")
     return result.model_dump(mode="json")

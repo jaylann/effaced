@@ -29,7 +29,7 @@ class DatabaseAuditSink:
         """
         self._session_factory = session_factory
 
-    async def append(self, event: AuditEvent) -> None:
+    def append(self, event: AuditEvent) -> None:
         """Durably append one event (insert-only).
 
         Args:
@@ -37,7 +37,7 @@ class DatabaseAuditSink:
         """
         raise NotImplementedError
 
-    async def read(self, subject_ref: str) -> Sequence[AuditEvent]:
+    def read(self, subject_ref: str) -> Sequence[AuditEvent]:
         """Read one subject's trail, oldest first.
 
         Args:

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from sqlalchemy.orm import Session
+    from sqlalchemy.orm import Session, sessionmaker
 
     from effaced.saga.outbox_entry import OutboxEntry
 
@@ -17,7 +17,18 @@ class Outbox:
 
     Entries are enqueued inside the caller's transaction (atomically with
     the local erasure) and claimed by the saga runner afterwards.
+    :meth:`enqueue` uses the caller's session; :meth:`claim_batch` runs
+    outside any caller transaction and uses the factory (ADR 0006).
     """
+
+    def __init__(self, session_factory: sessionmaker) -> None:  # type: ignore[type-arg]
+        """Wire the outbox to the application's session factory.
+
+        Args:
+            session_factory: Factory producing sessions on the database
+                holding the outbox table; used only by :meth:`claim_batch`.
+        """
+        self._session_factory = session_factory
 
     def enqueue(self, session: Session, entries: Sequence[OutboxEntry]) -> None:
         """Persist entries inside the caller's open transaction.
@@ -29,7 +40,7 @@ class Outbox:
         """
         raise NotImplementedError
 
-    async def claim_batch(self, limit: int = 50) -> Sequence[OutboxEntry]:
+    def claim_batch(self, limit: int = 50) -> Sequence[OutboxEntry]:
         """Atomically claim due entries for execution.
 
         Claimed entries move to ``IN_FLIGHT`` so concurrent runners never

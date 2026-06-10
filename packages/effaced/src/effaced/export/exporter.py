@@ -33,7 +33,7 @@ class Exporter:
         self._data_map = data_map
         self._registry = registry
 
-    async def export_subject(
+    def export_subject(
         self,
         session: Session,
         subject_id: str,
@@ -41,6 +41,11 @@ class Exporter:
         refs: tuple[SubjectRef, ...] = (),
     ) -> ExportBundle:
         """Collect everything held on one subject (Art. 15).
+
+        Blocking call; resolver fan-out runs on an internal event loop, so
+        it must not be invoked on a running event-loop thread — in async
+        web apps dispatch via a threadpool (e.g. FastAPI's
+        ``run_in_threadpool``). See ADR 0006.
 
         Args:
             session: An open database session; reads only, never writes.

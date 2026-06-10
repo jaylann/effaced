@@ -28,6 +28,11 @@ class Resolver(Protocol):
     :class:`~effaced.exceptions.ResolverError` only for non-retryable
     failures; transient errors (timeouts, rate limits) should raise the
     underlying exception and let the runner retry.
+
+    Implementations MUST NOT bind event-loop-affine resources (async HTTP
+    clients) at construction — create them inside the call. Resolver
+    methods may be driven from different event loops: the exporter's
+    per-call loop and the saga runner's loop (ADR 0006).
     """
 
     @property

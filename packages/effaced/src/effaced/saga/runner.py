@@ -47,6 +47,11 @@ class SagaRunner:
         idempotency key), so a crash between execution and bookkeeping is
         safe — the retry converges on the same outcome.
 
+        Awaits resolver calls concurrently but makes blocking database
+        calls (claiming, audit appends) between awaits — run it in a
+        worker, cron job, or background task, never on a serving event
+        loop (ADR 0006).
+
         Returns:
             Number of entries processed in this batch.
         """

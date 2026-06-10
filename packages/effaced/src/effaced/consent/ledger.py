@@ -17,7 +17,7 @@ class ConsentLedger:
     immutable record. Every call is mirrored into the audit trail.
     """
 
-    async def record(self, session: Session, record: ConsentRecord) -> None:
+    def record(self, session: Session, record: ConsentRecord) -> None:
         """Append one consent event (grant or withdrawal).
 
         Args:
@@ -26,7 +26,7 @@ class ConsentLedger:
         """
         raise NotImplementedError
 
-    async def status(self, session: Session, subject_id: str, purpose: str) -> bool:
+    def status(self, session: Session, subject_id: str, purpose: str) -> bool:
         """Whether the subject currently consents to a purpose.
 
         Derived from the latest record for (subject, purpose); ``False``
@@ -42,7 +42,7 @@ class ConsentLedger:
         """
         raise NotImplementedError
 
-    async def history(self, session: Session, subject_id: str) -> tuple[ConsentRecord, ...]:
+    def history(self, session: Session, subject_id: str) -> tuple[ConsentRecord, ...]:
         """Every consent event for one subject, oldest first.
 
         Args:
