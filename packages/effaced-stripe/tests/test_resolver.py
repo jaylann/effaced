@@ -7,7 +7,7 @@ import re
 
 import pytest
 from fake_stripe_client import FakeStripeHTTPClient
-from stripe import APIError, AuthenticationError, RateLimitError
+from stripe import APIConnectionError, APIError, AuthenticationError, RateLimitError
 
 from effaced import PiiCategory, Resolver, ResolverError, SubjectRef
 from effaced_stripe import StripeResolver
@@ -169,6 +169,27 @@ def test_erase_of_unknown_customer_is_already_absent():
     outcome = erase(make_resolver(FakeStripeHTTPClient()))
     assert outcome.already_absent is True
     assert outcome.detail == "customer already absent in stripe"
+
+
+def test_erase_touches_only_the_requested_customer():
+    fake = FakeStripeHTTPClient(
+        customers={CUSTOMER_ID: FULL_CUSTOMER, "cus_other": {"email": "bob@example.com"}},
+        payment_methods={"cus_other": [dict(CARD_PM, id="pm_other")]},
+    )
+    resolver = make_resolver(fake)
+    erase(resolver)
+    other = export(resolver, "cus_other")
+    assert ("customer.email", "bob@example.com") in [(r.field, r.value) for r in other.records]
+    assert any(r.field.startswith("payment_method.pm_other.") for r in other.records)
+    assert fake.deleted == {CUSTOMER_ID}
+
+
+def test_connection_fault_propagates_for_saga_retry():
+    resolver = make_resolver(FakeStripeHTTPClient(connection_error=True))
+    with pytest.raises(APIConnectionError):
+        export(resolver)
+    with pytest.raises(APIConnectionError):
+        erase(resolver)
 
 
 def test_rate_limit_propagates_for_saga_retry():

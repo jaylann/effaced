@@ -35,8 +35,8 @@ def _collect_records(client: StripeClient, customer_id: str) -> tuple[ExportReco
         return ()
     records = list(customer_records(customer))
     methods = client.v1.customers.payment_methods.list(customer_id, {"limit": _PAGE_SIZE})
-    for method in methods.auto_paging_iter():
-        records.extend(payment_method_records(method.to_dict()))
+    for index, method in enumerate(methods.auto_paging_iter()):
+        records.extend(payment_method_records(method.to_dict(), fallback_id=f"index-{index}"))
     return tuple(records)
 
 

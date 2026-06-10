@@ -13,7 +13,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any, ClassVar
 from urllib.parse import parse_qs, urlparse
 
-from stripe import HTTPClient
+from stripe import APIConnectionError, HTTPClient
 
 _ERROR_BODIES: dict[int, dict[str, Any]] = {
     400: {"type": "invalid_request_error", "message": "Invalid request."},
@@ -44,10 +44,12 @@ class FakeStripeHTTPClient(HTTPClient):
         payment_methods: Mapping[str, Sequence[Mapping[str, Any]]] | None = None,
         *,
         error_status: int | None = None,
+        connection_error: bool = False,
         page_limit: int | None = None,
     ) -> None:
         super().__init__()
         self.page_limit = page_limit
+        self.connection_error = connection_error
         self.customers: dict[str, dict[str, Any]] = {
             key: dict(value) for key, value in (customers or {}).items()
         }
@@ -70,6 +72,8 @@ class FakeStripeHTTPClient(HTTPClient):
         method = method.lower()
         parsed = urlparse(url)
         self.requests.append((method, f"{parsed.path}?{parsed.query}"))
+        if self.connection_error:
+            raise APIConnectionError("connection reset by fake transport")
         if self.error_status is not None:
             return self._error(self.error_status)
         query = {key: values[-1] for key, values in parse_qs(parsed.query).items()}

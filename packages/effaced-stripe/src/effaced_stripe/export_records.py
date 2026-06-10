@@ -98,7 +98,9 @@ def customer_records(customer: Mapping[str, object]) -> tuple[ExportRecord, ...]
     )
 
 
-def payment_method_records(method: Mapping[str, object]) -> tuple[ExportRecord, ...]:
+def payment_method_records(
+    method: Mapping[str, object], *, fallback_id: str
+) -> tuple[ExportRecord, ...]:
     """Map one payment method's metadata — never a full card number.
 
     Stripe's API only exposes card metadata (brand, last4, expiry); full
@@ -106,11 +108,13 @@ def payment_method_records(method: Mapping[str, object]) -> tuple[ExportRecord, 
 
     Args:
         method: A Stripe ``PaymentMethod`` API object (mapping view).
+        fallback_id: Disambiguates the field prefix when the object
+            carries no ``id`` (live Stripe always sends one).
 
     Returns:
         Records for the method's type, card metadata, and billing details.
     """
-    prefix = f"payment_method.{_scalar(method, 'id')}"
+    prefix = f"payment_method.{_scalar(method, 'id') or fallback_id}"
     billing = _mapping(method, "billing_details")
     return tuple(
         _records(method, prefix, (("type", PiiCategory.FINANCIAL),))
