@@ -25,6 +25,12 @@ paths: ["**/*.py"]
 - Absolute imports only (ruff TID bans relative imports).
 - Complexity budgets are CI-enforced (mccabe ≤ 10, pylint max-args 6 / branches 10 / statements 40). Don't suppress; restructure.
 
+## Sync/async boundaries (ADR 0006)
+- The public engine API is sync `def`. The caller's open `Session` is the first positional parameter; never create sessions for caller-facing operations. Components operating outside a caller transaction (`DatabaseAuditSink`, `Outbox.claim_batch`) take a `sessionmaker` at construction instead.
+- `async def` is permitted ONLY on `Resolver` protocol methods and `SagaRunner.run_once`. Adding async anywhere else needs an ADR.
+- Bridging: the sync core drives async resolvers exclusively through `asyncio.run` in one internal helper; never call `asyncio.run` where a loop may already be running. Async web frameworks consume the engines via `run_in_threadpool` (or plain `def` routes); `AsyncSession` apps may use `session.run_sync(...)` for DB-only operations.
+- Resolvers must not cache loop-bound async clients in `__init__` — create them inside the call.
+
 ## Misc
 - Docstrings: Google convention on every public module/class/function (ruff `D`). They are the future generated docs site — write them as documentation.
 - Core (`effaced/*` except `adapters/`) must not import SQLAlchemy or any storage library; storage-specific code lives in `effaced/adapters/<stack>/`.

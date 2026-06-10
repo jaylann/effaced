@@ -52,7 +52,7 @@ class ErasurePlanner:
         """
         raise NotImplementedError
 
-    async def erase_subject(
+    def erase_subject(
         self,
         session: Session,
         subject_id: str,

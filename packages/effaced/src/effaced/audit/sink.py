@@ -25,17 +25,20 @@ class AuditSink(Protocol):
     must never break on upgrade.
     """
 
-    async def append(self, event: AuditEvent) -> None:
+    def append(self, event: AuditEvent) -> None:
         """Durably append one event.
 
         Must be atomic per event and must never overwrite anything.
+        Sync by design — appends run inside the erasure/consent
+        transaction path (ADR 0006); an async external sink would be an
+        additive separate adapter, never a change to this protocol.
 
         Args:
             event: The event to persist.
         """
         ...
 
-    async def read(self, subject_ref: str) -> Sequence[AuditEvent]:
+    def read(self, subject_ref: str) -> Sequence[AuditEvent]:
         """Read all events for one subject, oldest first.
 
         Args:
