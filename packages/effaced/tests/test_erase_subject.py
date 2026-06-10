@@ -219,6 +219,7 @@ def test_refs_route_to_the_resolver_named_by_their_kind(harness: Harness) -> Non
             ("stripe", "cus_2"),
         }
         assert all(row["status"] == "pending" for row in rows)
+        assert all(row["subject_id"] == "1" for row in rows)
         assert len({row["entry_id"] for row in rows}) == 3
         session.commit()
 

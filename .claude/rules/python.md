@@ -31,8 +31,9 @@ paths: ["**/*.py"]
 - `async def` is permitted ONLY on `Resolver` protocol methods and `SagaRunner.run_once`. Adding async anywhere else needs an ADR.
 - Bridging: the sync core drives async resolvers exclusively through `asyncio.run` in one internal helper; never call `asyncio.run` where a loop may already be running. Async web frameworks consume the engines via `run_in_threadpool` (or plain `def` routes); `AsyncSession` apps may use `session.run_sync(...)` for DB-only operations.
 - Resolvers must not cache loop-bound async clients in `__init__` — create them inside the call.
+- When `asyncio.run` refuses to start (already on a loop thread) it leaves the passed coroutine unconsumed — `close()` it before re-raising or pytest reports a `RuntimeWarning: coroutine ... was never awaited`.
 
 ## Misc
 - Docstrings: Google convention on every public module/class/function (ruff `D`). They are the future generated docs site — write them as documentation.
-- Core (`effaced/*` except `adapters/`) must not import SQLAlchemy or any storage library; storage-specific code lives in `effaced/adapters/<stack>/`.
+- Core (`effaced/*` except `adapters/`) must not import SQLAlchemy or any storage library (semgrep-gated); storage-specific code lives in `effaced/adapters/<stack>/`. Core can still issue SQL by building statements off the bound `Table` handle (`table.select()`, `.update()`, `c.col.in_(...)`, `.with_for_update(skip_locked=True)`) — no runtime import needed.
 - The PostToolUse hook auto-formats edited files — but it also auto-removes imports that are momentarily unused; when adding an import for code you haven't written yet, write the usage in the same edit.

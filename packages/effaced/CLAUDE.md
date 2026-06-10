@@ -16,11 +16,11 @@ Storage-agnostic core. **No module outside `adapters/` may import SQLAlchemy or 
 | `consent/` | `ConsentLedger(consent_records, audit_sink)`, `ConsentRecord` | records are immutable events; status is derived (latest per subject+purpose; timestamp ties resolve to withdrawn), never stored; rows write via the caller's session, every `record()` mirrors an event into the constructor's `AuditSink` |
 | `audit/` | `AuditEvent(+Type)`, `AuditSink` protocol, `DatabaseAuditSink(session_factory, audit_events)` | append-only by construction; payloads are small scalars, never rich PII; the database sink commits each append in its own short transaction (ADR 0006); unreadable `event_type` on read ⇒ `AuditIntegrityError`, never skipped |
 | `resolvers/` | `Resolver` protocol, `ResolverRegistry`, result models | public API, additive-only; explicit registration, no discovery |
-| `saga/` | `Outbox(session_factory, outbox)`, `OutboxEntry(+Status)`, `SagaRunner` | `enqueue` writes flattened entries through the CALLER's session (same transaction as local erasure), never commits; `entry_id` is the idempotency key; `claim_batch` uses the constructor's `session_factory` |
+| `saga/` | `Outbox(session_factory, outbox)`, `OutboxEntry(+Status)`, `BackoffPolicy`, `SagaRunner(registry, outbox, audit, *, max_attempts, batch_size, backoff)` | `enqueue` writes flattened entries through the CALLER's session (same transaction as local erasure), never commits; `entry_id` is the idempotency key; `claim_batch`/`mark_*` use the constructor's `session_factory`; one `next_attempt_at` gate is both crash lease and backoff schedule, attempts count claims, `ResolverError` ⇒ immediate abandon, `ERASURE_COMPLETED` needs every subject entry SUCCEEDED (ADR 0010 — changing any is MAJOR) |
 
 `__init__.py` files: docstring + re-exports only. New public class ⇒ new file ⇒ re-export ⇒ add to root `__all__` (test_public_api guards it).
 
-## When implementing engine logic (the remaining NotImplementedError stubs)
+## When implementing engine logic
 
 - Keep signatures — they are the published API surface; changing them is breaking. The sync/async shape is settled by ADR 0006 (sync engine `def`s taking the caller's `Session`; async only on `Resolver` methods and `SagaRunner.run_once`).
 - Every outcome (success, failure, retention skip, abandonment) emits an audit event.
@@ -32,3 +32,9 @@ Storage-agnostic core. **No module outside `adapters/` may import SQLAlchemy or 
 - Hop-chain subqueries: alias every *inner* level, keep only the outermost as the raw `Table`, or self-referential hops auto-correlate and scope wrong.
 - `ANONYMIZE` updates row-by-row with fresh surrogates per cell; one scoped UPDATE writes a single shared surrogate and breaks unique constraints.
 - `subject_id` is published as `str` but subject PKs are often `Integer`; coerce via `column.type.python_type` — typed-parameter drivers (psycopg3) reject `integer = text`.
+- Refs route to the resolver whose `name` equals the ref's `kind` (ADR 0008): unmatched ref kind ⇒ `ResolverError` before any audit event; resolver with no matching ref ⇒ skipped + recorded in `skipped_resolvers`, never an error.
+
+## Saga invariants (ADR 0010 — learned the hard way)
+
+- `mark_succeeded` locks the subject's outbox rows `FOR UPDATE` ordered by `entry_id` *before* updating — identical lock order across runners prevents lock-order-inversion deadlock; claimers never wait (`SKIP LOCKED`) so no cycle exists.
+- `attempts` increments at *claim* time, not failure time — a runner crashing before bookkeeping would otherwise never raise the counter and the entry would be re-claimed forever instead of converging to ABANDONED.

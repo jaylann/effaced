@@ -50,6 +50,7 @@ def entry(
 ) -> OutboxEntry:
     return OutboxEntry(
         entry_id=entry_id,
+        subject_id="1",
         resolver=resolver,
         ref=SubjectRef(kind="stripe_customer", value="cus_123", extra=extra or {}),
         enqueued_at=ENQUEUED_AT,
@@ -89,6 +90,7 @@ def test_commit_persists_flattened_entries(harness: OutboxHarness) -> None:
         session.commit()
     first, second = stored_rows(harness)
     assert first["entry_id"] == UUID(int=1)
+    assert first["subject_id"] == "1"
     assert first["resolver"] == "stripe"
     assert first["ref_kind"] == "stripe_customer"
     assert first["ref_value"] == "cus_123"
@@ -96,6 +98,7 @@ def test_commit_persists_flattened_entries(harness: OutboxHarness) -> None:
     assert first["status"] == OutboxStatus.PENDING.value
     assert first["attempts"] == 0
     assert first["last_attempt_at"] is None
+    assert first["next_attempt_at"] is None
     assert first["last_error"] is None
     assert second["resolver"] == "crm"
     assert second["ref_extra"] == {}

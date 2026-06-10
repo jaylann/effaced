@@ -333,7 +333,13 @@ def _outbox_entries(plan: ErasurePlan) -> tuple[OutboxEntry, ...]:
         raise ResolverError(msg)
     now = datetime.now(UTC)
     return tuple(
-        OutboxEntry(entry_id=uuid4(), resolver=step.target, ref=ref, enqueued_at=now)
+        OutboxEntry(
+            entry_id=uuid4(),
+            subject_id=plan.subject_id,
+            resolver=step.target,
+            ref=ref,
+            enqueued_at=now,
+        )
         for step in plan.external_steps
         for ref in plan.refs
         if ref.kind == step.target

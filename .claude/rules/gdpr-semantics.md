@@ -30,6 +30,7 @@ paths: ["packages/effaced/src/**", "packages/effaced-stripe/src/**"]
 - `Resolver` and `AuditSink` protocols are public API with the strictest stability promise: extend **additively only** (optional methods with default impls). Never change existing signatures.
 - Idempotency contract: erasing a subject that's already gone is SUCCESS (`already_absent=True`), never an error. Saga retries depend on it.
 - Outbox entries are enqueued in the SAME transaction as the local erasure. Anything else reintroduces the half-erased-state bug this library exists to prevent.
+- Terminal saga outcomes are always audited (`ERASURE_STEP_SUCCEEDED` / `ERASURE_STEP_FAILED` with `abandoned: true`); abandonment is never silent. `ERASURE_COMPLETED` requires every outbox entry for the subject `SUCCEEDED` — an abandoned entry blocks it permanently. Claim, retry/backoff, and completion semantics are ADR 0010 — changing them is MAJOR.
 - Registration stays explicit — no auto-discovery, no entry-point magic. The registry is an auditable "where is my PII" declaration.
 
 ## Wording discipline (load-bearing, legally)

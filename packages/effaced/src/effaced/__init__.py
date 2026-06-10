@@ -49,7 +49,7 @@ from effaced.manifest import (
     fk_safe_deletion_order,
 )
 from effaced.resolvers import Resolver, ResolverErasure, ResolverExport, ResolverRegistry
-from effaced.saga import Outbox, OutboxEntry, OutboxStatus, SagaRunner
+from effaced.saga import BackoffPolicy, Outbox, OutboxEntry, OutboxStatus, SagaRunner
 
 try:
     __version__ = version("effaced")
@@ -63,6 +63,7 @@ __all__ = [
     "AuditEventType",
     "AuditIntegrityError",
     "AuditSink",
+    "BackoffPolicy",
     "ConfigurationError",
     "ConsentError",
     "ConsentLedger",
