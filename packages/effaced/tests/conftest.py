@@ -16,7 +16,10 @@ from effaced import (
     ErasureStrategy,
     LegalBasis,
     PiiCategory,
+    ResolverErasure,
+    ResolverExport,
     RetentionPolicy,
+    SubjectRef,
     pii,
     subject_link,
 )
@@ -40,6 +43,23 @@ class RecordingAuditSink:
         """Return the subject's events, oldest first."""
         matching = (event for event in self.events if event.subject_ref == subject_ref)
         return tuple(sorted(matching, key=lambda event: event.occurred_at))
+
+
+class FakeResolver:
+    """A resolver double for plan/enqueue tests — never actually called."""
+
+    def __init__(self, name: str) -> None:
+        self._name = name
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    async def export_subject(self, ref: SubjectRef) -> ResolverExport:
+        raise NotImplementedError
+
+    async def erase_subject(self, ref: SubjectRef) -> ResolverErasure:
+        raise NotImplementedError
 
 
 class Base(DeclarativeBase):

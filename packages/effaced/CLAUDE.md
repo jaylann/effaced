@@ -10,13 +10,13 @@ Storage-agnostic core. **No module outside `adapters/` may import SQLAlchemy or 
 | `annotations/` | `PiiSpec`, `RetentionPolicy`, `SubjectLink`, `SubjectRef` (frozen pydantic) | `RETAIN` requires a `RetentionPolicy` (validator) |
 | `manifest/` | `DataMap`, `TableEntry`, `ColumnEntry`, `migration.py` | format change ⇒ bump `MANIFEST_SCHEMA_VERSION` + migration branch; old payloads never rejected |
 | `manifest/resolution/` | `JoinHop`, `TableAccessPlan`, `SubjectGraph`, `fk_safe_deletion_order()` | pure data + stdlib graphlib, runtime-only (never serialized); incoherent graphs are unrepresentable |
-| `adapters/sqlalchemy/` | `pii()`/`subject_link()` info-dict helpers, `collect_data_map()`, `resolve_subject_graph()`, `SurrogateRegistry`/`default_surrogate_registry()`, `storage/` (`bind_tables()` → `EffacedTables`: the effaced-owned `effaced_*` tables) | the ONLY SQLAlchemy-aware code |
+| `adapters/sqlalchemy/` | `pii()`/`subject_link()` info-dict helpers, `collect_data_map()`, `resolve_subject_graph()`, `SurrogateRegistry`/`default_surrogate_registry()`, `ErasureExecutor(metadata, surrogates)` (the `StepExecutor` impl: hop-chain-scoped DELETE/per-row ANONYMIZE/RETAIN count), `storage/` (`bind_tables()` → `EffacedTables`: the effaced-owned `effaced_*` tables) | the ONLY SQLAlchemy-aware code |
 | `export/` | `Exporter`, `ExportBundle`, `ExportRecord` | failures land in `incomplete_sources`, never silent omission |
-| `erasure/` | `ErasurePlanner`, `ErasurePlan`/`ErasureStep`, `ErasureResult` | plans are inspectable before execution; local steps atomic, external via outbox; row-delete vs anonymize-in-place semantics are ADR 0007 — changing them is MAJOR |
+| `erasure/` | `ErasurePlanner(data_map, graph, registry, *, executor, outbox, audit_sink)`, `ErasurePlan`/`ErasureStep`, `ErasureResult`, `StepExecutor` protocol | plans are inspectable before execution; local steps + outbox enqueue atomic in the caller's session (never committed here); row-delete vs anonymize-in-place is ADR 0007, ref→resolver routing is ADR 0008 (kind == name; unmatched kind ⇒ `ResolverError`, unmatched resolver ⇒ skipped + audited), execution/audit/re-run semantics are ADR 0009 — changing any is MAJOR |
 | `consent/` | `ConsentLedger(consent_records, audit_sink)`, `ConsentRecord` | records are immutable events; status is derived (latest per subject+purpose; timestamp ties resolve to withdrawn), never stored; rows write via the caller's session, every `record()` mirrors an event into the constructor's `AuditSink` |
 | `audit/` | `AuditEvent(+Type)`, `AuditSink` protocol, `DatabaseAuditSink(session_factory, audit_events)` | append-only by construction; payloads are small scalars, never rich PII; the database sink commits each append in its own short transaction (ADR 0006); unreadable `event_type` on read ⇒ `AuditIntegrityError`, never skipped |
 | `resolvers/` | `Resolver` protocol, `ResolverRegistry`, result models | public API, additive-only; explicit registration, no discovery |
-| `saga/` | `Outbox`, `OutboxEntry(+Status)`, `SagaRunner` | entries enqueue in the SAME transaction as local erasure; `entry_id` is the idempotency key; `claim_batch` uses the constructor's `session_factory` |
+| `saga/` | `Outbox(session_factory, outbox)`, `OutboxEntry(+Status)`, `SagaRunner` | `enqueue` writes flattened entries through the CALLER's session (same transaction as local erasure), never commits; `entry_id` is the idempotency key; `claim_batch` uses the constructor's `session_factory` |
 
 `__init__.py` files: docstring + re-exports only. New public class ⇒ new file ⇒ re-export ⇒ add to root `__all__` (test_public_api guards it).
 
@@ -26,3 +26,9 @@ Storage-agnostic core. **No module outside `adapters/` may import SQLAlchemy or 
 - Every outcome (success, failure, retention skip, abandonment) emits an audit event.
 - FK-safe ordering comes from metadata, never from user-supplied order.
 - Add bleed/retention/idempotency property tests alongside (see `.claude/rules/testing.md`).
+
+## Erasure-executor invariants (ADR 0007/0008 — learned the hard way)
+
+- Hop-chain subqueries: alias every *inner* level, keep only the outermost as the raw `Table`, or self-referential hops auto-correlate and scope wrong.
+- `ANONYMIZE` updates row-by-row with fresh surrogates per cell; one scoped UPDATE writes a single shared surrogate and breaks unique constraints.
+- `subject_id` is published as `str` but subject PKs are often `Integer`; coerce via `column.type.python_type` — typed-parameter drivers (psycopg3) reject `integer = text`.

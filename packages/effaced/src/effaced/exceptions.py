@@ -19,6 +19,15 @@ class SubjectResolutionError(EffacedError):
     """A table's subject link path could not be resolved to the subject."""
 
 
+class ConfigurationError(EffacedError):
+    """A component is not wired for the requested operation.
+
+    Raised loudly instead of degrading: erasing a subject on a planner
+    constructed without an executor, outbox, or audit sink must never
+    look like a successful erasure.
+    """
+
+
 class RetentionViolationError(EffacedError):
     """An operation would delete data that is under a legal retention duty.
 
