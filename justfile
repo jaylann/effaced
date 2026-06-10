@@ -34,9 +34,17 @@ test-pg *args:
 # everything CI runs, locally
 ci: check test
 
-# coverage report
+# coverage report (gated: fails under the pyproject fail_under floor)
 cov:
     uv run pytest -m "not integration" --cov --cov-report=term-missing
+
+# domain-invariant scan — same rules and pin as the CI semgrep job
+semgrep:
+    SEMGREP_ENABLE_VERSION_CHECK=0 uvx semgrep@1.165.0 scan --config .semgrep --error --metrics=off
+
+# lint the workflows themselves — same zizmor pin as CI
+lint-actions:
+    uvx zizmor@1.25.2 .github/workflows/
 
 # build both packages' sdists+wheels into dist/
 build:
@@ -62,5 +70,5 @@ pr-open title type area:
 
 # clean build/test artifacts
 clean:
-    rm -rf dist/ .pytest_cache/ .mypy_cache/ .ruff_cache/ .hypothesis/ htmlcov/ .coverage coverage.xml
+    rm -rf dist/ .pytest_cache/ .mypy_cache/ .ruff_cache/ .hypothesis/ htmlcov/ .coverage coverage.xml packages/effaced/mutants/
     find . -type d -name __pycache__ -prune -exec rm -rf {} +

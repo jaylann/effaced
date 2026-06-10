@@ -23,6 +23,10 @@ jobs:
         with:
           app-id: ${{ vars.RP_APP_ID }}
           private-key: ${{ secrets.RP_APP_KEY }}
+          # least privilege: release-please opens PRs, pushes release branches,
+          # creates tags/releases
+          permission-contents: write
+          permission-pull-requests: write
 
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
         id: rp
