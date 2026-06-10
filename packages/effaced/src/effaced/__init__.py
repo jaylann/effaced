@@ -13,6 +13,7 @@ from importlib.metadata import PackageNotFoundError, version
 
 from effaced.adapters.sqlalchemy import (
     EffacedTables,
+    ErasureExecutor,
     SurrogateRegistry,
     bind_tables,
     collect_data_map,
@@ -25,10 +26,11 @@ from effaced.annotations import PiiSpec, RetentionPolicy, SubjectLink, SubjectRe
 from effaced.audit import AuditEvent, AuditEventType, AuditSink, DatabaseAuditSink
 from effaced.categories import ErasureStrategy, LegalBasis, PiiCategory
 from effaced.consent import ConsentLedger, ConsentRecord
-from effaced.erasure import ErasurePlan, ErasurePlanner, ErasureResult, ErasureStep
+from effaced.erasure import ErasurePlan, ErasurePlanner, ErasureResult, ErasureStep, StepExecutor
 from effaced.exceptions import (
     AnonymizationError,
     AuditIntegrityError,
+    ConfigurationError,
     ConsentError,
     EffacedError,
     ManifestError,
@@ -61,6 +63,7 @@ __all__ = [
     "AuditEventType",
     "AuditIntegrityError",
     "AuditSink",
+    "ConfigurationError",
     "ConsentError",
     "ConsentLedger",
     "ConsentRecord",
@@ -68,6 +71,7 @@ __all__ = [
     "DatabaseAuditSink",
     "EffacedError",
     "EffacedTables",
+    "ErasureExecutor",
     "ErasurePlan",
     "ErasurePlanner",
     "ErasureResult",
@@ -92,6 +96,7 @@ __all__ = [
     "RetentionPolicy",
     "RetentionViolationError",
     "SagaRunner",
+    "StepExecutor",
     "SubjectGraph",
     "SubjectLink",
     "SubjectRef",

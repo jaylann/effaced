@@ -8,14 +8,24 @@ from typing import Any, ClassVar
 
 import pytest
 from sqlalchemy import Column, Engine, ForeignKey, Integer, MetaData, Table, create_engine
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, registry, relationship
+from sqlalchemy.orm import (
+    DeclarativeBase,
+    Mapped,
+    Session,
+    mapped_column,
+    registry,
+    relationship,
+)
 
 from effaced import (
     AuditEvent,
     ErasureStrategy,
     LegalBasis,
     PiiCategory,
+    ResolverErasure,
+    ResolverExport,
     RetentionPolicy,
+    SubjectRef,
     pii,
     subject_link,
 )
@@ -39,6 +49,23 @@ class RecordingAuditSink:
         """Return the subject's events, oldest first."""
         matching = (event for event in self.events if event.subject_ref == subject_ref)
         return tuple(sorted(matching, key=lambda event: event.occurred_at))
+
+
+class FakeResolver:
+    """A resolver double for plan/enqueue tests — never actually called."""
+
+    def __init__(self, name: str) -> None:
+        self._name = name
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    async def export_subject(self, ref: SubjectRef) -> ResolverExport:
+        raise NotImplementedError
+
+    async def erase_subject(self, ref: SubjectRef) -> ResolverErasure:
+        raise NotImplementedError
 
 
 class Base(DeclarativeBase):
@@ -138,6 +165,44 @@ class AppSetting(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     key: Mapped[str]
     value: Mapped[str]
+
+
+def seed_two_subjects(session: Session) -> None:
+    """Populate the schema with two subjects so bleed is observable.
+
+    Subject A (user 1) owns an invoice, two orders (one with items), and a
+    self-referential comment chain; subject B (user 2) owns one of each.
+    Erasing A must leave every B row byte-identical.
+    """
+    session.add_all(
+        [
+            User(id=1, email="ada@example.com", name="Ada", theme="dark"),
+            User(id=2, email="bob@example.com", name="Bob", theme="light"),
+        ]
+    )
+    session.flush()
+    session.add_all(
+        [
+            Invoice(id=1, user_id=1, billing_address="1 Ada Lane"),
+            Invoice(id=2, user_id=2, billing_address="2 Bob Road"),
+            Order(id=1, user_id=1),
+            Order(id=2, user_id=1),
+            Order(id=3, user_id=2),
+        ]
+    )
+    session.flush()
+    session.add_all(
+        [
+            OrderItem(id=1, order_id=1),
+            OrderItem(id=2, order_id=1),
+            OrderItem(id=3, order_id=3),
+            Comment(id=1, user_id=1, parent_id=None),
+            Comment(id=3, user_id=2, parent_id=None),
+        ]
+    )
+    session.flush()
+    session.add(Comment(id=2, user_id=1, parent_id=1))
+    session.flush()
 
 
 @pytest.fixture()

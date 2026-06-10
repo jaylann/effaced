@@ -10,6 +10,7 @@ paths: ["**/*.py"]
 - `# type: ignore` requires the error code AND an inline reason: `# type: ignore[type-arg]  # sessionmaker generic unbound here`.
 - Ruff `ANN` rules enforce annotations syntactically; don't suppress them outside tests.
 - `from __future__ import annotations` at the top of every module.
+- `session.execute(<DML>)` is typed `Result[Any]`, which has no `rowcount`; `cast("CursorResult[Any]", ...)` (TYPE_CHECKING import) to read it.
 
 ## Pydantic-first data modeling
 - Domain data objects are pydantic `BaseModel` with `model_config = ConfigDict(frozen=True, extra="forbid")`.
