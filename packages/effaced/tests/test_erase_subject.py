@@ -8,7 +8,7 @@ from typing import NamedTuple
 from uuid import UUID
 
 import pytest
-from conftest import Base, FakeResolver, RecordingAuditSink, seed_two_subjects
+from conftest import Base, FailingExecutor, FakeResolver, RecordingAuditSink, seed_two_subjects
 from sqlalchemy import MetaData, create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -24,35 +24,17 @@ from effaced import (
     ResolverError,
     ResolverRegistry,
     StepExecutor,
-    SubjectGraph,
     SubjectRef,
     bind_tables,
     collect_data_map,
     resolve_subject_graph,
 )
 from effaced.adapters.sqlalchemy import ErasureExecutor
-from effaced.erasure import ErasureStep
 
 REFS = (
     SubjectRef(kind="crm", value="crm-1"),
     SubjectRef(kind="stripe", value="cus_1"),
 )
-
-
-class FailingExecutor:
-    """Delegates to a real executor until it reaches the named table."""
-
-    def __init__(self, inner: StepExecutor, fail_at: str) -> None:
-        self._inner = inner
-        self._fail_at = fail_at
-
-    def execute(
-        self, session: Session, graph: SubjectGraph, step: ErasureStep, subject_id: str
-    ) -> int:
-        if step.target == self._fail_at:
-            msg = "injected fault"
-            raise RuntimeError(msg)
-        return self._inner.execute(session, graph, step, subject_id)
 
 
 class ExplodingOutbox(Outbox):

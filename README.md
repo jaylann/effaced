@@ -118,6 +118,8 @@ Pre-release (0.x). The 0.x window is being used to get the manifest format and r
 
 **SemVer, widened:** API changes, manifest-format changes, *and any change to what gets deleted or exported* are MAJOR — silently changing compliance behaviour is the worst possible failure for a library like this.
 
+**Evidence, not claims:** [PROOFS.md](PROOFS.md) maps every published guarantee — no cross-subject bleed, retained-category preservation, idempotent convergence, audited fault outcomes — to the property, unit, and Postgres tests that prove it, including a fault-injection matrix over the erasure pipeline.
+
 ## Contributing & development
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). TL;DR: `uv sync && just check && just test`, Conventional Commits, DCO sign-off (`git commit -s`), PRs target `stage`.
