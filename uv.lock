@@ -343,7 +343,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "effaced", editable = "packages/effaced" },
-    { name = "stripe", specifier = ">=10.0" },
+    { name = "stripe", specifier = ">=12.5" },
 ]
 
 [[package]]
