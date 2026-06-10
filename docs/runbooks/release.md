@@ -2,8 +2,8 @@
 
 Everything is automated; a release is two PR merges.
 
-1. **Promote**: run `/release` (or manually `gh pr create --base main --head stage --title "chore: promote stage to main"`). Pre-conditions: stage green, no half-landed breaking work.
-2. **Merge the promotion PR with a merge commit** (`gh pr merge --merge`) — never squash it, or release-please loses the individual feat/fix commits and computes no release. release-please now opens/updates release PRs on main — one per package with changes (`chore(main): release effaced X.Y.Z`).
+1. **Promote**: run `/release`. Pre-conditions: stage green, no half-landed breaking work.
+2. **Merge the promotion PR with a MERGE COMMIT** (`gh pr merge --merge`), never squash — squashing collapses the feat/fix commits and release-please computes no release. Feature PRs to stage remain squash-only; main's ruleset allows merge+squash for exactly this. release-please then opens/updates release PRs on main — one per package with changes (`chore(main): release effaced X.Y.Z`).
 3. **Merge the release PR(s).** This:
    - tags `effaced-vX.Y.Z` / `effaced-stripe-vX.Y.Z`
    - publishes the GitHub Release with the generated changelog

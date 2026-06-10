@@ -5,7 +5,7 @@ on:
     branches: [main]
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: sync-stage
@@ -13,21 +13,31 @@ concurrency:
 
 jobs:
   sync:
-    # release-please pushes (changelog/version commits) land on main via PR
-    # merges by the app; keep the guard anyway against bot loops.
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
+      # stage is PR-only; the lanfermann-release-bot app is a ruleset bypass
+      # actor, so the sync push must authenticate as the app.
+      - uses: actions/create-github-app-token@fee1f7d63c2ff003460e3d139729b119787bc349 # v2
+        id: app-token
+        with:
+          app-id: ${{ vars.RP_APP_ID }}
+          private-key: ${{ secrets.RP_APP_KEY }}
+
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
         with:
           ref: stage
           fetch-depth: 0
+          token: ${{ steps.app-token.outputs.token }}
 
       - name: Merge main into stage and push
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name "lanfermann-release-bot[bot]"
+          git config user.email "lanfermann-release-bot[bot]@users.noreply.github.com"
           git fetch origin main
+          if git merge-base --is-ancestor origin/main HEAD; then
+            echo "stage already contains main — nothing to sync"
+            exit 0
+          fi
           git merge origin/main --no-edit
           git push origin stage
