@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import os
+from collections.abc import Iterator
 from typing import Any, ClassVar
 
 import pytest
-from sqlalchemy import ForeignKey, MetaData
+from sqlalchemy import Engine, ForeignKey, MetaData, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from effaced import (
@@ -63,3 +65,14 @@ class AppSetting(Base):
 def metadata() -> MetaData:
     """The annotated test schema's metadata."""
     return Base.metadata
+
+
+@pytest.fixture()
+def pg_engine() -> Iterator[Engine]:
+    """An engine on the integration-test Postgres; skips when no URL is set."""
+    url = os.environ.get("EFFACED_TEST_DATABASE_URL")
+    if not url:
+        pytest.skip("EFFACED_TEST_DATABASE_URL not set")
+    engine = create_engine(url)
+    yield engine
+    engine.dispose()

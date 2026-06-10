@@ -61,7 +61,7 @@ Append non-obvious discoveries to `## Learnings` below as you work. `/commit` di
 - The PostToolUse hook auto-formats and auto-fixes edited `.py` files — it removes imports that are momentarily unused, so add imports and their usages in the same edit.
 - The git-guard hook blocks destructive git (`reset --hard`, `clean -f`, `checkout -- .`, bare `restore`); escape hatch `# yes-destroy` only when the user explicitly asked.
 - The commit hook rejects unsigned (`-s` missing) or non-conventional commits.
-- Integration tests need Postgres; they're excluded by default and exit-code-5-tolerated in CI until the engine lands.
+- Integration tests need Postgres; they're excluded by default (`just test-pg` runs them; CI's Postgres job enforces them).
 
 ## Learnings
 

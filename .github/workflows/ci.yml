@@ -105,17 +105,8 @@ jobs:
       - name: Sync workspace
         run: uv sync --locked --all-packages
 
-      # exit code 5 = no integration tests collected yet; that is fine pre-engine
       - name: pytest (integration)
-        run: |
-          set +e
-          uv run pytest -m integration
-          code=$?
-          if [ "$code" -eq 5 ]; then
-            echo "no integration tests yet"
-            exit 0
-          fi
-          exit "$code"
+        run: uv run pytest -m integration
 
   audit:
     name: Dependency audit

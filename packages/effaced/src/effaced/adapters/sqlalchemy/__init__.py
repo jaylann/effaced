@@ -2,10 +2,12 @@
 
 The core (annotations, manifest, engine) is storage-agnostic; this package
 is the thin layer that knows SQLAlchemy: authoring helpers that ride the
-``info`` dict, and a collector that derives the manifest from metadata.
+``info`` dict, a collector that derives the manifest from metadata, and the
+effaced-owned storage tables mounted via :func:`bind_tables`.
 """
 
 from effaced.adapters.sqlalchemy.collector import collect_data_map
 from effaced.adapters.sqlalchemy.info import INFO_KEY, pii, subject_link
+from effaced.adapters.sqlalchemy.storage import EffacedTables, bind_tables
 
-__all__ = ["INFO_KEY", "collect_data_map", "pii", "subject_link"]
+__all__ = ["INFO_KEY", "EffacedTables", "bind_tables", "collect_data_map", "pii", "subject_link"]
