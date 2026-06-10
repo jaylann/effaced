@@ -32,7 +32,7 @@ class OutboxEntry(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     entry_id: UUID
-    resolver: str = Field(min_length=1)
+    resolver: str = Field(min_length=1, max_length=255)
     ref: SubjectRef
     status: OutboxStatus = OutboxStatus.PENDING
     attempts: int = Field(default=0, ge=0)

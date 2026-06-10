@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
+from uuid import uuid4
+
 import pytest
-from sqlalchemy import Column, Integer, MetaData, Table
+from pydantic import ValidationError
+from sqlalchemy import Column, Integer, MetaData, String, Table
 from sqlalchemy.dialects import postgresql, sqlite
 from sqlalchemy.schema import CreateTable
 
-from effaced import EffacedTables, bind_tables
+from effaced import AuditEvent, AuditEventType, EffacedTables, OutboxStatus, bind_tables
 from effaced.adapters.sqlalchemy.storage.bind_tables import (
     AUDIT_EVENTS_TABLE_NAME,
     CONSENT_RECORDS_TABLE_NAME,
@@ -129,3 +133,33 @@ def test_no_server_defaults() -> None:
     for table in (tables.audit_events, tables.consent_records, tables.outbox):
         for column in table.columns:
             assert column.server_default is None, f"{table.name}.{column.name}"
+
+
+def test_enum_values_fit_their_columns() -> None:
+    tables = bind_tables(MetaData())
+    event_type = tables.audit_events.columns["event_type"].type
+    status = tables.outbox.columns["status"].type
+    assert isinstance(event_type, String) and event_type.length is not None
+    assert isinstance(status, String) and status.length is not None
+    assert all(len(member.value) <= event_type.length for member in AuditEventType)
+    assert all(len(member.value) <= status.length for member in OutboxStatus)
+
+
+def test_model_bounds_match_bounded_string_columns() -> None:
+    """Identifiers the models accept always fit the DDL: 255 chars is the shared cap."""
+    table = bind_tables(MetaData()).audit_events
+    subject_ref_length = table.columns["subject_ref"].type.length  # type: ignore[attr-defined]
+    assert subject_ref_length == 255
+    AuditEvent(
+        event_id=uuid4(),
+        event_type=AuditEventType.EXPORT_REQUESTED,
+        subject_ref="s" * 255,
+        occurred_at=datetime.now(UTC),
+    )
+    with pytest.raises(ValidationError):
+        AuditEvent(
+            event_id=uuid4(),
+            event_type=AuditEventType.EXPORT_REQUESTED,
+            subject_ref="s" * 256,
+            occurred_at=datetime.now(UTC),
+        )

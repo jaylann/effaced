@@ -20,6 +20,6 @@ class SubjectRef(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    kind: str = Field(min_length=1)
-    value: str = Field(min_length=1)
+    kind: str = Field(min_length=1, max_length=255)
+    value: str = Field(min_length=1, max_length=255)
     extra: dict[str, str] = Field(default_factory=dict)
