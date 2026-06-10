@@ -16,6 +16,7 @@ from effaced.adapters.sqlalchemy import (
     bind_tables,
     collect_data_map,
     pii,
+    resolve_subject_graph,
     subject_link,
 )
 from effaced.annotations import PiiSpec, RetentionPolicy, SubjectLink, SubjectRef
@@ -33,7 +34,15 @@ from effaced.exceptions import (
     SubjectResolutionError,
 )
 from effaced.export import ExportBundle, Exporter, ExportRecord
-from effaced.manifest import MANIFEST_SCHEMA_VERSION, DataMap, TableEntry
+from effaced.manifest import (
+    MANIFEST_SCHEMA_VERSION,
+    DataMap,
+    JoinHop,
+    SubjectGraph,
+    TableAccessPlan,
+    TableEntry,
+    fk_safe_deletion_order,
+)
 from effaced.resolvers import Resolver, ResolverErasure, ResolverExport, ResolverRegistry
 from effaced.saga import Outbox, OutboxEntry, OutboxStatus, SagaRunner
 
@@ -63,6 +72,7 @@ __all__ = [
     "ExportBundle",
     "ExportRecord",
     "Exporter",
+    "JoinHop",
     "LegalBasis",
     "ManifestError",
     "Outbox",
@@ -78,13 +88,17 @@ __all__ = [
     "RetentionPolicy",
     "RetentionViolationError",
     "SagaRunner",
+    "SubjectGraph",
     "SubjectLink",
     "SubjectRef",
     "SubjectResolutionError",
+    "TableAccessPlan",
     "TableEntry",
     "__version__",
     "bind_tables",
     "collect_data_map",
+    "fk_safe_deletion_order",
     "pii",
+    "resolve_subject_graph",
     "subject_link",
 ]
