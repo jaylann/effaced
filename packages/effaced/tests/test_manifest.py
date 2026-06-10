@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 from sqlalchemy import MetaData
 
@@ -60,5 +62,23 @@ def test_future_schema_version_is_rejected_loudly(metadata: MetaData) -> None:
 def test_versionless_payload_is_rejected(metadata: MetaData) -> None:
     payload = collect_data_map(metadata).to_payload()
     del payload["schema_version"]
-    with pytest.raises(ManifestError, match="schema_version"):
+    with pytest.raises(ManifestError, match=r"^manifest has no integer schema_version$"):
         DataMap.from_payload(payload)
+
+
+def test_structurally_invalid_payload_is_rejected() -> None:
+    payload = {"schema_version": MANIFEST_SCHEMA_VERSION, "tables": [{"bogus": True}]}
+    with pytest.raises(ManifestError, match="invalid manifest payload"):
+        DataMap.from_payload(payload)
+
+
+def test_payload_is_json_native(metadata: MetaData) -> None:
+    """to_payload yields plain JSON types — enums become exactly str, tuples lists."""
+    payload = collect_data_map(metadata).to_payload()
+    json.dumps(payload)  # must not raise
+    assert type(payload["tables"]) is list
+    specs = [column["spec"] for table in payload["tables"] for column in table["columns"]]
+    assert specs
+    for spec in specs:
+        assert type(spec["erasure"]) is str
+        assert type(spec["category"]) is str

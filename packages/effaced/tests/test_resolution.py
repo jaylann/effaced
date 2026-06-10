@@ -122,6 +122,12 @@ def test_deletion_order_rejects_cycles() -> None:
         fk_safe_deletion_order(("a", "b"), (("a", "b"), ("b", "a")))
 
 
+def test_cycle_error_spells_out_the_cycle_path() -> None:
+    """The refusal renders the cycle as 'x -> y' hops the operator can follow."""
+    with pytest.raises(SubjectResolutionError, match=r"(a -> b|b -> a)"):
+        fk_safe_deletion_order(("a", "b"), (("a", "b"), ("b", "a")))
+
+
 def test_deletion_order_rejects_unknown_edge_endpoint() -> None:
     with pytest.raises(SubjectResolutionError, match="outside the graph"):
         fk_safe_deletion_order(("a",), (("a", "b"),))

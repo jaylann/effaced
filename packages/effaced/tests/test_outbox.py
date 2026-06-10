@@ -106,3 +106,32 @@ def test_enqueue_of_nothing_is_a_no_op(harness: OutboxHarness) -> None:
         harness.outbox.enqueue(session, [])
         session.commit()
     assert stored_rows(harness) == []
+
+
+def test_lifecycle_fields_round_trip_non_default_values(harness: OutboxHarness) -> None:
+    """status/attempts/timestamps/error persist as given, not as column defaults."""
+    attempted = OutboxEntry(
+        entry_id=UUID(int=7),
+        resolver="stripe",
+        ref=SubjectRef(kind="stripe_customer", value="cus_123"),
+        status=OutboxStatus.FAILED,
+        attempts=3,
+        enqueued_at=ENQUEUED_AT,
+        last_attempt_at=datetime(2026, 6, 2, 8, 30, tzinfo=UTC),
+        last_error="resolver timed out",
+    )
+    with harness.session_factory() as session:
+        harness.outbox.enqueue(session, [attempted])
+        session.commit()
+    (row,) = stored_rows(harness)
+    assert row["status"] == OutboxStatus.FAILED.value
+    assert row["attempts"] == 3
+    assert row["enqueued_at"] == ENQUEUED_AT.replace(tzinfo=None)
+    assert row["last_attempt_at"] == datetime(2026, 6, 2, 8, 30)
+    assert row["last_error"] == "resolver timed out"
+
+
+def test_claim_batch_is_not_yet_implemented(harness: OutboxHarness) -> None:
+    """Pins the stub loudly until the saga runner lands (ADR 0006)."""
+    with pytest.raises(NotImplementedError):
+        harness.outbox.claim_batch()

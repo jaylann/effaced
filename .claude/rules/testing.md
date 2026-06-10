@@ -16,3 +16,11 @@ paths: ["**/tests/**"]
 - Extend the shared annotated schema in `packages/effaced/tests/conftest.py` instead of creating parallel fixture schemas.
 - Floats via `pytest.approx`; time frozen where timestamps matter.
 - Test files stay small and named for what they prove.
+
+## Mutation testing (the weekly truth serum)
+
+- `deep-checks.yml` runs mutmut weekly over `audit/consent/erasure/manifest/saga`. A **surviving mutant is a missing test**: mutmut changed the code and no test failed, so that behaviour is unpinned. Treat the survivor list (job summary / `mutmut-results` artifact) as a to-do list, not noise.
+- Working survivors locally: `cd packages/effaced && uv run mutmut run`, then `uv run mutmut results` to list and `uv run mutmut show <mutant-id>` to see the exact diff a survivor represents. Write the test that fails under that diff (verify red against the mutant reasoning, green on real code), don't just chase the coverage line — covered-but-unasserted code is exactly what survivors expose.
+- A few survivors are *equivalent mutants* (the mutation provably cannot change observable behaviour, e.g. a mutated value that's immediately overwritten). Don't write vacuous tests for those — note them in the PR and move on.
+- 🫥 "no tests" mutants mean no test even executes that code — those need a test for the code path itself, not a sharper assertion.
+- The mutation job is report-only today. Once the survivor count is driven to the equivalent-mutant floor, flip it to a hard gate (fail on survivors above that floor) in `deep-checks.yml`.

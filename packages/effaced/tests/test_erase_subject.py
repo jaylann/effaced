@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from datetime import timedelta
 from typing import NamedTuple
 from uuid import UUID
 
@@ -19,6 +20,7 @@ from effaced import (
     EffacedTables,
     ErasurePlanner,
     Outbox,
+    OutboxEntry,
     ResolverError,
     ResolverRegistry,
     StepExecutor,
@@ -59,6 +61,18 @@ class ExplodingOutbox(Outbox):
     def enqueue(self, session: Session, entries: Sequence[object]) -> None:
         msg = "outbox down"
         raise RuntimeError(msg)
+
+
+class CapturingOutbox(Outbox):
+    """An outbox that records the entry models it is asked to persist."""
+
+    def __init__(self, *args: object, **kwargs: object) -> None:
+        super().__init__(*args, **kwargs)  # type: ignore[arg-type]
+        self.captured: list[OutboxEntry] = []
+
+    def enqueue(self, session: Session, entries: Sequence[OutboxEntry]) -> None:
+        self.captured.extend(entries)
+        super().enqueue(session, entries)
 
 
 class ExplodingSink(RecordingAuditSink):
@@ -363,3 +377,56 @@ def test_rerun_for_an_erased_subject_is_a_no_op_success(harness: Harness) -> Non
         rows = outbox_rows(harness, session)
         assert len(rows) == 4
         assert len({UUID(str(row["entry_id"])) for row in rows}) == 4
+
+
+def test_audit_events_are_stamped_utc(harness: Harness) -> None:
+    with harness.session_factory() as session:
+        harness.planner.erase_subject(session, "1", refs=REFS)
+        session.commit()
+    assert harness.sink.events
+    for event in harness.sink.events:
+        assert event.occurred_at.utcoffset() == timedelta(0)
+
+
+def test_outbox_entries_are_stamped_utc() -> None:
+    harness = build_harness(outbox_cls=CapturingOutbox)
+    with harness.session_factory() as session:
+        harness.planner.erase_subject(session, "1", refs=REFS)
+        session.commit()
+    captured = harness.outbox.captured  # type: ignore[attr-defined]
+    assert len(captured) == 2
+    for entry in captured:
+        assert entry.enqueued_at.utcoffset() == timedelta(0)
+
+
+def test_multiple_skipped_resolvers_are_comma_joined(harness: Harness) -> None:
+    """No refs at all: both registered resolvers are skipped, joined with ','."""
+    with harness.session_factory() as session:
+        harness.planner.erase_subject(session, "1")
+        session.commit()
+    assert harness.sink.events[-1].payload["skipped_resolvers"] == "crm,stripe"
+
+
+def test_wiring_refusal_names_exactly_the_missing_pieces() -> None:
+    """The refusal lists precisely the absent collaborators, comma-joined."""
+    data_map = collect_data_map(Base.metadata)
+    graph = resolve_subject_graph(data_map, Base.registry)
+    full = build_harness()
+    cases: dict[str, dict[str, object]] = {
+        "executor": {"outbox": full.outbox, "audit_sink": full.sink},
+        "outbox": {"executor": full.executor, "audit_sink": full.sink},
+        "audit_sink": {"executor": full.executor, "outbox": full.outbox},
+        "executor, outbox": {"audit_sink": full.sink},
+    }
+    engine = create_engine("sqlite://", poolclass=StaticPool)
+    try:
+        for missing, wiring in cases.items():
+            planner = ErasurePlanner(data_map, graph, **wiring)  # type: ignore[arg-type]
+            with (
+                sessionmaker(engine)() as session,
+                pytest.raises(ConfigurationError) as err,
+            ):
+                planner.erase_subject(session, "1")
+            assert str(err.value) == f"erase_subject needs a planner wired with: {missing}"
+    finally:
+        engine.dispose()
