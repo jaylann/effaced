@@ -19,7 +19,7 @@ paths: ["**/*.py"]
 - Enums are `StrEnum` so they serialize as their value.
 
 ## File & folder architecture — small and searchable
-- **One concept per file.** The file is named after the class it holds: `pii_spec.py` → `PiiSpec`, `data_map.py` → `DataMap`.
+- **One concept per file.** The file is named after the class it holds, read with the package as namespace: `pii_spec.py` → `PiiSpec`, `data_map.py` → `DataMap` — and inside a domain package the prefix drops: `erasure/result.py` → `ErasureResult`, `consent/record.py` → `ConsentRecord` (never re-duplicate the package name into the file name).
 - A new class/protocol/enum of public relevance gets its own file, re-exported from the package `__init__.py` (which holds docstring + re-exports ONLY, no logic).
 - Hard cap **600 lines per source file**, enforced by `scripts/check_file_length.py` in `just check` and CI. If you approach it, split into a package.
 - Prefer packages over modules: `erasure/{plan,planner,result}.py`, not one `erasure.py`.

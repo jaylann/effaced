@@ -1,0 +1,10 @@
+name: effaced CodeQL config
+
+# py/ineffectual-statement fires on idiomatic `...` bodies of typing.Protocol
+# stubs (audit/sink.py, resolvers/base.py, erasure/step_executor.py) — the
+# house style for protocol methods. Genuinely dead statements are already
+# caught by ruff (B018) in the lint gate, so the CodeQL duplicate only
+# produces false positives here.
+query-filters:
+  - exclude:
+      id: py/ineffectual-statement
