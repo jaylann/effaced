@@ -142,6 +142,12 @@ class Outbox:
         entry stays ``IN_FLIGHT`` for the lease to heal — a success is
         never recorded without its completion check.
 
+        With the default :class:`~effaced.DatabaseAuditSink` the callback
+        opens a *second* pooled connection while this transaction still
+        holds the first — size the pool for two connections per concurrent
+        runner thread. An exhausted pool times out, rolls back, and the
+        lease heals the entry, but the work is wasted.
+
         Args:
             entry: The claimed entry whose resolver call succeeded.
             on_subject_complete: Invoked at most once, while the subject's

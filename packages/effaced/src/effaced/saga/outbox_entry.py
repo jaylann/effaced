@@ -20,8 +20,11 @@ class OutboxEntry(BaseModel):
 
     Attributes:
         entry_id: Unique id; doubles as the idempotency key for the call.
-        subject_id: The erased subject's identifier — groups a subject's
-            entries so the runner can tell when its last one lands.
+        subject_id: The erased subject's identifier, exactly as passed to
+            ``erase_subject`` — groups a subject's entries so the runner
+            can tell when its last one lands. Must be globally unique per
+            data subject: two subjects sharing a value would be treated as
+            one completion group.
         resolver: Which resolver will perform the call.
         ref: The subject reference to pass to it.
         status: Current lifecycle state.

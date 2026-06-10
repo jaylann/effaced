@@ -36,6 +36,12 @@ runner = SagaRunner(
 )
 ```
 
+Connection budget: at the moment a subject completes, the runner holds the
+outbox transaction *and* opens a second connection for the audit append —
+size the engine's pool for **two connections per concurrent runner thread**.
+An exhausted pool only times out and retries via the lease, but that is
+wasted work.
+
 ## FastAPI: a background thread, not a background task
 
 A daemon thread with its own `asyncio.run` keeps the runner's blocking
