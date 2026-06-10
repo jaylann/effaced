@@ -12,6 +12,9 @@ paths: ["**/tests/**"]
   - retained-category preservation (RETAIN fields survive every plan),
   - idempotent convergence (re-running a saga step == running it once),
   - fault-injection outcomes (resolver failure leaves a known, audited state).
+- **`PROOFS.md` (repo root) maps every published guarantee to the tests proving it.** Renaming, moving, or deleting a listed test updates PROOFS.md in the same PR; a new guarantee lands with its row added.
+- Cross-cutting properties run on *generated* schemas: `packages/effaced/tests/schema_strategies.py` (`annotated_schemas()`) draws table trees, links, and strategies through the real `collect_data_map`/`resolve_subject_graph` path. Budget schema-per-example tests with its `scaled_examples(n)` instead of hard-coding `max_examples` (hypothesis profiles activate in `pytest_configure`, before module import, so reading `settings.default.max_examples` at module level scales per profile).
+- Generator gotchas: imperative mapping (`registry().map_imperatively(...)` + `registry.configure()`) satisfies `resolve_subject_graph` without a declarative Base — but SQLAlchemy registries hold mapped classes **weakly**, so dynamically created classes need a strong reference for the mapping's lifetime (`GeneratedSchema.classes`) or `registry.mappers` empties intermittently under GC.
 - No live network calls. External systems are faked behind the `Resolver` protocol.
 - SQLite silently drops `FOR UPDATE`/`SKIP LOCKED` from compiled SQL — locking/concurrency claims are only provable in the Postgres integration suite; SQLite unit tests cover everything else.
 - Extend the shared annotated schema in `packages/effaced/tests/conftest.py` instead of creating parallel fixture schemas.

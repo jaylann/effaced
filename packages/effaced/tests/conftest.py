@@ -13,12 +13,15 @@ from sqlalchemy.pool import StaticPool
 
 from effaced import (
     AuditEvent,
+    ErasureStep,
     ErasureStrategy,
     LegalBasis,
     PiiCategory,
     ResolverErasure,
     ResolverExport,
     RetentionPolicy,
+    StepExecutor,
+    SubjectGraph,
     SubjectRef,
     pii,
     subject_link,
@@ -60,6 +63,50 @@ class FakeResolver:
 
     async def erase_subject(self, ref: SubjectRef) -> ResolverErasure:
         raise NotImplementedError
+
+
+class StatefulResolver:
+    """A fake external system: a set of records that erasure removes.
+
+    The second erase of the same value finds nothing and reports
+    ``already_absent=True`` — the idempotency contract real resolvers
+    must honour.
+    """
+
+    def __init__(self, name: str, records: set[str]) -> None:
+        self._name = name
+        self.records = set(records)
+        self.calls: list[str] = []
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    async def export_subject(self, ref: SubjectRef) -> ResolverExport:
+        raise NotImplementedError
+
+    async def erase_subject(self, ref: SubjectRef) -> ResolverErasure:
+        self.calls.append(ref.value)
+        if ref.value in self.records:
+            self.records.remove(ref.value)
+            return ResolverErasure(resolver=self._name)
+        return ResolverErasure(resolver=self._name, already_absent=True)
+
+
+class FailingExecutor:
+    """Delegates to a real executor until it reaches the named table."""
+
+    def __init__(self, inner: StepExecutor, fail_at: str) -> None:
+        self._inner = inner
+        self._fail_at = fail_at
+
+    def execute(
+        self, session: Session, graph: SubjectGraph, step: ErasureStep, subject_id: str
+    ) -> int:
+        if step.target == self._fail_at:
+            msg = "injected fault"
+            raise RuntimeError(msg)
+        return self._inner.execute(session, graph, step, subject_id)
 
 
 class Base(DeclarativeBase):

@@ -1,4 +1,4 @@
-"""Property: executing an outbox entry N times converges to executing it once."""
+"""Properties: re-execution converges to once; any failure script converges."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import NamedTuple
 from uuid import UUID, uuid4
 
 import pytest
-from conftest import RecordingAuditSink
+from conftest import RecordingAuditSink, StatefulResolver
 from hypothesis import given
 from hypothesis import strategies as st
 from sqlalchemy import MetaData, create_engine, select, update
@@ -17,12 +17,12 @@ from sqlalchemy.pool import StaticPool
 
 from effaced import (
     AuditEventType,
+    BackoffPolicy,
     EffacedTables,
     Outbox,
     OutboxEntry,
     OutboxStatus,
     ResolverErasure,
-    ResolverExport,
     ResolverRegistry,
     SagaRunner,
     SubjectRef,
@@ -32,32 +32,19 @@ from effaced import (
 pytestmark = pytest.mark.property
 
 
-class StatefulResolver:
-    """A fake external system: a set of records that erasure removes.
+class ScriptedFlakyResolver(StatefulResolver):
+    """Fails a scripted number of calls per ref, then erases like a real system."""
 
-    The second erase of the same value finds nothing and reports
-    ``already_absent=True`` — the idempotency contract real resolvers
-    must honour.
-    """
-
-    def __init__(self, name: str, records: set[str]) -> None:
-        self._name = name
-        self.records = records
-        self.calls: list[str] = []
-
-    @property
-    def name(self) -> str:
-        return self._name
-
-    async def export_subject(self, ref: SubjectRef) -> ResolverExport:
-        raise NotImplementedError
+    def __init__(self, name: str, failures: dict[str, int]) -> None:
+        super().__init__(name, set(failures))
+        self.remaining = dict(failures)
 
     async def erase_subject(self, ref: SubjectRef) -> ResolverErasure:
-        self.calls.append(ref.value)
-        if ref.value in self.records:
-            self.records.remove(ref.value)
-            return ResolverErasure(resolver=self._name)
-        return ResolverErasure(resolver=self._name, already_absent=True)
+        if self.remaining[ref.value] > 0:
+            self.remaining[ref.value] -= 1
+            msg = "transient outage"
+            raise TimeoutError(msg)
+        return await super().erase_subject(ref)
 
 
 class World(NamedTuple):
@@ -71,7 +58,12 @@ class World(NamedTuple):
     saga: SagaRunner
 
 
-def build_world(records: set[str]) -> World:
+def build_world(
+    resolver: StatefulResolver,
+    *,
+    max_attempts: int = 8,
+    backoff: BackoffPolicy | None = None,
+) -> World:
     """A fresh in-memory world per hypothesis example (no shared fixtures)."""
     engine = create_engine("sqlite://", poolclass=StaticPool)
     metadata = MetaData()
@@ -80,10 +72,9 @@ def build_world(records: set[str]) -> World:
     session_factory = sessionmaker(engine)
     outbox = Outbox(session_factory, tables.outbox)
     sink = RecordingAuditSink()
-    resolver = StatefulResolver("stripe", records)
     registry = ResolverRegistry()
     registry.register(resolver)
-    saga = SagaRunner(registry, outbox, sink)
+    saga = SagaRunner(registry, outbox, sink, max_attempts=max_attempts, backoff=backoff)
     return World(session_factory, tables, outbox, sink, resolver, saga)
 
 
@@ -127,7 +118,7 @@ def simulate_crash_before_bookkeeping(world: World, entry_id: UUID) -> None:
 @given(executions=st.integers(min_value=1, max_value=5))
 def test_executing_an_entry_n_times_converges_to_once(executions: int) -> None:
     """The entry id is the idempotency key: re-execution changes nothing."""
-    world = build_world(records={"cus_target", "cus_bystander"})
+    world = build_world(StatefulResolver("stripe", {"cus_target", "cus_bystander"}))
     the_entry = entry("1", "cus_target")
     enqueue(world, the_entry)
 
@@ -162,7 +153,7 @@ def test_every_subject_completes_exactly_once_and_only_for_itself(
     values = {
         f"subject-{i}": [f"cus_{i}_{j}" for j in range(count)] for i, count in enumerate(counts)
     }
-    world = build_world(records={v for refs in values.values() for v in refs})
+    world = build_world(StatefulResolver("stripe", {v for refs in values.values() for v in refs}))
     for subject_id, refs in values.items():
         enqueue(world, *(entry(subject_id, value) for value in refs))
 
@@ -175,3 +166,53 @@ def test_every_subject_completes_exactly_once_and_only_for_itself(
         e.subject_ref for e in world.sink.events if e.event_type is AuditEventType.ERASURE_COMPLETED
     ]
     assert sorted(completed) == sorted(values)
+
+
+@given(
+    failures=st.lists(st.integers(min_value=0, max_value=4), min_size=1, max_size=3),
+    max_attempts=st.integers(min_value=1, max_value=4),
+)
+def test_any_transient_failure_script_converges(failures: list[int], max_attempts: int) -> None:
+    """Entries land SUCCEEDED iff their outage ends before retries run out.
+
+    Attempts count claims (ADR 0010), so an entry whose first ``k`` calls
+    fail succeeds on claim ``k + 1`` when ``k < max_attempts`` and is
+    ABANDONED (loudly audited) otherwise. Transient failures in between
+    leave no audit event.
+    """
+    script = {f"cus_{index}": count for index, count in enumerate(failures)}
+    world = build_world(
+        ScriptedFlakyResolver("stripe", script),
+        max_attempts=max_attempts,
+        backoff=BackoffPolicy(
+            base_delay=timedelta(microseconds=1),
+            max_delay=timedelta(microseconds=2),
+            lease=timedelta(minutes=5),
+        ),
+    )
+    entries = {value: entry(f"subject-{value}", value) for value in script}
+    enqueue(world, *entries.values())
+
+    rounds = 0
+    while asyncio.run(world.saga.run_once()):
+        rounds += 1
+        assert rounds <= 10 * len(script) * max_attempts
+
+    status_by_value = {value: statuses(world)[item.entry_id] for value, item in entries.items()}
+    events_by_subject = {
+        value: [e for e in world.sink.events if e.subject_ref == f"subject-{value}"]
+        for value in script
+    }
+    for value, outages in script.items():
+        if outages < max_attempts:
+            assert status_by_value[value] == OutboxStatus.SUCCEEDED.value
+            succeeded, completed = events_by_subject[value]
+            assert succeeded.event_type is AuditEventType.ERASURE_STEP_SUCCEEDED
+            assert succeeded.payload["attempts"] == outages + 1
+            assert completed.event_type is AuditEventType.ERASURE_COMPLETED
+        else:
+            assert status_by_value[value] == OutboxStatus.ABANDONED.value
+            (failed,) = events_by_subject[value]
+            assert failed.event_type is AuditEventType.ERASURE_STEP_FAILED
+            assert failed.payload["abandoned"] is True
+            assert failed.payload["error"] == "TimeoutError"

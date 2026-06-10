@@ -1,0 +1,89 @@
+# PROOFS — guarantee → evidence map
+
+effaced ships *mechanisms*, never compliance *determinations*. What it can
+ship is evidence that those mechanisms behave as documented: this file maps
+every published guarantee to the tests that exercise it. The test suite is
+the project's conformance evidence — if a guarantee has no row here, it is
+not a guarantee.
+
+All test paths are relative to `packages/effaced/tests/`. Tags:
+
+- **[unit]** — example-based test on the shared annotated schema
+- **[property]** — hypothesis property on the shared schema (drawn data shapes)
+- **[generated]** — hypothesis property on *arbitrary generated schemas*
+  (`schema_strategies.py` draws table trees, subject-link paths, and
+  per-column strategies, derived through the real `collect_data_map` +
+  `resolve_subject_graph` path)
+- **[pg]** — Postgres integration test (`just test-pg`); locking and
+  concurrency claims are only provable here, because SQLite silently drops
+  `FOR UPDATE` / `SKIP LOCKED`
+
+## Guarantees
+
+| Guarantee | Defined by | Proven by |
+|---|---|---|
+| **No cross-subject bleed — export.** A subject's bundle contains that subject's data and nobody else's. | ADR 0007/0008; `.claude/rules/testing.md` | [generated] `test_generated_schema_export_properties.py::test_export_on_any_schema_never_bleeds` · [property] `test_exporter_properties.py::test_export_never_contains_other_subjects_rows` · [unit] `test_exporter.py::test_no_cross_subject_bleed` · [pg] `test_exporter_pg.py::test_export_round_trips_on_postgres` |
+| **No cross-subject bleed — erasure.** Erasing subject A leaves subject B's rows byte-identical, in every table. | ADR 0007/0009 | [generated] `test_generated_schema_erasure_properties.py::test_erasure_on_any_schema_never_bleeds_and_preserves_retained` · [property] `test_erase_subject_properties.py::test_erase_handles_every_reachable_row_and_never_bleeds` · [unit] `test_erase_subject.py::test_no_cross_subject_bleed` |
+| **No cross-subject bleed — saga.** Outbox execution touches only the claimed entry's external record; completion fires only for the entry's own subject. | ADR 0010 | [property] `test_saga_runner_properties.py::test_executing_an_entry_n_times_converges_to_once`, `::test_every_subject_completes_exactly_once_and_only_for_itself` |
+| **No cross-subject bleed — consent.** Status and history are scoped to one subject. | `consent/ledger.py` contract | [unit] `test_consent_ledger.py::test_no_cross_subject_bleed` |
+| **Retained-category preservation.** A `RETAIN` column is never deleted or anonymized by any code path; its cells survive erasure byte-identically; retention requires a named legal reason. | gdpr-semantics rule ("retention is sacred"); ADR 0007 | [generated] `test_generated_schema_erasure_properties.py::test_erasure_on_any_schema_never_bleeds_and_preserves_retained` · [property] `test_erasure_planner_properties.py::test_retain_columns_never_in_delete_or_anonymize_steps`, `::test_row_deletion_requires_full_ownership_and_all_delete` · [unit] `test_erasure_planner.py::test_retained_child_under_deleted_subject_raises_retention_violation`, `test_erasure_executor.py::test_retain_counts_rows_without_touching_them`, `test_annotations.py::test_retain_without_policy_is_rejected` · [pg] `test_erase_subject_pg.py::test_committed_erasure_retains_invoice_and_reports_counts` |
+| **Retention surfaces in exports.** Retained fields are still exported, carrying the declared retention reason, legal basis, and purpose. | Art. 15 semantics in `export/` | [generated] `test_generated_schema_export_properties.py::test_export_surfaces_retention_reasons_and_art15_metadata` · [unit] `test_exporter.py::test_retained_field_is_still_exported` |
+| **Manifest round-trip & migration.** Serialization never loses a declaration; old manifests migrate forward, never rejected; newer-than-known versions fail loudly. | gdpr-semantics rule; `manifest/migration.py` | [generated] `test_manifest_properties.py::test_collected_manifest_from_any_schema_round_trips` · [property] `test_manifest_properties.py::test_any_manifest_round_trips` · [unit] `test_manifest.py::test_payload_round_trip`, `::test_future_schema_version_is_rejected_loudly` |
+| **Erasure idempotent convergence.** Re-running `erase_subject` deletes nothing further and converges to the same state shape (anonymized cells legitimately get fresh surrogates, ADR 0009). | ADR 0009 | [generated] `test_generated_schema_erasure_properties.py::test_erasure_on_any_schema_is_idempotent` · [property] `test_erase_subject_properties.py::test_erase_handles_every_reachable_row_and_never_bleeds` (rerun phase) · [unit] `test_erase_subject.py::test_rerun_for_an_erased_subject_is_a_no_op_success` · [pg] `test_erase_subject_pg.py::test_rerun_for_an_erased_subject_is_a_no_op_success` |
+| **Saga idempotency & convergence.** Executing an entry N times equals executing it once (`entry_id` is the idempotency key; `already_absent=True` is success); any script of transient failures converges to SUCCEEDED or, past `max_attempts`, to a loudly audited ABANDONED. | ADR 0010; resolver idempotency contract | [property] `test_saga_runner_properties.py::test_executing_an_entry_n_times_converges_to_once`, `::test_any_transient_failure_script_converges` · [unit] `test_saga_runner.py::test_already_gone_is_success`, `::test_exhausted_retries_abandon_loudly` |
+| **Exactly-once completion.** `ERASURE_COMPLETED` fires once per subject, only when every outbox entry for the subject is SUCCEEDED; an ABANDONED sibling blocks it forever. | ADR 0010 | [property] `test_saga_runner_properties.py::test_every_subject_completes_exactly_once_and_only_for_itself` · [unit] `test_saga_runner.py::test_completion_waits_for_the_subjects_last_entry`, `::test_an_abandoned_sibling_blocks_completion_forever` · [pg] `test_saga_runner_pg.py::test_concurrent_finishers_emit_exactly_one_completion` |
+| **FK-safe ordering.** Local steps follow the metadata-derived deletion order: children before parents, subject last; cycles rejected. | ADR 0007; `fk_safe_deletion_order` | [property] `test_resolution_properties.py::test_every_child_is_deleted_before_its_parent`, `test_erasure_planner_properties.py::test_local_targets_follow_deletion_order` · [generated] `test_schema_strategies.py::test_planner_row_deletion_matches_generator_expectation` (classification), `test_generated_schema_erasure_properties.py` (execution on drawn trees incl. multi-hop + self-referential FKs) |
+| **Audit sequence & append-only.** Validation failures raise before any event; every outcome (success, failure, retention decision, abandonment) is audited; payloads carry references and exception class names, never rich PII; sinks have no update/delete surface. | ADR 0009/0010; gdpr-semantics rule | [unit] `test_erase_subject.py::test_audit_sequence_and_payloads`, `::test_unmatched_ref_kind_fails_loudly_before_any_event`, `test_exporter.py::test_malformed_subject_id_raises_before_any_audit_event`, `test_database_audit_sink.py::test_duplicate_event_id_is_rejected_never_overwritten`, `::test_read_unknown_event_type_raises_with_upgrade_guidance` · semgrep gate `.semgrep/audit-append-only.yml`, `.semgrep/audit-no-pii.yml` |
+| **Ref→resolver routing.** A ref routes to the resolver whose `name` equals its `kind`; an unmatched kind raises before any audit event; a resolver with no matching ref is skipped and recorded, never an error. | ADR 0008 | [unit] `test_erase_subject.py::test_refs_route_to_the_resolver_named_by_their_kind`, `::test_unmatched_ref_kind_fails_loudly_before_any_event`, `::test_resolver_without_matching_ref_is_skipped_and_audited`, `test_exporter_resolvers.py::test_ref_without_resolver_raises_before_any_audit_event`, `::test_resolver_without_matching_ref_is_skipped_not_incomplete` |
+| **Export failures are never silent.** A failed resolver lands in `incomplete_sources`; local records survive the failure. | `export/` contract | [unit] `test_exporter_resolvers.py::test_failing_resolver_lands_in_incomplete_sources`, `::test_local_records_survive_resolver_failure` |
+| **Atomic local phase.** Local row changes and outbox entries commit or roll back together, in the caller's transaction; audit evidence persists independently. | ADR 0009; gdpr-semantics rule | [unit] `test_erase_subject.py::test_rollback_discards_rows_and_outbox_but_keeps_audit`, `test_outbox.py::test_rollback_discards_enqueued_entries` · [pg] `test_erase_subject_pg.py::test_killed_transaction_rolls_back_rows_and_outbox_together` |
+
+## Fault-injection matrix
+
+Each cell injects one failure at one seam and asserts the resulting state
+against ADR 0009/0010. End-to-end cells live in
+`test_end_to_end_fault_injection.py` (erase_subject → outbox → saga runner
+on one wiring).
+
+| # | Failure | Expected outcome | Proven by |
+|---|---|---|---|
+| 1 | Local executor step fails **before commit** | Caller rolls back: every table byte-identical, outbox empty, resolver never called, saga finds nothing; trail = REQUESTED · k×STEP_SUCCEEDED · STEP_FAILED | `test_end_to_end_fault_injection.py::test_failure_before_local_commit_leaves_no_partial_erasure` · `test_erase_subject.py::test_mid_stream_failure_is_audited_and_propagates` · [pg] `test_erase_subject_pg.py::test_partial_deletion_failure_rolls_back_and_audits` |
+| 2 | Outbox enqueue fails **before commit** | STEP_FAILED with `target: "outbox"`, original exception re-raises | `test_erase_subject.py::test_enqueue_failure_is_audited_as_outbox_step` |
+| 3 | Audit sink down **before commit** | Sink failure on REQUESTED stops the erasure before any row changes; a step whose outcome cannot be recorded audits as failed | `test_erase_subject.py::test_failing_sink_stops_the_erasure_before_any_row_changes`, `::test_transient_sink_failure_after_a_step_audits_it_as_failed` |
+| 4 | Resolver fails **transiently after commit** | Entry FAILED with backoff (`min(base·2^(attempts−1), max)`), failure not audited (`last_error` on the row), converges to SUCCEEDED and exactly one ERASURE_COMPLETED | `test_end_to_end_fault_injection.py::test_transient_external_failure_after_commit_converges_to_completed` · `test_saga_runner.py::test_transient_failure_schedules_a_backoff_retry` · `test_saga_runner_properties.py::test_any_transient_failure_script_converges` |
+| 5 | Resolver fails **terminally after commit** (`ResolverError` or retries exhausted) | Entry ABANDONED, STEP_FAILED with `abandoned: true`, ERASURE_COMPLETED never fires, abandoned entry never reclaimed — and the committed local erasure stays (no compensation; there is no un-erase) | `test_end_to_end_fault_injection.py::test_terminal_external_failure_after_commit_keeps_local_erasure` · `test_saga_runner.py::test_non_retryable_resolver_error_abandons_immediately`, `::test_exhausted_retries_abandon_loudly`, `::test_unknown_resolver_abandons_instead_of_wedging_the_queue` |
+| 6 | Runner **crashes between execute and bookkeeping** | Entry stays IN_FLIGHT; lease expiry re-claims; idempotency (`already_absent`) converges to the single-execution outcome; attempts count claims, so crash loops still converge to ABANDONED | `test_saga_runner_properties.py::test_executing_an_entry_n_times_converges_to_once` · `test_claim_batch.py::test_expired_lease_is_reclaimed` · [pg] `test_saga_runner_pg.py::test_expired_lease_lets_a_second_runner_take_over` |
+| 7 | Audit sink down **while the runner books an outcome** | Append precedes the status change: the entry stays IN_FLIGHT, no outcome is recorded without its audit record; after the sink heals and the lease expires, the retry converges and both success and completion are recorded | `test_end_to_end_fault_injection.py::test_sink_outage_during_settle_keeps_entry_in_flight_and_heals` |
+| 8 | **Two runners race** for the same entries / the same subject's last entries | `FOR UPDATE SKIP LOCKED` claims each entry exactly once; completion check locks the subject's rows in entry-id order, exactly one runner observes the transition | [pg] `test_saga_runner_pg.py::test_two_concurrent_runners_process_each_entry_exactly_once`, `::test_concurrent_finishers_emit_exactly_one_completion`, `::test_skip_locked_skips_rows_held_by_an_open_claim` |
+
+## Coverage gate
+
+`just cov` and CI's test job run pytest with `--cov`; the workspace
+`pyproject.toml` sets `[tool.coverage.report] fail_under = 95` (branch
+coverage, sources `effaced` + `effaced_stripe`), so any run below 95% fails
+the build. Issue #18 asked for a gate of at least 85% on
+`packages/effaced/src` — the enforced gate exceeds it.
+
+## How deep the properties run
+
+Hypothesis profiles (workspace `conftest.py`): dev default 100 examples,
+`--hypothesis-profile=ci` 300 (every PR), `--hypothesis-profile=deep` 2500
+(weekly `deep-checks.yml`). Schema-per-example tests scale via
+`schema_strategies.scaled_examples(n)` — a fraction of the profile budget,
+because each example builds metadata, ORM mappers, and an in-memory
+database. Mutation testing (mutmut, weekly) backstops assertions the line
+coverage cannot see.
+
+## SQLite vs Postgres caveat
+
+Unit and property tests run on in-memory SQLite, which silently drops
+`FOR UPDATE` / `SKIP LOCKED`. Every locking or concurrency guarantee
+(matrix row 8, exactly-once completion under race) is therefore proven only
+by the `[pg]` integration suite, which CI runs against a real Postgres on
+every PR.
+
+## Keeping this file honest
+
+Renaming, moving, or deleting a test listed here updates this file in the
+same PR — stale guidance is a bug (see `.claude/rules/testing.md`). New
+guarantees land with their row added here.

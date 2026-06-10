@@ -33,6 +33,7 @@ Storage-agnostic core. **No module outside `adapters/` may import SQLAlchemy or 
 - `ANONYMIZE` updates row-by-row with fresh surrogates per cell; one scoped UPDATE writes a single shared surrogate and breaks unique constraints.
 - `subject_id` is published as `str` but subject PKs are often `Integer`; coerce via `column.type.python_type` — typed-parameter drivers (psycopg3) reject `integer = text`.
 - Refs route to the resolver whose `name` equals the ref's `kind` (ADR 0008): unmatched ref kind ⇒ `ResolverError` before any audit event; resolver with no matching ref ⇒ skipped + recorded in `skipped_resolvers`, never an error.
+- A table with **zero** annotated columns that is fully PII-owned (only PK/FK columns) is row-deleted by the planner — `all(...)` over an empty column set is vacuously true (`Order` in the test schema is the precedent). Link-only tables are erased, not skipped.
 
 ## Saga invariants (ADR 0010 — learned the hard way)
 
