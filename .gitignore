@@ -1,0 +1,40 @@
+# Byte-compiled / caches
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.hypothesis/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+
+# Coverage
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+
+# Local config / secrets
+.env
+
+# Claude Code local state
+.claude/settings.local.json
+.claude/worktrees/
+
+# Logs
+*.log

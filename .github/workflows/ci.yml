@@ -1,0 +1,135 @@
+name: CI
+
+on:
+  push:
+    branches: [stage, main]
+  pull_request:
+    branches: [stage, main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint:
+    name: Lint & format
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: true
+
+      - name: Sync workspace
+        run: uv sync --locked --all-packages
+
+      - name: Ruff lint
+        run: uv run ruff check --output-format github .
+
+      - name: Ruff format check
+        run: uv run ruff format --check .
+
+      - name: File-length architecture gate
+        run: uv run python scripts/check_file_length.py
+
+  typecheck:
+    name: Types (mypy --strict)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: true
+
+      - name: Sync workspace
+        run: uv sync --locked --all-packages
+
+      - name: mypy
+        run: uv run mypy
+
+  test:
+    name: Tests (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python-version }}
+
+      - name: Sync workspace
+        run: uv sync --locked --all-packages
+
+      - name: pytest
+        run: uv run pytest -m "not integration" --cov --cov-report=term-missing
+
+  test-postgres:
+    name: Integration tests (Postgres 16)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: effaced
+          POSTGRES_PASSWORD: effaced
+          POSTGRES_DB: effaced_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U effaced"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      EFFACED_TEST_DATABASE_URL: postgresql+psycopg://effaced:effaced@localhost:5432/effaced_test
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: true
+
+      - name: Sync workspace
+        run: uv sync --locked --all-packages
+
+      # exit code 5 = no integration tests collected yet; that is fine pre-engine
+      - name: pytest (integration)
+        run: |
+          set +e
+          uv run pytest -m integration
+          code=$?
+          if [ "$code" -eq 5 ]; then
+            echo "no integration tests yet"
+            exit 0
+          fi
+          exit "$code"
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+
+      - name: Export locked requirements
+        run: uv export --locked --no-emit-workspace --all-packages --format requirements.txt > requirements-audit.txt
+
+      - name: pip-audit
+        uses: pypa/gh-action-pip-audit@1220774d901786e6f652ae159f7b6bc8fea6d266 # v1.1.0
+        with:
+          inputs: -r requirements-audit.txt

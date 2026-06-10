@@ -1,0 +1,73 @@
+version: 2.0
+
+automatedReviewActive: true
+showStatusFeedback: true
+kodusConfigFileOverridesWebPreferences: true
+reviewCadence:
+    type: automatic
+    timeWindow: 15 # minutes
+    pushesToTrigger: 3
+pullRequestApprovalActive: true
+isRequestChangesActive: true
+runOnDraft: false
+
+ignorePaths:
+    - '**/*.lock'
+    - 'uv.lock'
+    - '**/__pycache__/**'
+    - '.venv/**'
+    - 'dist/**'
+    - '**/*.egg-info/**'
+    - '.mypy_cache/**'
+    - '.pytest_cache/**'
+    - '.ruff_cache/**'
+    - '.hypothesis/**'
+    - '.claude/worktrees/**'
+    - 'LICENSE'
+    - 'packages/*/LICENSE'
+
+ignoredTitleKeywords: []
+baseBranches:
+    - stage
+    - main
+enableCommittableSuggestions: true
+byokModel: '' # inherit the configured main model
+
+# Review categories
+codeReviewVersion: v2
+reviewOptions:
+    bug: true
+    performance: true
+    security: true
+    business_logic: true
+
+# Suggestion control
+suggestionControl:
+    groupingMode: full
+    applyFiltersToKodyRules: false
+    limitationType: pr
+    maxSuggestions: 9
+    severityLevelFilter: medium
+
+# PR summary
+summary:
+    generatePRSummary: true
+    behaviourForNewCommits: none
+    behaviourForExistingDescription: concatenate
+    customInstructions: >-
+        Be concise and technical. This is a GDPR data-subject mechanisms
+        library: prioritise correctness of erasure/export semantics,
+        cross-subject isolation, retention preservation, audit-trail
+        integrity, and resolver idempotency over style. A wrong deletion is
+        a data-protection failure. Skip nitpicks ruff/mypy already enforce.
+
+customMessages:
+    startReviewMessage:
+        status: off
+    endReviewMessage:
+        status: off
+
+# Kody rules sync
+ideRulesSyncEnabled: true
+kodyRulesGeneratorEnabled: true
+llmGeneratedMemoriesRequireApproval: true

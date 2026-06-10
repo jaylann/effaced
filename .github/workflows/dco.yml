@@ -1,0 +1,31 @@
+name: DCO
+
+on:
+  pull_request:
+    branches: [stage, main]
+
+permissions:
+  pull-requests: read
+
+jobs:
+  dco:
+    name: Signed-off-by present on every commit
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check DCO sign-off
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          missing=$(gh api "repos/${REPO}/pulls/${PR}/commits" --paginate \
+            --jq '.[] | select(.commit.message | test("Signed-off-by: .+ <.+@.+>") | not) | .sha')
+          if [ -n "$missing" ]; then
+            echo "::error::Commits missing DCO sign-off (use git commit -s):"
+            echo "$missing"
+            echo ""
+            echo "Fix with: git rebase --signoff origin/stage && git push --force-with-lease"
+            exit 1
+          fi
+          echo "All commits are signed off."

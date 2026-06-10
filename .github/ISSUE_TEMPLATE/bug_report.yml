@@ -1,0 +1,39 @@
+name: Bug report
+description: Something behaves incorrectly
+labels: ["type:fix"]
+body:
+  - type: markdown
+    attributes:
+      value: >
+        **If this bug deletes the wrong data, leaks one subject's data to
+        another, or corrupts the audit trail — do NOT file it here.** Report
+        it privately via
+        [Security Advisories](https://github.com/jaylann/effaced/security/advisories/new).
+  - type: input
+    id: version
+    attributes:
+      label: Package & version
+      placeholder: "effaced 0.1.0 / effaced-stripe 0.1.0"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Python / SQLAlchemy / database
+      placeholder: "Python 3.12, SQLAlchemy 2.0.36, Postgres 16"
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: Ideally a small annotated model + the call that misbehaves.
+      render: python
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected vs actual behaviour
+    validations:
+      required: true

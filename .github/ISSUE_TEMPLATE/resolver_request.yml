@@ -1,0 +1,32 @@
+name: Resolver request
+description: Request a first-party resolver for an external system
+labels: ["resolver-request", "area:resolvers"]
+body:
+  - type: input
+    id: system
+    attributes:
+      label: External system
+      placeholder: "S3, Resend, Intercom, ..."
+    validations:
+      required: true
+  - type: textarea
+    id: pii
+    attributes:
+      label: What PII does it hold, and how is a subject identified there?
+      placeholder: "Email + message history; identified by contact id / email"
+    validations:
+      required: true
+  - type: textarea
+    id: api
+    attributes:
+      label: Deletion/export API surface
+      description: Links to the relevant API docs (deletion endpoint, export endpoint, GDPR endpoints if any).
+    validations:
+      required: true
+  - type: dropdown
+    id: usage
+    attributes:
+      label: Would you use it in production?
+      options: ["Yes, immediately", "Yes, eventually", "Just exploring"]
+    validations:
+      required: true

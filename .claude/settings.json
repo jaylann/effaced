@@ -1,0 +1,55 @@
+{
+  "includeCoAuthoredBy": false,
+  "env": {
+    "ENABLE_TOOL_SEARCH": "true",
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(uv:*)",
+      "Bash(uvx:*)",
+      "Bash(just:*)",
+      "Bash(ruff:*)",
+      "Bash(mypy:*)",
+      "Bash(pytest:*)",
+      "Bash(pre-commit:*)",
+      "Bash(git add|commit|push|status|diff|log|branch|checkout|switch|stash|fetch|pull|show|rev-parse|merge|remote|mv|worktree|tag:*)",
+      "Bash(gh issue create|close|edit|list|view|comment:*)",
+      "Bash(gh pr create|edit|list|view|diff|checks|status|comment|review|api:*)",
+      "Bash(gh label list:*)",
+      "Bash(cp|mv|mkdir|ls|wc|tree:*)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/git-guard.sh"
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR\"/.claude/hooks/commit-msg-check.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "file=$(jq -r '.tool_input.file_path // empty'); if [[ \"$file\" == *.py ]]; then cd \"$CLAUDE_PROJECT_DIR\" && uv run ruff format --quiet \"$file\" 2>/dev/null; uv run ruff check --fix --quiet \"$file\" 2>/dev/null; fi; exit 0"
+          }
+        ]
+      }
+    ]
+  },
+  "enabledPlugins": {
+    "code-simplifier@claude-plugins-official": true,
+    "claude-md-management@claude-plugins-official": true
+  }
+}
