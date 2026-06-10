@@ -28,6 +28,11 @@ paths: ["**"]
   gh api --method POST repos/:owner/:repo/issues/<blocked>/dependencies/blocked_by -F issue_id=<blocker-id>
   # inspect: gh api repos/:owner/:repo/issues/<n>/dependencies/blocked_by --jq '[.[].number]'
   ```
+- **Addressed review comments get resolved, not just answered.** After replying to a review thread you've addressed (fix pushed or rationale given), mark the thread resolved too — an answered-but-open thread reads as pending work:
+  ```bash
+  # thread ids: gh api graphql -f query='query { repository(owner:"jaylann", name:"effaced") { pullRequest(number:<N>) { reviewThreads(first:50) { nodes { id isResolved path } } } } }'
+  gh api graphql -f query='mutation { resolveReviewThread(input:{threadId:"<id>"}) { thread { isResolved } } }'
+  ```
 - Working a GitHub issue: if the fix is verified, commit (your changes only) and close the issue with a fitting comment. If you can't fully fix it, comment your findings. Unrelated problems you notice → file a new issue, don't fix inline.
 - If two consecutive state queries (`gh pr checks`, `gh issue view`, …) return identical output, stop polling.
 
