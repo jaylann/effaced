@@ -19,7 +19,15 @@ paths: ["**"]
 - `git reset --hard`, `git clean -f`, `git checkout -- .`, bare `git restore <path>` are blocked by the git-guard hook — that block is correct, not an obstacle. Inspect with `git show <ref>:<file>` / `git diff <ref>`; park work with `git stash`. Only append `# yes-destroy` when the user asked for the discard in their current message.
 
 ## PRs & issues
-- Every PR: at least one `type:*` label + relevant `area:*` labels, the PR-template "Erasure/export semantics" section answered, `just check` + `just test` green locally first.
+- **Always label.** Every PR *and* every issue you open: at least one `type:*` label + relevant `area:*` labels. PRs also answer the PR-template "Erasure/export semantics" section and need `just check` + `just test` green locally first.
+- **Always wire dependencies.** When an issue or PR is blocked by another (or a body says "Blocked by #N"), record it with GitHub's native issue-dependencies API — don't leave the relationship as prose only. The inverse "blocks" edge is created automatically, so only set `blocked_by`:
+  ```bash
+  # issue_id is the internal integer id, NOT the issue number — fetch it first:
+  gh api repos/:owner/:repo/issues/<blocker> --jq '.id'
+  # add the edge with -F (integer); -f sends a string and 422s:
+  gh api --method POST repos/:owner/:repo/issues/<blocked>/dependencies/blocked_by -F issue_id=<blocker-id>
+  # inspect: gh api repos/:owner/:repo/issues/<n>/dependencies/blocked_by --jq '[.[].number]'
+  ```
 - Working a GitHub issue: if the fix is verified, commit (your changes only) and close the issue with a fitting comment. If you can't fully fix it, comment your findings. Unrelated problems you notice → file a new issue, don't fix inline.
 - If two consecutive state queries (`gh pr checks`, `gh issue view`, …) return identical output, stop polling.
 
