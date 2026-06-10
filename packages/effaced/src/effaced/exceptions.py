@@ -40,4 +40,9 @@ class ResolverError(EffacedError):
 
 
 class AuditIntegrityError(EffacedError):
-    """The append-only audit log was asked to do something non-append-only."""
+    """The append-only audit log was asked to do something non-append-only.
+
+    Also raised when reading a trail that contains entries this version of
+    effaced cannot interpret (e.g. an ``event_type`` recorded by a newer
+    release) — unreadable evidence fails loudly instead of being skipped.
+    """
