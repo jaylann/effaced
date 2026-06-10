@@ -37,14 +37,14 @@ byokModel: '' # inherit the configured main model
 codeReviewVersion: v2
 reviewOptions:
     bug: true
-    performance: true
+    performance: false # off-target for a deletion/export-correctness library
     security: true
-    business_logic: true
+    business_logic: true # primary: erasure/export semantics live here
 
 # Suggestion control
 suggestionControl:
     groupingMode: full
-    applyFiltersToKodyRules: false
+    applyFiltersToKodyRules: true # rules now carry severity_min; let the filter apply
     limitationType: pr
     maxSuggestions: 9
     severityLevelFilter: medium
