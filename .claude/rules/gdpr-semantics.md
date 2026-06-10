@@ -19,6 +19,7 @@ paths: ["packages/effaced/src/**", "packages/effaced-stripe/src/**"]
 - A field declared `ErasureStrategy.RETAIN` must never be deleted by any code path. The planner raises `RetentionViolationError` rather than guessing.
 - `RETAIN` always requires a `RetentionPolicy` naming the legal reason (validator-enforced — keep it that way).
 - Retention decisions are recorded in the audit trail, not silently applied.
+- In plans, `RETAIN` columns appear only in `RETAIN` steps; row deletion requires a fully-PII-owned table whose annotated columns are all `DELETE` (ADR 0007 — changing those semantics is MAJOR).
 
 ## Audit trail
 - Append-only **by construction**: no update/delete methods on sinks, ever. Adding one is an automatic review blocker.
