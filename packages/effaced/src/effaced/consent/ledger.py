@@ -73,8 +73,9 @@ class ConsentLedger:
 
         Derived from the latest record for (subject, purpose); ``False``
         when no record exists. "Latest" means greatest ``recorded_at``
-        (supply distinct, caller-clock timestamps); exact ties are broken
-        by ``record_id`` so repeated reads always agree.
+        (supply distinct, caller-clock timestamps). Exact timestamp ties
+        resolve to the withdrawing record — when the order of a grant and
+        a withdrawal is unknowable, effaced assumes consent was withdrawn.
 
         Args:
             session: An open database session.
@@ -88,7 +89,7 @@ class ConsentLedger:
         statement = (
             self._consent_records.select()
             .where(columns.subject_id == subject_id, columns.purpose == purpose)
-            .order_by(columns.recorded_at.desc(), columns.record_id.desc())
+            .order_by(columns.recorded_at.desc(), columns.granted.asc(), columns.record_id.desc())
             .limit(1)
         )
         row = session.execute(statement).mappings().first()

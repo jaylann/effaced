@@ -127,8 +127,10 @@ def test_no_cross_subject_bleed(harness: LedgerHarness) -> None:
         assert harness.ledger.history(session, "alice") == (alice,)
 
 
-def test_status_tie_resolved_deterministically(harness: LedgerHarness) -> None:
-    """Equal ``recorded_at`` is broken by ``record_id``, stable across reads."""
+@pytest.mark.parametrize("grant_record_id", [UUID(int=1), UUID(int=2)])
+def test_status_tie_resolves_to_withdrawn(harness: LedgerHarness, grant_record_id: UUID) -> None:
+    """Equal ``recorded_at`` resolves to the withdrawal, whatever the record ids."""
+    withdraw_record_id = UUID(int=2) if grant_record_id == UUID(int=1) else UUID(int=1)
     common = {
         "subject_id": "alice",
         "purpose": "newsletter",
@@ -140,14 +142,14 @@ def test_status_tie_resolved_deterministically(harness: LedgerHarness) -> None:
         session.execute(
             harness.tables.consent_records.insert(),
             [
-                {"record_id": UUID(int=2), "granted": True, **common},
-                {"record_id": UUID(int=1), "granted": False, **common},
+                {"record_id": grant_record_id, "granted": True, **common},
+                {"record_id": withdraw_record_id, "granted": False, **common},
             ],
         )
         session.commit()
         first = harness.ledger.status(session, "alice", "newsletter")
         second = harness.ledger.status(session, "alice", "newsletter")
-    assert first is True  # the greater record_id wins the tie
+    assert first is False
     assert second is first
 
 

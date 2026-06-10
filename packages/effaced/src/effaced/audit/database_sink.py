@@ -78,8 +78,11 @@ class DatabaseAuditSink:
         Raises:
             AuditIntegrityError: If the trail contains an ``event_type``
                 this version of effaced cannot interpret (recorded by a
-                newer release) — unreadable evidence fails loudly instead
-                of being skipped.
+                newer release). This is deliberately all-or-nothing: one
+                unreadable entry fails the whole read rather than serving
+                a silently incomplete trail — partial evidence presented
+                as complete would be worse than no answer. Upgrading
+                effaced restores readability; nothing is lost.
         """
         columns = self._audit_events.c
         statement = (

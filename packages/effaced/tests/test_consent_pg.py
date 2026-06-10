@@ -71,6 +71,35 @@ def test_consent_flow_round_trips_on_postgres(pg_engine: Engine) -> None:
         metadata.drop_all(pg_engine)
 
 
+def test_audit_event_survives_caller_rollback(pg_engine: Engine) -> None:
+    """The mirrored event persists even when the consent write is rolled back."""
+    metadata = MetaData()
+    tables = bind_tables(metadata)
+    metadata.create_all(pg_engine)
+    try:
+        session_factory = sessionmaker(pg_engine)
+        sink = DatabaseAuditSink(session_factory, tables.audit_events)
+        ledger = ConsentLedger(tables.consent_records, sink)
+        record = ConsentRecord(
+            subject_id="subject-1",
+            purpose="newsletter",
+            policy_version="2026-06",
+            granted=True,
+            recorded_at=datetime(2026, 6, 1, 12, 0, tzinfo=UTC),
+        )
+        with session_factory() as session:
+            ledger.record(session, record)
+            session.rollback()
+
+        with session_factory() as session:
+            assert ledger.status(session, "subject-1", "newsletter") is False
+            assert ledger.history(session, "subject-1") == ()
+        events = sink.read("subject-1")
+        assert [event.event_type for event in events] == [AuditEventType.CONSENT_GRANTED]
+    finally:
+        metadata.drop_all(pg_engine)
+
+
 def test_concurrent_grant_withdraw_last_write_wins(pg_engine: Engine) -> None:
     """Overlapping writers converge on the record with the greatest recorded_at."""
     metadata = MetaData()
