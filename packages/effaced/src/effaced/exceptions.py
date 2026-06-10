@@ -23,9 +23,8 @@ class ConfigurationError(EffacedError):
     """A component is not wired for the requested operation.
 
     Raised loudly instead of degrading: erasing a subject on a planner
-    constructed without an executor, outbox, or audit sink — or with
-    external steps planned but no subject refs to address them — must
-    never look like a successful erasure.
+    constructed without an executor, outbox, or audit sink must never
+    look like a successful erasure.
     """
 
 

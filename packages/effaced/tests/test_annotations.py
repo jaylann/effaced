@@ -49,4 +49,4 @@ def test_subject_ref_rejects_empty_identifiers() -> None:
     with pytest.raises(ValidationError):
         SubjectRef(kind="", value="cus_123")
     with pytest.raises(ValidationError):
-        SubjectRef(kind="stripe_customer", value="")
+        SubjectRef(kind="stripe", value="")

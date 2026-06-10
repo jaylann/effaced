@@ -69,9 +69,9 @@ def test_multi_hop_delete_scopes_to_the_subject(harness: ExecutorHarness) -> Non
     affected = harness.executor.execute(
         harness.session, harness.graph, delete_step("order_items"), "1"
     )
-    assert affected == 2
+    assert affected == 1
     remaining = rows(harness.session, Base.metadata.tables["order_items"])
-    assert [row["id"] for row in remaining] == [3]
+    assert [row["id"] for row in remaining] == [2]
 
 
 def test_self_referential_comment_chain_deletes_in_one_step(harness: ExecutorHarness) -> None:
@@ -89,12 +89,12 @@ def test_anonymize_replaces_declared_columns_only(harness: ExecutorHarness) -> N
     )
     affected = harness.executor.execute(harness.session, harness.graph, step, "1")
     assert affected == 1
-    ada, bob = rows(harness.session, Base.metadata.tables["users"])
-    assert ada["email"] != "ada@example.com"
-    assert ada["name"] != "Ada"
-    assert ada["theme"] == "dark"
-    assert ada["id"] == 1
-    assert bob == {"id": 2, "email": "bob@example.com", "name": "Bob", "theme": "light"}
+    alice, bob = rows(harness.session, Base.metadata.tables["users"])
+    assert alice["email"] != "alice@example.com"
+    assert alice["name"] != "Alice Doe"
+    assert alice["theme"] == "dark"
+    assert alice["id"] == 1
+    assert bob == {"id": 2, "email": "bob@example.com", "name": "Bob Roe", "theme": "light"}
 
 
 def test_retain_counts_rows_without_touching_them(harness: ExecutorHarness) -> None:
@@ -105,15 +105,15 @@ def test_retain_counts_rows_without_touching_them(harness: ExecutorHarness) -> N
     assert affected == 1
     invoices = rows(harness.session, Base.metadata.tables["invoices"])
     assert invoices == [
-        {"id": 1, "user_id": 1, "billing_address": "1 Ada Lane"},
-        {"id": 2, "user_id": 2, "billing_address": "2 Bob Road"},
+        {"id": 1, "user_id": 1, "billing_address": "1 Alice Street"},
+        {"id": 2, "user_id": 2, "billing_address": "2 Bob Street"},
     ]
 
 
 def test_unknown_subject_matches_nothing(harness: ExecutorHarness) -> None:
     affected = harness.executor.execute(harness.session, harness.graph, delete_step("orders"), "99")
     assert affected == 0
-    assert len(rows(harness.session, Base.metadata.tables["orders"])) == 3
+    assert len(rows(harness.session, Base.metadata.tables["orders"])) == 2
 
 
 def test_unknown_table_raises_manifest_error(harness: ExecutorHarness) -> None:

@@ -4,14 +4,19 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, cast
 
-from sqlalchemy import ColumnElement, func, select, tuple_
+from sqlalchemy import ColumnElement, CursorResult, func, select, tuple_
 
 from effaced.adapters.sqlalchemy.anonymizer import SurrogateRegistry, default_surrogate_registry
 from effaced.categories import ErasureStrategy
-from effaced.exceptions import AnonymizationError, ConfigurationError, ManifestError
+from effaced.exceptions import (
+    AnonymizationError,
+    ConfigurationError,
+    ManifestError,
+    SubjectResolutionError,
+)
 
 if TYPE_CHECKING:
-    from sqlalchemy import Column, CursorResult, FromClause, MetaData, Table
+    from sqlalchemy import Column, FromClause, MetaData, Table
     from sqlalchemy.orm import Session
 
     from effaced.erasure.plan import ErasureStep
@@ -150,7 +155,7 @@ class ErasureExecutor:
 
 def _delete(session: Session, table: Table, predicate: ColumnElement[bool]) -> int:
     """Delete the matched rows; the database reports how many."""
-    result = cast("CursorResult[Any]", session.execute(table.delete().where(predicate)))
+    result = cast(CursorResult[Any], session.execute(table.delete().where(predicate)))
     return result.rowcount
 
 
@@ -176,14 +181,25 @@ def _coerce(column: ColumnElement[Any], subject_id: str) -> object:
     often integers; typed-parameter drivers (psycopg 3 binary mode)
     reject ``integer = text`` comparisons that quoted-literal dialects
     forgive.
+
+    Raises:
+        SubjectResolutionError: If the id cannot carry the column's type.
     """
     try:
         python_type = column.type.python_type
     except NotImplementedError:
+        # A type effaced cannot interpret; let the dialect be the authority.
         return subject_id
     if python_type is str:
         return subject_id
-    return python_type(subject_id)
+    try:
+        return python_type(subject_id)
+    except (TypeError, ValueError) as exc:
+        msg = (
+            f"subject id {subject_id!r} cannot be interpreted as the subject "
+            f"column's type ({python_type.__name__})"
+        )
+        raise SubjectResolutionError(msg) from exc
 
 
 def _grouped(source: FromClause, names: tuple[str, ...]) -> ColumnElement[Any]:

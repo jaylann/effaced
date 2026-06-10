@@ -31,8 +31,8 @@ from effaced.adapters.sqlalchemy import ErasureExecutor
 pytestmark = pytest.mark.integration
 
 REFS = (
-    SubjectRef(kind="stripe_customer", value="cus_1"),
-    SubjectRef(kind="email", value="ref-7"),
+    SubjectRef(kind="crm", value="crm-1"),
+    SubjectRef(kind="stripe", value="cus_1"),
 )
 
 
@@ -108,14 +108,14 @@ def test_killed_transaction_rolls_back_rows_and_outbox_together(harness: PgHarne
     with harness.session_factory() as session:
         harness.planner.erase_subject(session, "1", refs=REFS)
         assert count_rows(session, "comments") == 1
-        assert len(outbox_rows(harness, session)) == 4
+        assert len(outbox_rows(harness, session)) == 2
         session.rollback()  # the transaction dies before commit
     with harness.session_factory() as session:
         assert count_rows(session, "comments") == 3
-        assert count_rows(session, "orders") == 3
-        assert count_rows(session, "order_items") == 3
+        assert count_rows(session, "orders") == 2
+        assert count_rows(session, "order_items") == 2
         users = session.execute(select(Base.metadata.tables["users"])).mappings().all()
-        assert {row["email"] for row in users} == {"ada@example.com", "bob@example.com"}
+        assert {row["email"] for row in users} == {"alice@example.com", "bob@example.com"}
         assert outbox_rows(harness, session) == []
     # The attempt stays recorded: the sink commits independently.
     events = [event.event_type for event in harness.sink.read("1")]
@@ -140,7 +140,7 @@ def test_partial_deletion_failure_rolls_back_and_audits(harness: PgHarness) -> N
         session.rollback()
     with harness.session_factory() as session:
         assert count_rows(session, "comments") == 3
-        assert count_rows(session, "orders") == 3
+        assert count_rows(session, "orders") == 2
         assert outbox_rows(harness, session) == []
     events = harness.sink.read("1")
     types = [event.event_type for event in events]
@@ -178,24 +178,24 @@ def test_committed_erasure_retains_invoice_and_reports_counts(harness: PgHarness
     with harness.session_factory() as session:
         result = harness.planner.erase_subject(session, "1", refs=REFS)
         session.commit()
-    assert result.deleted == {"comments": 2, "order_items": 2, "orders": 2}
+    assert result.deleted == {"comments": 2, "order_items": 1, "orders": 1}
     assert result.anonymized == {"users": 1}
     assert result.retained == {"invoices": 1}
     assert result.enqueued_external == ("crm", "stripe")
     with harness.session_factory() as session:
         invoices = session.execute(select(Base.metadata.tables["invoices"])).mappings().all()
         assert {(row["id"], row["billing_address"]) for row in invoices} == {
-            (1, "1 Ada Lane"),
-            (2, "2 Bob Road"),
+            (1, "1 Alice Street"),
+            (2, "2 Bob Street"),
         }
         users = {
             row["id"]: dict(row)
             for row in session.execute(select(Base.metadata.tables["users"])).mappings()
         }
-        assert users[1]["email"] != "ada@example.com"
+        assert users[1]["email"] != "alice@example.com"
         assert users[2]["email"] == "bob@example.com"
         rows = outbox_rows(harness, session)
-        assert len(rows) == 4
+        assert len(rows) == 2
         assert all(row["status"] == "pending" for row in rows)
     types = [event.event_type for event in harness.sink.read("1")]
     assert types == [
@@ -218,5 +218,5 @@ def test_rerun_for_an_erased_subject_is_a_no_op_success(harness: PgHarness) -> N
     assert rerun.retained == {"invoices": 1}
     with harness.session_factory() as session:
         rows = outbox_rows(harness, session)
-        assert len(rows) == 8
-        assert len({row["entry_id"] for row in rows}) == 8
+        assert len(rows) == 4
+        assert len({row["entry_id"] for row in rows}) == 4

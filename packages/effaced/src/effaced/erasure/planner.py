@@ -11,7 +11,12 @@ from effaced.audit.event_type import AuditEventType
 from effaced.categories import ErasureStrategy
 from effaced.erasure.plan import ErasurePlan, ErasureStep
 from effaced.erasure.result import ErasureResult
-from effaced.exceptions import ConfigurationError, ManifestError, RetentionViolationError
+from effaced.exceptions import (
+    ConfigurationError,
+    ManifestError,
+    ResolverError,
+    RetentionViolationError,
+)
 from effaced.saga.outbox_entry import OutboxEntry
 
 if TYPE_CHECKING:
@@ -37,9 +42,10 @@ class ErasurePlanner:
     system is always in a known, recorded state, even on partial failure.
 
     The row-level semantics (when a whole row is deleted versus anonymized
-    in place) are defined in ADR 0007; the execution and audit semantics
-    of :meth:`erase_subject` in ADR 0008. Changing either changes what
-    gets deleted and is MAJOR under widened SemVer.
+    in place) are defined in ADR 0007; ref→resolver routing in ADR 0008;
+    the execution and audit semantics of :meth:`erase_subject` in ADR
+    0009. Changing any of them changes what gets deleted and is MAJOR
+    under widened SemVer.
     """
 
     def __init__(
@@ -133,27 +139,37 @@ class ErasurePlanner:
         method never commits or rolls back the session itself; after it
         raises, do not commit the session.
 
-        Audit semantics (ADR 0008): ``ERASURE_REQUESTED`` is appended
+        Audit semantics (ADR 0009): ``ERASURE_REQUESTED`` is appended
         before the first step, one ``ERASURE_STEP_SUCCEEDED`` after each
         local step (``RETAIN`` included — the retention decision is the
-        record), ``ERASURE_STEP_FAILED`` on the first failure (then the
-        original exception re-raises), and ``ERASURE_LOCAL_COMPLETED``
-        last. With the default :class:`~effaced.DatabaseAuditSink` each
-        event commits independently of the caller's transaction, so the
-        attempt stays recorded even when the erasure rolls back.
+        record; the append is part of the step, so a step whose outcome
+        cannot be recorded audits as failed), ``ERASURE_STEP_FAILED`` on
+        the first failure (then the original exception re-raises), and
+        ``ERASURE_LOCAL_COMPLETED`` last. With the default
+        :class:`~effaced.DatabaseAuditSink` each event commits
+        independently of the caller's transaction, so the attempt stays
+        recorded even when the erasure rolls back. Validation failures
+        raise before any event — a malformed call never became a
+        data-subject request.
+
+        Each ref is routed to the resolver whose ``name`` equals the
+        ref's ``kind`` (ADR 0008). A registered resolver with no matching
+        ref is skipped — recorded in the completion payload's
+        ``skipped_resolvers``, absent from ``enqueued_external`` — and a
+        ref kind matching no resolver fails loudly.
 
         Re-running for an already-erased subject is a no-op success:
         row-deleting tables report zero, surviving rows (anonymized in
         place or retained) re-match by subject id and are reported again,
-        and external work is re-enqueued under fresh idempotency keys —
-        resolvers treat "already gone" as success, so duplicates converge.
+        and matched external work is re-enqueued under fresh idempotency
+        keys — resolvers treat "already gone" as success, so duplicates
+        converge.
 
         Args:
             session: An open database session; the local phase commits or
                 rolls back as one unit together with the outbox entries.
             subject_id: Identifier on the subject table.
-            refs: External-system references; every registered resolver
-                receives an outbox entry per ref.
+            refs: External-system references, routed by kind (ADR 0008).
 
         Returns:
             The local-phase outcome with per-table counts. A surviving row
@@ -163,19 +179,14 @@ class ErasurePlanner:
 
         Raises:
             ConfigurationError: If the planner was built without an
-                executor, outbox, or audit sink — or if the plan contains
-                external steps but ``refs`` is empty, which would silently
-                skip declared external PII.
+                executor, outbox, or audit sink.
+            ResolverError: If a ref's ``kind`` matches no registered
+                resolver — a typo must not silently drop an external
+                system from the erasure.
         """
         executor, outbox, sink = self._require_wiring()
         plan = self.plan(subject_id, refs=refs)
-        if plan.external_steps and not plan.refs:
-            names = ", ".join(step.target for step in plan.external_steps)
-            msg = (
-                f"resolvers are registered ({names}) but no subject refs were "
-                f"given; erasing without them would silently skip external data"
-            )
-            raise ConfigurationError(msg)
+        entries = _outbox_entries(plan)
         sink.append(
             _event(
                 AuditEventType.ERASURE_REQUESTED,
@@ -188,8 +199,9 @@ class ErasurePlanner:
             )
         )
         counts = self._run_local_steps(session, executor, plan, sink)
-        entries = _outbox_entries(plan)
         self._enqueue(session, outbox, entries, subject_id, sink)
+        enqueued = tuple(dict.fromkeys(entry.resolver for entry in entries))
+        skipped = tuple(step.target for step in plan.external_steps if step.target not in enqueued)
         sink.append(
             _event(
                 AuditEventType.ERASURE_LOCAL_COMPLETED,
@@ -199,6 +211,7 @@ class ErasurePlanner:
                     "anonymized": sum(counts[ErasureStrategy.ANONYMIZE].values()),
                     "retained": sum(counts[ErasureStrategy.RETAIN].values()),
                     "enqueued": len(entries),
+                    "skipped_resolvers": ",".join(skipped),
                 },
             )
         )
@@ -208,7 +221,7 @@ class ErasurePlanner:
             deleted=counts[ErasureStrategy.DELETE],
             anonymized=counts[ErasureStrategy.ANONYMIZE],
             retained=counts[ErasureStrategy.RETAIN],
-            enqueued_external=tuple(step.target for step in plan.external_steps),
+            enqueued_external=enqueued,
         )
 
     def _require_wiring(self) -> tuple[StepExecutor, Outbox, AuditSink]:
@@ -242,17 +255,17 @@ class ErasurePlanner:
         for step in plan.local_steps:
             try:
                 rows = executor.execute(session, self._graph, step, plan.subject_id)
+                sink.append(
+                    _event(
+                        AuditEventType.ERASURE_STEP_SUCCEEDED,
+                        plan.subject_id,
+                        {"target": step.target, "strategy": step.strategy.value, "rows": rows},
+                    )
+                )
             except Exception as exc:
                 sink.append(_failure(plan.subject_id, step.target, step.strategy.value, exc))
                 raise
             counts[step.strategy][step.target] = rows
-            sink.append(
-                _event(
-                    AuditEventType.ERASURE_STEP_SUCCEEDED,
-                    plan.subject_id,
-                    {"target": step.target, "strategy": step.strategy.value, "rows": rows},
-                )
-            )
         return counts
 
     def _enqueue(
@@ -300,18 +313,30 @@ def _failure(subject_id: str, target: str, strategy: str, exc: Exception) -> Aud
 
 
 def _outbox_entries(plan: ErasurePlan) -> tuple[OutboxEntry, ...]:
-    """One pending entry per (external step, ref) pair, fresh idempotency keys.
+    """One pending entry per matched (resolver, ref) pair, fresh idempotency keys.
 
-    Every resolver receives every ref: a ref's ``kind`` is not a resolver
-    name, so any routing heuristic would risk silently skipping external
-    erasure. Resolvers are idempotent — over-asking converges, under-asking
-    is unrecoverable. Selective routing can be added additively later.
+    Routing follows ADR 0008: a ref goes to the resolver whose name equals
+    the ref's kind. A kind matching no external step fails loudly — a
+    typo'd kind must never silently drop an external system from an
+    erasure. Resolvers with no matching ref simply produce no entry.
+
+    Raises:
+        ResolverError: If a ref's ``kind`` matches no registered resolver.
     """
+    names = {step.target for step in plan.external_steps}
+    unmatched = sorted({ref.kind for ref in plan.refs} - names)
+    if unmatched:
+        msg = (
+            f"no resolver registered for ref kind(s) {unmatched!r}; refs are "
+            f"routed to the resolver whose name equals the ref's kind"
+        )
+        raise ResolverError(msg)
     now = datetime.now(UTC)
     return tuple(
         OutboxEntry(entry_id=uuid4(), resolver=step.target, ref=ref, enqueued_at=now)
         for step in plan.external_steps
         for ref in plan.refs
+        if ref.kind == step.target
     )
 
 

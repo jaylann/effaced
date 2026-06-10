@@ -98,7 +98,7 @@ def test_plan_shape_is_subject_independent(planner: ErasurePlanner) -> None:
 
 
 def test_refs_are_recorded_on_the_plan(planner: ErasurePlanner) -> None:
-    refs = (SubjectRef(kind="stripe_customer", value="cus_1"),)
+    refs = (SubjectRef(kind="stripe", value="cus_1"),)
     assert planner.plan("42", refs=refs).refs == refs
 
 

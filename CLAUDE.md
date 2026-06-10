@@ -66,3 +66,7 @@ Append non-obvious discoveries to `## Learnings` below as you work. `/commit` di
 ## Learnings
 
 <!-- Append discoveries here; /commit migrates them into rules. -->
+
+- ADR 0008: refs route to the resolver whose `name` equals the ref's `kind`; unmatched ref kind ⇒ `ResolverError` before any audit event; resolver with no matching ref ⇒ skipped + recorded in the completion payload (`skipped_resolvers`), never `incomplete_sources`. The erasure executor/saga must reuse this rule.
+- Engines comparing a `str` subject id against a non-string id column must coerce via `column.type.python_type` first (SQLite tolerates the mismatch, Postgres does not) — `_coerce_subject_id` in `export/exporter.py` is the precedent for the erasure executor.
+- When `asyncio.run` refuses to start (already on a loop thread) it leaves the passed coroutine unconsumed — `close()` it before re-raising or pytest reports a `RuntimeWarning: coroutine ... was never awaited`.

@@ -8,14 +8,8 @@ from typing import Any, ClassVar
 
 import pytest
 from sqlalchemy import Column, Engine, ForeignKey, Integer, MetaData, Table, create_engine
-from sqlalchemy.orm import (
-    DeclarativeBase,
-    Mapped,
-    Session,
-    mapped_column,
-    registry,
-    relationship,
-)
+from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, registry, relationship
+from sqlalchemy.pool import StaticPool
 
 from effaced import (
     AuditEvent,
@@ -121,6 +115,7 @@ class OrderItem(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"))
+    gift_message: Mapped[str] = mapped_column(info=pii(PiiCategory.COMMUNICATION))
 
     order: Mapped[Order] = relationship()
 
@@ -168,41 +163,31 @@ class AppSetting(Base):
 
 
 def seed_two_subjects(session: Session) -> None:
-    """Populate the schema with two subjects so bleed is observable.
+    """Seed subjects 1 and 2 with rows in every annotated table, plus noise.
 
-    Subject A (user 1) owns an invoice, two orders (one with items), and a
-    self-referential comment chain; subject B (user 2) owns one of each.
-    Erasing A must leave every B row byte-identical.
+    Noise rows (app settings, tags, a tag link) prove that unannotated
+    stores never leak into subject-scoped operations.
     """
     session.add_all(
         [
-            User(id=1, email="ada@example.com", name="Ada", theme="dark"),
-            User(id=2, email="bob@example.com", name="Bob", theme="light"),
-        ]
-    )
-    session.flush()
-    session.add_all(
-        [
-            Invoice(id=1, user_id=1, billing_address="1 Ada Lane"),
-            Invoice(id=2, user_id=2, billing_address="2 Bob Road"),
+            User(id=1, email="alice@example.com", name="Alice Doe", theme="dark"),
+            User(id=2, email="bob@example.com", name="Bob Roe", theme="light"),
+            Invoice(id=1, user_id=1, billing_address="1 Alice Street"),
+            Invoice(id=2, user_id=2, billing_address="2 Bob Street"),
             Order(id=1, user_id=1),
-            Order(id=2, user_id=1),
-            Order(id=3, user_id=2),
+            Order(id=2, user_id=2),
+            OrderItem(id=1, order_id=1, gift_message="a gift for alice"),
+            OrderItem(id=2, order_id=2, gift_message="a gift for bob"),
+            Comment(id=1, user_id=1),
+            Comment(id=2, user_id=1, parent_id=1),
+            Comment(id=3, user_id=2),
+            Tag(id=1),
+            AppSetting(id=1, key="motd", value="hello"),
         ]
     )
     session.flush()
-    session.add_all(
-        [
-            OrderItem(id=1, order_id=1),
-            OrderItem(id=2, order_id=1),
-            OrderItem(id=3, order_id=3),
-            Comment(id=1, user_id=1, parent_id=None),
-            Comment(id=3, user_id=2, parent_id=None),
-        ]
-    )
-    session.flush()
-    session.add(Comment(id=2, user_id=1, parent_id=1))
-    session.flush()
+    session.execute(user_tags.insert().values(user_id=1, tag_id=1))
+    session.commit()
 
 
 @pytest.fixture()
@@ -215,6 +200,15 @@ def metadata() -> MetaData:
 def orm_registry() -> registry:
     """The annotated test schema's ORM registry (mappers + metadata)."""
     return Base.registry
+
+
+@pytest.fixture()
+def sqlite_engine() -> Iterator[Engine]:
+    """An in-memory SQLite engine with the annotated schema created."""
+    engine = create_engine("sqlite://", poolclass=StaticPool)
+    Base.metadata.create_all(engine)
+    yield engine
+    engine.dispose()
 
 
 @pytest.fixture()

@@ -13,11 +13,13 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from effaced import (
+    AuditEvent,
     AuditEventType,
     ConfigurationError,
     EffacedTables,
     ErasurePlanner,
     Outbox,
+    ResolverError,
     ResolverRegistry,
     StepExecutor,
     SubjectGraph,
@@ -30,8 +32,8 @@ from effaced.adapters.sqlalchemy import ErasureExecutor
 from effaced.erasure import ErasureStep
 
 REFS = (
-    SubjectRef(kind="stripe_customer", value="cus_1"),
-    SubjectRef(kind="email", value="ref-7"),
+    SubjectRef(kind="crm", value="crm-1"),
+    SubjectRef(kind="stripe", value="cus_1"),
 )
 
 
@@ -67,6 +69,22 @@ class ExplodingSink(RecordingAuditSink):
         raise RuntimeError(msg)
 
 
+class FlakySink(RecordingAuditSink):
+    """A sink that fails exactly once, on the n-th append."""
+
+    def __init__(self, fail_on_call: int) -> None:
+        super().__init__()
+        self._calls = 0
+        self._fail_on = fail_on_call
+
+    def append(self, event: AuditEvent) -> None:
+        self._calls += 1
+        if self._calls == self._fail_on:
+            msg = "sink hiccup"
+            raise RuntimeError(msg)
+        super().append(event)
+
+
 class Harness(NamedTuple):
     """A fully wired planner over the seeded two-subject schema."""
 
@@ -93,7 +111,6 @@ def build_harness(
     session_factory = sessionmaker(engine)
     with session_factory() as session:
         seed_two_subjects(session)
-        session.commit()
     registry = ResolverRegistry()
     for name in resolvers:
         registry.register(FakeResolver(name))
@@ -118,7 +135,9 @@ def harness() -> Harness:
 
 
 def table_rows(session: Session, name: str) -> list[dict[str, object]]:
-    return [dict(row) for row in session.execute(select(Base.metadata.tables[name])).mappings()]
+    table = Base.metadata.tables[name]
+    statement = select(table).order_by(*table.primary_key.columns)
+    return [dict(row) for row in session.execute(statement).mappings()]
 
 
 def outbox_rows(harness: Harness, session: Session) -> list[dict[str, object]]:
@@ -134,18 +153,19 @@ def test_happy_path_counts_and_retained_invoice(harness: Harness) -> None:
         result = harness.planner.erase_subject(session, "1", refs=REFS)
         session.commit()
     assert result.subject_id == "1"
-    assert result.deleted == {"comments": 2, "order_items": 2, "orders": 2}
+    assert result.deleted == {"comments": 2, "order_items": 1, "orders": 1}
     assert result.anonymized == {"users": 1}
     assert result.retained == {"invoices": 1}
     assert result.enqueued_external == ("crm", "stripe")
     assert result.completed_at.tzinfo is not None
     with harness.session_factory() as session:
-        ada, bob = table_rows(session, "users")
-        assert ada["email"] != "ada@example.com"
-        assert ada["theme"] == "dark"
+        alice, bob = table_rows(session, "users")
+        assert alice["email"] != "alice@example.com"
+        assert alice["name"] != "Alice Doe"
+        assert alice["theme"] == "dark"
         assert bob["email"] == "bob@example.com"
         invoices = table_rows(session, "invoices")
-        assert {"id": 1, "user_id": 1, "billing_address": "1 Ada Lane"} in invoices
+        assert {"id": 1, "user_id": 1, "billing_address": "1 Alice Street"} in invoices
 
 
 def test_no_cross_subject_bleed(harness: Harness) -> None:
@@ -159,7 +179,7 @@ def test_no_cross_subject_bleed(harness: Harness) -> None:
     with harness.session_factory() as session:
         for name, rows in before.items():
             assert [row for row in table_rows(session, name) if row.get("user_id") == 2] == rows
-        assert [row["id"] for row in table_rows(session, "order_items")] == [3]
+        assert [row["id"] for row in table_rows(session, "order_items")] == [2]
 
 
 def test_audit_sequence_and_payloads(harness: Harness) -> None:
@@ -178,23 +198,52 @@ def test_audit_sequence_and_payloads(harness: Harness) -> None:
     assert {"target": "invoices", "strategy": "retain", "rows": 1} in succeeded
     assert {"target": "users", "strategy": "anonymize", "rows": 1} in succeeded
     assert {"target": "comments", "strategy": "delete", "rows": 2} in succeeded
-    assert events[-1].payload == {"deleted": 6, "anonymized": 1, "retained": 1, "enqueued": 4}
+    assert events[-1].payload == {
+        "deleted": 4,
+        "anonymized": 1,
+        "retained": 1,
+        "enqueued": 2,
+        "skipped_resolvers": "",
+    }
 
 
-def test_outbox_fan_out_is_resolver_times_ref(harness: Harness) -> None:
+def test_refs_route_to_the_resolver_named_by_their_kind(harness: Harness) -> None:
+    """ADR 0008: kind == resolver name; several matching refs ⇒ several entries."""
+    refs = (*REFS, SubjectRef(kind="stripe", value="cus_2"))
     with harness.session_factory() as session:
-        harness.planner.erase_subject(session, "1", refs=REFS)
+        harness.planner.erase_subject(session, "1", refs=refs)
         rows = outbox_rows(harness, session)
-        assert len(rows) == 4
         assert {(row["resolver"], row["ref_value"]) for row in rows} == {
-            ("crm", "cus_1"),
-            ("crm", "ref-7"),
+            ("crm", "crm-1"),
             ("stripe", "cus_1"),
-            ("stripe", "ref-7"),
+            ("stripe", "cus_2"),
         }
         assert all(row["status"] == "pending" for row in rows)
-        assert len({row["entry_id"] for row in rows}) == 4
+        assert len({row["entry_id"] for row in rows}) == 3
         session.commit()
+
+
+def test_unmatched_ref_kind_fails_loudly_before_any_event(harness: Harness) -> None:
+    refs = (SubjectRef(kind="stripe_customer", value="cus_1"),)
+    with (
+        harness.session_factory() as session,
+        pytest.raises(ResolverError, match="stripe_customer"),
+    ):
+        harness.planner.erase_subject(session, "1", refs=refs)
+    assert harness.sink.events == []
+    with harness.session_factory() as session:
+        assert len(table_rows(session, "comments")) == 3
+
+
+def test_resolver_without_matching_ref_is_skipped_and_audited(harness: Harness) -> None:
+    """ADR 0008: no matching ref is a complete answer, recorded, not an error."""
+    with harness.session_factory() as session:
+        result = harness.planner.erase_subject(session, "1", refs=REFS[:1])
+        session.commit()
+    assert result.enqueued_external == ("crm",)
+    assert harness.sink.events[-1].payload["skipped_resolvers"] == "stripe"
+    with harness.session_factory() as session:
+        assert [row["resolver"] for row in outbox_rows(harness, session)] == ["crm"]
 
 
 def test_rollback_discards_rows_and_outbox_but_keeps_audit(harness: Harness) -> None:
@@ -204,7 +253,7 @@ def test_rollback_discards_rows_and_outbox_but_keeps_audit(harness: Harness) -> 
     with harness.session_factory() as session:
         users = table_rows(session, "users")
         assert len(users) == 2
-        assert users[0]["email"] == "ada@example.com"
+        assert users[0]["email"] == "alice@example.com"
         assert len(table_rows(session, "comments")) == 3
         assert outbox_rows(harness, session) == []
     assert AuditEventType.ERASURE_LOCAL_COMPLETED in event_types(harness)
@@ -231,7 +280,7 @@ def test_mid_stream_failure_is_audited_and_propagates(harness: Harness) -> None:
     }
     with harness.session_factory() as session:
         assert len(table_rows(session, "comments")) == 3
-        assert len(table_rows(session, "order_items")) == 3
+        assert len(table_rows(session, "order_items")) == 2
         assert outbox_rows(harness, session) == []
 
 
@@ -261,14 +310,6 @@ def test_unwired_planner_refuses_loudly() -> None:
     engine.dispose()
 
 
-def test_external_steps_without_refs_refuse_before_any_event(harness: Harness) -> None:
-    with harness.session_factory() as session, pytest.raises(ConfigurationError, match="refs"):
-        harness.planner.erase_subject(session, "1")
-    assert harness.sink.events == []
-    with harness.session_factory() as session:
-        assert len(table_rows(session, "comments")) == 3
-
-
 def test_failing_sink_stops_the_erasure_before_any_row_changes() -> None:
     harness = build_harness(sink=ExplodingSink(), resolvers=())
     with harness.session_factory() as session:
@@ -277,18 +318,41 @@ def test_failing_sink_stops_the_erasure_before_any_row_changes() -> None:
         session.rollback()
     with harness.session_factory() as session:
         assert len(table_rows(session, "comments")) == 3
-        assert table_rows(session, "users")[0]["email"] == "ada@example.com"
+        assert table_rows(session, "users")[0]["email"] == "alice@example.com"
+
+
+def test_transient_sink_failure_after_a_step_audits_it_as_failed() -> None:
+    """A step whose outcome cannot be recorded counts as failed (ADR 0009).
+
+    The third append (the second step's success record) hiccups; the
+    failure event for that step still lands because the sink recovers.
+    """
+    flaky = FlakySink(fail_on_call=3)
+    harness = build_harness(sink=flaky, resolvers=())
+    with harness.session_factory() as session:
+        with pytest.raises(RuntimeError, match="sink hiccup"):
+            harness.planner.erase_subject(session, "1")
+        session.rollback()
+    assert event_types(harness) == [
+        AuditEventType.ERASURE_REQUESTED,
+        AuditEventType.ERASURE_STEP_SUCCEEDED,
+        AuditEventType.ERASURE_STEP_FAILED,
+    ]
+    failed = harness.sink.events[-1].payload
+    assert failed["target"] == "invoices"
+    assert failed["error"] == "RuntimeError"
+    with harness.session_factory() as session:
+        assert len(table_rows(session, "comments")) == 3
 
 
 def test_rerun_for_an_erased_subject_is_a_no_op_success(harness: Harness) -> None:
     """Deleted tables stay empty; the surviving (anonymized/retained) rows
-    re-match by subject id and are reported again; external work is
+    re-match by subject id and are reported again; matched external work is
     re-enqueued with fresh idempotency keys (resolvers converge on it)."""
     with harness.session_factory() as session:
         harness.planner.erase_subject(session, "1", refs=REFS)
         session.commit()
     with harness.session_factory() as session:
-        first_anonymized = table_rows(session, "users")[0]
         rerun = harness.planner.erase_subject(session, "1", refs=REFS)
         session.commit()
     assert rerun.deleted == {"comments": 0, "order_items": 0, "orders": 0}
@@ -297,6 +361,5 @@ def test_rerun_for_an_erased_subject_is_a_no_op_success(harness: Harness) -> Non
     assert rerun.enqueued_external == ("crm", "stripe")
     with harness.session_factory() as session:
         rows = outbox_rows(harness, session)
-        assert len(rows) == 8
-        assert isinstance(first_anonymized["id"], int)
-        assert len({UUID(str(row["entry_id"])) for row in rows}) == 8
+        assert len(rows) == 4
+        assert len({UUID(str(row["entry_id"])) for row in rows}) == 4

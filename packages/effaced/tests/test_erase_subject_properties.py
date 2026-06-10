@@ -48,7 +48,7 @@ def seed_subject(session: Session, user_id: int, shape: SubjectShape, counter: i
     item_id = counter + 40
     for order_id in order_ids:
         for _ in range(shape.items_per_order):
-            session.add(OrderItem(id=item_id, order_id=order_id))
+            session.add(OrderItem(id=item_id, order_id=order_id, gift_message=f"gift-{item_id}"))
             item_id += 1
     parent: int | None = None
     for index in range(shape.comments):
