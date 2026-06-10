@@ -64,7 +64,9 @@ def resolve_subject_graph(data_map: DataMap, orm_registry: registry) -> SubjectG
         raise SubjectResolutionError(msg)
     plans = {
         entry.name: TableAccessPlan(
-            table=entry.name, hops=_resolve_path(entry, mappers, subject.name)
+            table=entry.name,
+            hops=_resolve_path(entry, mappers, subject.name),
+            fully_pii_owned=_fully_pii_owned(entry, _mapper_for(entry, mappers)),
         )
         for entry in data_map.tables
     }
@@ -115,6 +117,27 @@ def _mapper_for(entry: TableEntry, mappers: Mapping[str, Mapper[Any]]) -> Mapper
         )
         raise SubjectResolutionError(msg)
     return mapper
+
+
+def _fully_pii_owned(entry: TableEntry, mapper: Mapper[Any]) -> bool:
+    """Whether the row holds nothing but annotated PII and structural keys.
+
+    True when every physical column is PII-annotated, a primary-key
+    member, or a foreign-key member. Anything else (an unannotated payload
+    column) means row deletion would erase more than the manifest declares,
+    so the planner must fall back to column-level anonymization.
+    """
+    table = mapper.local_table
+    if not isinstance(table, Table):  # pragma: no cover - filtered out by _mappers_by_table
+        return False
+    annotated = {column.name for column in entry.columns}
+    key_members = {
+        column.name for constraint in table.foreign_key_constraints for column in constraint.columns
+    }
+    return all(
+        column.name in annotated or column.primary_key or column.name in key_members
+        for column in table.columns
+    )
 
 
 def _resolve_path(

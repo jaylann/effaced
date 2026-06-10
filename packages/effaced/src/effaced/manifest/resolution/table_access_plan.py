@@ -14,12 +14,20 @@ class TableAccessPlan(BaseModel):
     engine turns it into a correlated join ("select/delete this table's
     rows whose chain ends at the given subject id"). An empty chain means
     the table *is* the subject table.
+
+    :attr:`fully_pii_owned` reports whether every physical column of the
+    table is PII-annotated, a primary-key member, or a foreign-key member —
+    i.e. the row carries nothing but personal data and structural keys, so
+    deleting the whole row is the faithful erasure. The conservative
+    default is ``False``: rows are anonymized in place unless an adapter
+    (or a hand-built graph) explicitly establishes full ownership.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     table: str = Field(min_length=1)
     hops: tuple[JoinHop, ...] = ()
+    fully_pii_owned: bool = False
 
     @model_validator(mode="after")
     def _chain_is_contiguous(self) -> TableAccessPlan:

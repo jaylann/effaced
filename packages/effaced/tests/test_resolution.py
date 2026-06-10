@@ -163,6 +163,16 @@ def test_self_referential_table_resolves(graph: SubjectGraph) -> None:
     assert single.target_table == "users"
 
 
+def test_fully_pii_owned_defaults_to_false() -> None:
+    assert TableAccessPlan(table="users").fully_pii_owned is False
+
+
+def test_fully_pii_owned_per_shared_schema_table(graph: SubjectGraph) -> None:
+    assert graph.access("users").fully_pii_owned is False  # `theme` is unannotated
+    for table in ("invoices", "orders", "order_items", "comments"):
+        assert graph.access(table).fully_pii_owned is True
+
+
 def test_deletion_order_is_fk_safe(graph: SubjectGraph) -> None:
     order = graph.deletion_order
     assert sorted(order) == sorted({"users", "invoices", "orders", "order_items", "comments"})

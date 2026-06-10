@@ -27,6 +27,15 @@ class RetentionViolationError(EffacedError):
     """
 
 
+class AnonymizationError(EffacedError):
+    """No type-valid surrogate is registered for a column's type.
+
+    Raised loudly instead of guessing a replacement value — register a
+    factory on the :class:`~effaced.adapters.sqlalchemy.SurrogateRegistry`
+    for the missing type.
+    """
+
+
 class ConsentError(EffacedError):
     """A consent record is malformed or an operation conflicts with one."""
 

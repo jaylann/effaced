@@ -13,8 +13,10 @@ from importlib.metadata import PackageNotFoundError, version
 
 from effaced.adapters.sqlalchemy import (
     EffacedTables,
+    SurrogateRegistry,
     bind_tables,
     collect_data_map,
+    default_surrogate_registry,
     pii,
     resolve_subject_graph,
     subject_link,
@@ -25,6 +27,7 @@ from effaced.categories import ErasureStrategy, LegalBasis, PiiCategory
 from effaced.consent import ConsentLedger, ConsentRecord
 from effaced.erasure import ErasurePlan, ErasurePlanner, ErasureResult, ErasureStep
 from effaced.exceptions import (
+    AnonymizationError,
     AuditIntegrityError,
     ConsentError,
     EffacedError,
@@ -53,6 +56,7 @@ except PackageNotFoundError:  # pragma: no cover - only hit on uninstalled sourc
 
 __all__ = [
     "MANIFEST_SCHEMA_VERSION",
+    "AnonymizationError",
     "AuditEvent",
     "AuditEventType",
     "AuditIntegrityError",
@@ -92,11 +96,13 @@ __all__ = [
     "SubjectLink",
     "SubjectRef",
     "SubjectResolutionError",
+    "SurrogateRegistry",
     "TableAccessPlan",
     "TableEntry",
     "__version__",
     "bind_tables",
     "collect_data_map",
+    "default_surrogate_registry",
     "fk_safe_deletion_order",
     "pii",
     "resolve_subject_graph",
