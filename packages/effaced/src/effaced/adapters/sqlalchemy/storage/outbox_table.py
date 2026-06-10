@@ -30,7 +30,10 @@ def build_outbox_table(metadata: MetaData) -> Table:
     string mapping. ``status`` is a plain string rather than a native
     database enum so :class:`~effaced.OutboxStatus` can grow in MINOR
     releases without forcing user migrations. The ``(status, enqueued_at)``
-    index serves the runner's claim of pending entries, oldest first.
+    index serves the runner's claim of due entries, oldest first;
+    ``next_attempt_at`` is the claim gate (``NULL`` = due now, a crash
+    lease while in flight, the backoff schedule while failed); the
+    ``subject_id`` index serves the runner's per-subject completion check.
 
     Args:
         metadata: The application's ``MetaData`` to mount the table on.
@@ -42,6 +45,7 @@ def build_outbox_table(metadata: MetaData) -> Table:
         OUTBOX_TABLE_NAME,
         metadata,
         Column("entry_id", Uuid(), primary_key=True),
+        Column("subject_id", String(255), nullable=False),
         Column("resolver", String(255), nullable=False),
         Column("ref_kind", String(255), nullable=False),
         Column("ref_value", String(255), nullable=False),
@@ -52,6 +56,8 @@ def build_outbox_table(metadata: MetaData) -> Table:
         Column("attempts", Integer(), nullable=False, default=0),
         Column("enqueued_at", DateTime(timezone=True), nullable=False),
         Column("last_attempt_at", DateTime(timezone=True), nullable=True),
+        Column("next_attempt_at", DateTime(timezone=True), nullable=True),
         Column("last_error", Text(), nullable=True),
         Index("ix_effaced_outbox_status_enqueued_at", "status", "enqueued_at"),
+        Index("ix_effaced_outbox_subject_id", "subject_id"),
     )

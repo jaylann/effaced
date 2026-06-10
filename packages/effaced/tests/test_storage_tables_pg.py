@@ -47,6 +47,7 @@ def test_create_all_round_trips_all_three_tables(pg_engine: Engine) -> None:
                 tables.outbox.insert(),
                 {
                     "entry_id": entry_id,
+                    "subject_id": "subject-1",
                     "resolver": "stripe",
                     "ref_kind": "customer",
                     "ref_value": "cus_123",
@@ -75,10 +76,12 @@ def test_create_all_round_trips_all_three_tables(pg_engine: Engine) -> None:
 
             entry = conn.execute(select(tables.outbox)).one()
             assert entry.entry_id == entry_id
+            assert entry.subject_id == "subject-1"
             assert entry.ref_extra == {"account": "acct_1"}
             assert entry.status == OutboxStatus.PENDING.value  # python-side default fired
             assert entry.attempts == 0
             assert entry.last_attempt_at is None
+            assert entry.next_attempt_at is None
             assert entry.last_error is None
     finally:
         metadata.drop_all(pg_engine)

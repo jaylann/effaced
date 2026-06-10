@@ -27,7 +27,10 @@ ALL_TABLE_NAMES = (
 EXPECTED_INDEX_NAMES = {
     AUDIT_EVENTS_TABLE_NAME: {"ix_effaced_audit_events_subject_ref_occurred_at"},
     CONSENT_RECORDS_TABLE_NAME: {"ix_effaced_consent_records_subject_purpose_recorded_at"},
-    OUTBOX_TABLE_NAME: {"ix_effaced_outbox_status_enqueued_at"},
+    OUTBOX_TABLE_NAME: {
+        "ix_effaced_outbox_status_enqueued_at",
+        "ix_effaced_outbox_subject_id",
+    },
 }
 
 
@@ -95,7 +98,9 @@ def test_outbox_flattens_subject_ref() -> None:
     assert table.columns["status"].default.arg == "pending"  # type: ignore[union-attr]
     assert table.columns["attempts"].default is not None
     assert table.columns["attempts"].default.arg == 0  # type: ignore[union-attr]
+    assert table.columns["subject_id"].nullable is False
     assert table.columns["last_attempt_at"].nullable is True
+    assert table.columns["next_attempt_at"].nullable is True
     assert table.columns["last_error"].nullable is True
 
 
