@@ -95,8 +95,7 @@ class Pipeline(NamedTuple):
 
 
 def build_pipeline(
-    resolver: StatefulResolver,
-    *,
+    *resolvers: StatefulResolver,
     sink: RecordingAuditSink | None = None,
     executor: StepExecutor | None = None,
     max_attempts: int = 3,
@@ -110,7 +109,8 @@ def build_pipeline(
     with session_factory() as session:
         seed_two_subjects(session)
     registry = ResolverRegistry()
-    registry.register(resolver)
+    for resolver in resolvers:
+        registry.register(resolver)
     data_map = collect_data_map(Base.metadata)
     outbox = Outbox(session_factory, tables.outbox)
     recording = sink if sink is not None else RecordingAuditSink()
@@ -294,3 +294,33 @@ def test_sink_outage_during_settle_keeps_entry_in_flight_and_heals() -> None:
     assert succeeded.payload["already_absent"] is True
     (completed,) = events_of(pipeline, AuditEventType.ERASURE_COMPLETED)
     assert completed.subject_ref == "1"
+
+
+def test_abandoned_sibling_blocks_completion_despite_a_succeeding_resolver() -> None:
+    """One resolver succeeds, a sibling abandons: the subject never completes.
+
+    Driven through ``erase_subject`` so the planner itself enqueues both
+    entries (one per resolver). The succeeding leg lands SUCCEEDED, the
+    terminal leg ABANDONED with an audited ``abandoned: true``, and because
+    not every entry for the subject succeeded, ERASURE_COMPLETED never
+    fires — the abandonment blocks completion forever (ADR 0010).
+    """
+    stripe = StatefulResolver("stripe", {"cus_1"})
+    crm = TerminalSystem("crm", set())
+    pipeline = build_pipeline(stripe, crm)
+    refs = (
+        SubjectRef(kind="stripe", value="cus_1"),
+        SubjectRef(kind="crm", value="ext_1"),
+    )
+    with pipeline.session_factory() as session:
+        pipeline.planner.erase_subject(session, "1", refs=refs)
+        session.commit()
+    drain(pipeline)
+    assert sorted(entry_statuses(pipeline)) == sorted(
+        [OutboxStatus.SUCCEEDED.value, OutboxStatus.ABANDONED.value]
+    )
+    assert stripe.records == set()
+    (failed,) = events_of(pipeline, AuditEventType.ERASURE_STEP_FAILED)
+    assert failed.payload["abandoned"] is True
+    assert failed.payload["error"] == "ResolverError"
+    assert not events_of(pipeline, AuditEventType.ERASURE_COMPLETED)
