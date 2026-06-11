@@ -8,6 +8,7 @@ Export · Erasure · Consent · Audit — across your database **and** the exter
 
 **We ship the mechanisms. You own the compliance.**
 
+[![Status: pre-alpha](https://img.shields.io/badge/status-pre--alpha-orange)](#status--stability)
 [![CI](https://github.com/jaylann/effaced/actions/workflows/ci.yml/badge.svg)](https://github.com/jaylann/effaced/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/jaylann/effaced/badge)](https://scorecard.dev/viewer/?uri=github.com/jaylann/effaced)
@@ -162,7 +163,7 @@ Write your own resolver by implementing the small [`Resolver` protocol](packages
 
 ## Status & stability
 
-Pre-release (0.x), not yet on PyPI. The 0.x window is being used to get the manifest format and resolver interface right — and to dogfood effaced in production before 1.0; 1.0 ships when both have survived that.
+**Pre-alpha (0.x), not yet proven in production.** The 0.x window is being used to get the manifest format and resolver interface right — and to dogfood effaced in production before 1.0; 1.0 ships when both have survived that. Until then: effaced ships *mechanisms*, never a compliance determination — see [What effaced is not](#what-effaced-is-not).
 
 **SemVer, widened:** API changes, manifest-format changes, *and any change to what gets deleted or exported* are MAJOR — silently changing compliance behaviour is the worst possible failure for a library like this.
 
