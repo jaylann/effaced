@@ -16,6 +16,7 @@ from sqlalchemy.types import UserDefinedType
 from effaced import (
     MANIFEST_SCHEMA_VERSION,
     AuditEventType,
+    ColumnEntry,
     DataMap,
     ExportBundle,
     Exporter,
@@ -31,7 +32,6 @@ from effaced import (
     collect_data_map,
     resolve_subject_graph,
 )
-from effaced.manifest import ColumnEntry
 
 
 class ExportHarness(NamedTuple):

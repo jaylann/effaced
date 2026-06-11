@@ -8,6 +8,7 @@ from sqlalchemy import MetaData
 from sqlalchemy.orm import registry
 
 from effaced import (
+    ColumnEntry,
     DataMap,
     JoinHop,
     PiiCategory,
@@ -21,7 +22,6 @@ from effaced import (
     fk_safe_deletion_order,
     resolve_subject_graph,
 )
-from effaced.manifest import ColumnEntry
 
 USERS = TableEntry(name="users", subject_link=SubjectLink(path=""))
 

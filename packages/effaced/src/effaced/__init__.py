@@ -41,6 +41,7 @@ from effaced.exceptions import (
 from effaced.export import ExportBundle, Exporter, ExportRecord
 from effaced.manifest import (
     MANIFEST_SCHEMA_VERSION,
+    ColumnEntry,
     DataMap,
     JoinHop,
     SubjectGraph,
@@ -64,6 +65,7 @@ __all__ = [
     "AuditIntegrityError",
     "AuditSink",
     "BackoffPolicy",
+    "ColumnEntry",
     "ConfigurationError",
     "ConsentError",
     "ConsentLedger",
