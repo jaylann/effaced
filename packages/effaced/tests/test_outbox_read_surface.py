@@ -86,15 +86,37 @@ def test_list_abandoned_orders_oldest_first_and_respects_limit(harness: ReadHarn
 
 
 def test_list_abandoned_round_trips_the_full_entry(harness: ReadHarness) -> None:
-    original = entry(7)
+    """Non-default lifecycle fields come back exactly as stored.
+
+    Guards the row→entry mapping against the claim-time mapper's habits
+    (`attempts + 1`, overwritten timestamps): a mismapped copy would fail
+    on these values.
+    """
+    original = OutboxEntry(
+        entry_id=UUID(int=7),
+        subject_id="42",
+        resolver="stripe",
+        ref=SubjectRef(kind="stripe_customer", value="cus_7", extra={"account": "acct_9"}),
+        status=OutboxStatus.FAILED,
+        attempts=3,
+        enqueued_at=ENQUEUED_AT,
+        last_attempt_at=ENQUEUED_AT + timedelta(minutes=5),
+    )
     seed(harness, [original])
     abandon(harness, original, error="StripeError")
     (listed,) = harness.outbox.list_abandoned()
-    assert listed.subject_id == original.subject_id
-    assert listed.resolver == original.resolver
+    assert listed.entry_id == original.entry_id
+    assert listed.subject_id == "42"
+    assert listed.resolver == "stripe"
     assert listed.ref == original.ref
-    assert listed.attempts == original.attempts
+    assert listed.status is OutboxStatus.ABANDONED
+    assert listed.attempts == 3
+    # SQLite hands timestamps back naive; they are stored as UTC
+    assert listed.enqueued_at.replace(tzinfo=UTC) == original.enqueued_at
+    assert listed.last_attempt_at is not None
+    assert listed.last_attempt_at.replace(tzinfo=UTC) == original.last_attempt_at
     assert listed.next_attempt_at is None
+    assert listed.last_error == "StripeError"
 
 
 def test_status_counts_are_zero_filled(harness: ReadHarness) -> None:
