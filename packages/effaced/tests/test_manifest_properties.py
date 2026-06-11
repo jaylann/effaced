@@ -7,8 +7,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from schema_strategies import GeneratedSchema, annotated_schemas, scaled_examples
 
-from effaced import DataMap, PiiCategory, PiiSpec
-from effaced.manifest import ColumnEntry, TableEntry
+from effaced import ColumnEntry, DataMap, PiiCategory, PiiSpec, TableEntry
 
 pytestmark = pytest.mark.property
 

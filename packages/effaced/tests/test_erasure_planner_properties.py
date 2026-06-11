@@ -7,6 +7,7 @@ from hypothesis import assume, given
 from hypothesis import strategies as st
 
 from effaced import (
+    ColumnEntry,
     DataMap,
     ErasurePlan,
     ErasurePlanner,
@@ -26,7 +27,6 @@ from effaced import (
     TableAccessPlan,
     TableEntry,
 )
-from effaced.manifest import ColumnEntry
 
 pytestmark = pytest.mark.property
 

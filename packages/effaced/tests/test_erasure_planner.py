@@ -13,6 +13,7 @@ from sqlalchemy import MetaData
 from sqlalchemy.orm import registry as orm_registry_type
 
 from effaced import (
+    ColumnEntry,
     DataMap,
     ErasurePlanner,
     ErasureStep,
@@ -34,7 +35,6 @@ from effaced import (
     collect_data_map,
     resolve_subject_graph,
 )
-from effaced.manifest import ColumnEntry
 
 
 class FakeResolver:
