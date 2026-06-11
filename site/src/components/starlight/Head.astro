@@ -1,0 +1,23 @@
+---
+// Default Starlight head plus social-card and theme-color metadata.
+import Default from '@astrojs/starlight/components/Head.astro';
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const ogImage = Astro.site ? new URL(`${base}/og.png`, Astro.site).href : `${base}/og.png`;
+---
+
+<Default><slot /></Default>
+<meta property="og:image" content={ogImage} />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="theme-color" content="#000000" />
+{/* Dark is the brand default: seed the theme before Starlight's
+    ThemeProvider reads it, but never override a visitor's choice. */}
+<script is:inline>
+  try {
+    if (!localStorage.getItem('starlight-theme')) {
+      localStorage.setItem('starlight-theme', 'dark');
+    }
+  } catch {
+    /* storage unavailable — Starlight falls back to auto */
+  }
+</script>

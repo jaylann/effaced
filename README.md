@@ -12,6 +12,8 @@ Every SaaS eventually has to let a user export their data, delete their account,
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/jaylann/effaced/badge)](https://scorecard.dev/viewer/?uri=github.com/jaylann/effaced)
 
+**Docs:** [jaylann.github.io/effaced](https://jaylann.github.io/effaced/) — guides, concepts, and the full API reference (generated from the docstrings you'll read in this repo).
+
 ## 30-second quickstart
 
 ```bash

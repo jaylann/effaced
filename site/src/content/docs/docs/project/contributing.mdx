@@ -1,0 +1,80 @@
+---
+title: Contributing
+description: Setup, branch flow, commit conventions, and code standards for contributing to effaced.
+sidebar:
+  order: 4
+---
+
+Thanks for helping build trustworthy GDPR machinery. This is the
+condensed version; the full guide is
+[CONTRIBUTING.md on GitHub](https://github.com/jaylann/effaced/blob/stage/CONTRIBUTING.md).
+
+## Setup
+
+Requires [uv](https://docs.astral.sh/uv/) and
+[just](https://github.com/casey/just).
+
+```bash
+git clone https://github.com/jaylann/effaced && cd effaced
+uv sync                                  # workspace: packages/effaced + packages/effaced-stripe
+uv run pre-commit install --hook-type pre-commit --hook-type commit-msg
+just check                               # ruff lint + format check + mypy --strict + file-length gate
+just test                                # pytest (unit + property tests)
+```
+
+Touching the docs site additionally needs Node and pnpm (`just site-dev`);
+Python-only contributions don't.
+
+## Branch flow
+
+```
+feat/your-change ──PR──► stage (default) ──promotion PR──► main ──► release-please ──► PyPI
+```
+
+- PRs always target **`stage`**, never `main`. `main` is release-only.
+- Squash-merge: your PR title becomes the commit on `stage`, so PR titles
+  must be Conventional Commits too (CI enforces this).
+- Releases are fully automated — versioning, changelogs, tags, and PyPI
+  publishing happen via release-please. You never touch a version number.
+
+## Commits: Conventional + DCO
+
+Every commit message needs two things:
+
+1. **Conventional Commits**: `type(scope)?: lowercase subject` — types:
+   `feat fix chore docs refactor test perf style ci build revert`.
+2. **DCO sign-off**: commit with `git commit -s`. By signing off you
+   certify the [Developer Certificate of Origin](https://developercertificate.org/).
+   CI rejects unsigned commits.
+
+## Code standards
+
+- **Strict typing.** mypy `--strict` with the pydantic plugin must pass.
+- **Pydantic for data.** Frozen `BaseModel`s with `extra="forbid"`;
+  invariants in validators, not call sites.
+- **Small, searchable files.** One concept per file, named after the
+  class it holds, hard cap 600 lines (CI-gated).
+- **Google-style docstrings** on all public API — they are rendered
+  verbatim as this site's API reference.
+- **Tests for behaviour**, property-based tests (hypothesis) for
+  format/isolation guarantees.
+
+:::caution[The widened SemVer rule]
+For effaced, "breaking" includes behaviour: a change to *what gets
+deleted or exported* is MAJOR even if no signature changed. If your PR
+changes erasure/export behaviour, say so explicitly in the PR body — the
+template asks. See [stability and guarantees](../stability/).
+:::
+
+## Wording discipline
+
+Contributions must keep the framing: effaced ships *mechanisms*, never
+compliance determinations. Don't add copy — docs, docstrings, log
+messages — claiming effaced "makes you compliant".
+
+## Resolvers and issues
+
+- New resolvers: open a "Resolver request" issue first — first-party
+  resolvers are added demand-pulled.
+- Bug reports: use the issue form; include package versions and a minimal
+  annotated model if manifest-related.
