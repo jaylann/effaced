@@ -27,6 +27,12 @@
       "package-name": "effaced-stripe",
       "component": "effaced-stripe",
       "changelog-path": "CHANGELOG.md"
+    },
+    "packages/effaced-supabase": {
+      "release-type": "python",
+      "package-name": "effaced-supabase",
+      "component": "effaced-supabase",
+      "changelog-path": "CHANGELOG.md"
     }
   }
 }
