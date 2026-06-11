@@ -12,6 +12,8 @@ For **each** of `effaced` and `effaced-stripe` on pypi.org → project (or pendi
 
 Also create the GitHub environment: repo → Settings → Environments → `pypi` (optionally add a protection rule requiring your approval before publish jobs run).
 
+> **Pending-publisher tuple trap:** a *pending* publisher must be unique on `(owner, repo, workflow, environment)` — the project name isn't part of the key. Both packages share `(jaylann, effaced, publish.yml, pypi)`, so you **cannot** add both pending publishers at once (the second 503s). Add and ship `effaced` first; once it's published its pending publisher becomes active and frees the tuple, then add `effaced-stripe`'s pending publisher. Full sequencing + the `separate-pull-requests` toggle: `docs/runbooks/adding-a-package.md`.
+
 ## 2. lanfermann-release-bot (required for release PRs to get CI)
 
 The same GitHub App used by XCStringsTranslator (App ID 3987809):
