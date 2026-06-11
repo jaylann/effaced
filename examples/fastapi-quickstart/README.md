@@ -43,7 +43,9 @@ The `X-User-Id` header stands in for your real auth dependency.
 | `STRIPE_CUSTOMER_ID` | unset | When set together with the key, export/erasure also reach Stripe |
 
 Without the Stripe variables the example runs fully locally — no network
-calls leave your machine.
+calls leave your machine. Set **both** or neither: with only the key, the
+resolver is registered but no requests carry a Stripe ref, so export and
+erasure record Stripe as a skipped resolver instead of reaching it.
 
 ## Notes
 

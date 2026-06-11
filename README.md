@@ -68,8 +68,8 @@ tables = bind_tables(Base.metadata)        # effaced-owned tables ride your migr
 audit = DatabaseAuditSink(session_factory, tables.audit_events)
 outbox = Outbox(session_factory, tables.outbox)
 registry = ResolverRegistry()
-registry.register(StripeResolver(api_key="rk_live_..."))   # explicit — the registry doubles
-                                                           # as your "where is my PII" list
+registry.register(StripeResolver(api_key="rk_restricted_..."))  # explicit — the registry doubles
+                                                                 # as your "where is my PII" list
 stripe_ref = SubjectRef(kind="stripe", value=stripe_customer_id)  # kind == resolver name
 
 ConsentLedger(tables.consent_records, audit).record(session, record)  # Art. 7 — withdraw == grant
