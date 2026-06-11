@@ -157,7 +157,7 @@ Write your own resolver by implementing the small [`Resolver` protocol](packages
 ## What effaced is not
 
 - **Not legal advice and not a compliance guarantee.** effaced gives you correct machinery to implement Articles 15, 17, 7, and 30 — and an auditable record that you did. Whether your processing is lawful is a legal determination only you (and your counsel) can make.
-- **Not able to find data you never declared.** If a model isn't annotated, its data isn't exported or erased. effaced makes that responsibility visible (a completeness linter is on the roadmap) instead of pretending to eliminate it.
+- **Not able to find data you never declared.** If a model isn't annotated, its data isn't exported or erased. effaced makes that responsibility visible — `lint_completeness` flags every undeclared table and column, and `effaced.testing.assert_data_map_complete` turns that into a CI gate — instead of pretending to eliminate it.
 - **Not a cookie-consent CMP, not analytics, not a hosted database.**
 
 ## Status & stability

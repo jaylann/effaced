@@ -58,9 +58,10 @@ PAGES: tuple[PageSpec, ...] = (
     PageSpec("annotations", "Annotations", "effaced.annotations", 7),
     PageSpec("manifest", "Manifest", "effaced.manifest", 8),
     PageSpec("categories", "Categories", "effaced.categories", 9),
-    PageSpec("exceptions", "Exceptions", "effaced.exceptions", 10),
-    PageSpec("sqlalchemy-adapter", "SQLAlchemy adapter", "effaced.adapters.sqlalchemy", 11),
-    PageSpec("effaced-stripe", "effaced-stripe", "effaced_stripe", 12),
+    PageSpec("lint", "Lint", "effaced.lint", 10),
+    PageSpec("exceptions", "Exceptions", "effaced.exceptions", 11),
+    PageSpec("sqlalchemy-adapter", "SQLAlchemy adapter", "effaced.adapters.sqlalchemy", 12),
+    PageSpec("effaced-stripe", "effaced-stripe", "effaced_stripe", 13),
 )
 
 _CODE_SPAN = re.compile(r"(`+[^`]+`+)")

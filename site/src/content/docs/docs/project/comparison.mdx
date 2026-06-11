@@ -45,8 +45,10 @@ Honesty cuts both ways. effaced is:
   [stability and guarantees](../stability/) for the full statement.
 - **Not able to find data you never declared.** If a model isn't
   annotated, its data isn't exported or erased. effaced makes that
-  responsibility visible (a completeness linter is on the roadmap)
-  instead of pretending to eliminate it.
+  responsibility visible — the
+  [completeness linter](../../concepts/completeness/) turns every
+  undeclared table and column into a CI failure — instead of pretending
+  to eliminate it.
 - **Not a cookie-consent CMP, not analytics, not a hosted database.** It
   is a Python library that runs inside your application against your own
   database and your own third-party accounts.
