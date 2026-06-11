@@ -14,7 +14,8 @@ class TableEntry(BaseModel):
     Attributes:
         name: Store name.
         subject_link: How records reach the data subject. ``None`` until the
-            store declares one — the completeness check flags this loudly.
+            store declares one — graph resolution refuses a PII-holding
+            store without it.
         columns: The annotated fields, in declaration order.
     """
 

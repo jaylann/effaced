@@ -18,6 +18,7 @@ from effaced.adapters.sqlalchemy import (
     bind_tables,
     collect_data_map,
     default_surrogate_registry,
+    lint_completeness,
     pii,
     resolve_subject_graph,
     subject_link,
@@ -39,6 +40,7 @@ from effaced.exceptions import (
     SubjectResolutionError,
 )
 from effaced.export import ExportBundle, Exporter, ExportRecord
+from effaced.lint import CompletenessFinding
 from effaced.manifest import (
     MANIFEST_SCHEMA_VERSION,
     ColumnEntry,
@@ -66,6 +68,7 @@ __all__ = [
     "AuditSink",
     "BackoffPolicy",
     "ColumnEntry",
+    "CompletenessFinding",
     "ConfigurationError",
     "ConsentError",
     "ConsentLedger",
@@ -112,6 +115,7 @@ __all__ = [
     "collect_data_map",
     "default_surrogate_registry",
     "fk_safe_deletion_order",
+    "lint_completeness",
     "pii",
     "resolve_subject_graph",
     "subject_link",
