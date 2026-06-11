@@ -71,9 +71,11 @@ re-claimed forever.
 :::caution[Abandonment is loud, never silent]
 An entry that exhausts its retries (or fails non-retryably) is abandoned
 **loudly**: `ERASURE_STEP_FAILED` with `abandoned: true` lands in the
-audit trail and the row stays visible at `status = 'abandoned'` for
-operators. Nothing is ever silently dropped — monitoring abandoned entries
-is part of operating the saga.
+audit trail and the entry stays visible to operators —
+`outbox.list_abandoned()` returns the full entries, oldest first, and
+`outbox.status_counts()` gives per-status totals for dashboards. Nothing
+is ever silently dropped — monitoring abandoned entries is part of
+operating the saga.
 :::
 
 ## `ERASURE_COMPLETED`

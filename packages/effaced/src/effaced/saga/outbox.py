@@ -207,6 +207,50 @@ class Outbox:
         """
         self._mark(entry, status=OutboxStatus.ABANDONED, error=error, next_attempt_at=None)
 
+    def list_abandoned(self, *, limit: int = 100) -> Sequence[OutboxEntry]:
+        """Return abandoned entries for operator inspection, oldest first.
+
+        The read half of "abandoned loudly": every entry whose retries are
+        exhausted stays visible here (and in the audit trail) until it is
+        handled out of band. Read-only by design — abandonment is permanent
+        under ADR 0010, so there is deliberately no requeue surface; what
+        an abandoned erasure requires is a determination only you can make.
+
+        Args:
+            limit: Maximum entries to return.
+
+        Returns:
+            ``ABANDONED`` entries, oldest first (by ``enqueued_at``, then
+            ``entry_id``).
+        """
+        columns = self._outbox.c
+        query = (
+            self._outbox.select()
+            .where(columns.status == OutboxStatus.ABANDONED.value)
+            .order_by(columns.enqueued_at, columns.entry_id)
+            .limit(limit)
+        )
+        with self._session_factory() as session:
+            return tuple(_entry(row) for row in session.execute(query).mappings())
+
+    def status_counts(self) -> dict[OutboxStatus, int]:
+        """Count entries per lifecycle status, for dashboards and health checks.
+
+        Read-only. Every :class:`~effaced.OutboxStatus` member is present in
+        the result, zero-filled — a healthy, drained outbox reports explicit
+        zeros rather than missing keys. A growing ``ABANDONED`` count is the
+        operator signal that erasures need out-of-band attention.
+
+        Returns:
+            A mapping with one entry per status.
+        """
+        statuses = self._outbox.select().with_only_columns(self._outbox.c.status)
+        counts = dict.fromkeys(OutboxStatus, 0)
+        with self._session_factory() as session:
+            for row in session.execute(statuses):
+                counts[OutboxStatus(row.status)] += 1
+        return counts
+
     def _mark(
         self,
         entry: OutboxEntry,
@@ -258,5 +302,21 @@ def _claimed(row: RowMapping, *, now: datetime, lease: timedelta) -> OutboxEntry
         enqueued_at=row["enqueued_at"],
         last_attempt_at=now,
         next_attempt_at=now + lease,
+        last_error=row["last_error"],
+    )
+
+
+def _entry(row: RowMapping) -> OutboxEntry:
+    """One entry exactly as stored (mirror of :func:`_row`)."""
+    return OutboxEntry(
+        entry_id=row["entry_id"],
+        subject_id=row["subject_id"],
+        resolver=row["resolver"],
+        ref=SubjectRef(kind=row["ref_kind"], value=row["ref_value"], extra=row["ref_extra"]),
+        status=OutboxStatus(row["status"]),
+        attempts=row["attempts"],
+        enqueued_at=row["enqueued_at"],
+        last_attempt_at=row["last_attempt_at"],
+        next_attempt_at=row["next_attempt_at"],
         last_error=row["last_error"],
     )

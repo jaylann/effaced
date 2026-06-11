@@ -118,10 +118,16 @@ blocks `ERASURE_COMPLETED` for its subject permanently, and it is always
 audited (`ERASURE_STEP_FAILED` with `abandoned: true`). Abandonment means a
 data-subject request is **not finished** — alert on it:
 
-```sql
-SELECT subject_id, resolver, last_error, attempts
-FROM effaced_outbox WHERE status = 'abandoned';
+```python
+counts = outbox.status_counts()      # one entry per OutboxStatus, zero-filled
+if counts[OutboxStatus.ABANDONED]:
+    for entry in outbox.list_abandoned():   # full entries, oldest first
+        page_someone(entry.subject_id, entry.resolver, entry.last_error)
 ```
+
+(Or straight SQL, if your monitoring lives there:
+`SELECT subject_id, resolver, last_error, attempts FROM effaced_outbox
+WHERE status = 'abandoned';`)
 
 Remediation: fix the underlying cause (credentials, deleted API resource,
 resolver bug), delete the abandoned row, and re-run `erase_subject` for the
