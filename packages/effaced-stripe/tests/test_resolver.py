@@ -231,3 +231,41 @@ def test_malformed_request_raises_resolver_error():
         export(resolver)
     with pytest.raises(ResolverError):
         erase(resolver)
+
+
+def test_resolver_error_messages_never_leak_the_subject_ref():
+    """The customer id is a subject reference — it must not reach the message.
+
+    The translation interpolates only Stripe's error code, never the ref;
+    this pins that, so a future regression piping ``ref.value`` into a
+    ResolverError is caught (semgrep's no-PII gate watches audit payloads,
+    not exception strings).
+    """
+    sensitive_id = "cus_SENSITIVE_123"
+    for status in (401, 400):
+        resolver = make_resolver(FakeStripeHTTPClient(error_status=status))
+        with pytest.raises(ResolverError) as export_error:
+            export(resolver, sensitive_id)
+        with pytest.raises(ResolverError) as erase_error:
+            erase(resolver, sensitive_id)
+        assert sensitive_id not in str(export_error.value)
+        assert sensitive_id not in str(erase_error.value)
+
+
+def test_export_uses_fallback_prefix_for_a_payment_method_without_id():
+    """Live Stripe always sends an id; the fallback keeps prefixes unique anyway."""
+    fake = FakeStripeHTTPClient(
+        customers={CUSTOMER_ID: {"email": "ada@example.com"}},
+        payment_methods={CUSTOMER_ID: [{"type": "card", "card": {"last4": "4242"}}]},
+    )
+    bundle = export(make_resolver(fake))
+    assert any(record.field.startswith("payment_method.index-0.") for record in bundle.records)
+
+
+def test_export_drops_boolean_valued_fields():
+    """A boolean where a scalar is expected is not loggable PII — it is dropped."""
+    fake = FakeStripeHTTPClient(customers={CUSTOMER_ID: {"email": "ada@example.com", "name": True}})
+    bundle = export(make_resolver(fake))
+    fields = {record.field for record in bundle.records}
+    assert "customer.email" in fields
+    assert "customer.name" not in fields
