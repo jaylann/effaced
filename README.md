@@ -23,8 +23,11 @@ uv add effaced effaced-stripe
 Annotate the models you already have — the annotations *are* the data map; there is no separate config file to drift out of sync:
 
 ```python
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy import ForeignKey
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from effaced import ErasureStrategy, PiiCategory, RetentionPolicy, pii, subject_link
+
+class Base(DeclarativeBase): ...
 
 class User(Base):
     __tablename__ = "users"
@@ -37,6 +40,9 @@ class Invoice(Base):
     __tablename__ = "invoices"
     __table_args__ = {"info": subject_link("user")}      # reaches the subject via .user
 
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    user: Mapped[User] = relationship()
     billing_address: Mapped[str] = mapped_column(
         info=pii(
             PiiCategory.FINANCIAL,
@@ -50,9 +56,9 @@ Then the entire integration surface is three calls:
 
 ```python
 from effaced import (
-    ConsentLedger, DatabaseAuditSink, ErasurePlanner, Exporter,
-    ResolverRegistry, SubjectRef, bind_tables, collect_data_map,
-    resolve_subject_graph,
+    ConsentLedger, DatabaseAuditSink, ErasureExecutor, ErasurePlanner,
+    Exporter, Outbox, ResolverRegistry, SubjectRef, bind_tables,
+    collect_data_map, resolve_subject_graph,
 )
 from effaced_stripe import StripeResolver
 
@@ -60,18 +66,23 @@ data_map = collect_data_map(Base.metadata)
 graph = resolve_subject_graph(data_map, Base.registry)
 tables = bind_tables(Base.metadata)        # effaced-owned tables ride your migrations
 audit = DatabaseAuditSink(session_factory, tables.audit_events)
+outbox = Outbox(session_factory, tables.outbox)
 registry = ResolverRegistry()
-registry.register(StripeResolver(api_key="rk_live_..."))   # explicit — the registry doubles
-                                                           # as your "where is my PII" list
+registry.register(StripeResolver(api_key="rk_restricted_..."))  # explicit — the registry doubles
+                                                                 # as your "where is my PII" list
 stripe_ref = SubjectRef(kind="stripe", value=stripe_customer_id)  # kind == resolver name
+
 ConsentLedger(tables.consent_records, audit).record(session, record)  # Art. 7 — withdraw == grant
 Exporter(data_map, graph, Base.metadata, audit, registry).export_subject(
     session, user_id, refs=(stripe_ref,)
 )                                                                      # Art. 15
-ErasurePlanner(data_map, graph, registry).erase_subject(session, user_id)  # Art. 17
+ErasurePlanner(
+    data_map, graph, registry,
+    executor=ErasureExecutor(Base.metadata), outbox=outbox, audit_sink=audit,
+).erase_subject(session, user_id, refs=(stripe_ref,))                 # Art. 17
 ```
 
-Everything else — FK-safe ordering, anonymize-vs-delete, the durable outbox for external calls, retries, idempotency, the audit trail — is bookkeeping effaced does between those calls.
+Everything else — FK-safe ordering, anonymize-vs-delete, the durable outbox for external calls, retries, idempotency, the audit trail — is bookkeeping effaced does between those calls. A runnable end-to-end version (FastAPI + local Postgres) lives in [examples/fastapi-quickstart](examples/fastapi-quickstart).
 
 ## How erasure actually works
 
@@ -95,7 +106,7 @@ The runner half is one call — `await SagaRunner(...).run_once()` — driven by
 | Alternative | The gap |
 |---|---|
 | **Roll your own** | Misses PII in related tables, logs, and third parties; deletes retained invoices (or retains everything); no Art. 5(2) record; breaks mid-flight when an API is down. |
-| **django-gdpr-assist** (closest prior art) | Archived since ~2022, Django-only, local ORM only — no concept of PII in external systems. effaced is the maintained successor for the modern Python stack. |
+| **django-gdpr-assist** (closest prior art) | Upstream repo archived (last release April 2022); Django-only, local ORM only — no concept of PII in external systems. effaced covers the same ground for SQLAlchemy stacks and extends it to external systems. |
 | **OneTrust / Transcend / DSR platforms** | Heavy, expensive, DPO-facing SaaS — not a drop-in developer library. |
 | **GDPR boilerplates** | Shallow download/delete buttons in a template, not reusable machinery with an audit trail. |
 

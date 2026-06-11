@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, ClassVar
-
 from sqlalchemy import ForeignKey
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from effaced import (
     ErasureStrategy,
@@ -25,7 +23,7 @@ class User(Base):
     """The data subject. subject_link("") marks it as such."""
 
     __tablename__ = "users"
-    __table_args__: ClassVar[dict[str, Any]] = {"info": subject_link("")}
+    __table_args__ = {"info": subject_link("")}
 
     id: Mapped[int] = mapped_column(primary_key=True)
     email: Mapped[str] = mapped_column(
@@ -40,10 +38,11 @@ class Invoice(Base):
     address is legally retained, so erasure anonymizes instead of deleting."""
 
     __tablename__ = "invoices"
-    __table_args__: ClassVar[dict[str, Any]] = {"info": subject_link("user")}
+    __table_args__ = {"info": subject_link("user")}
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    user: Mapped[User] = relationship()
     billing_address: Mapped[str] = mapped_column(
         info=pii(
             PiiCategory.FINANCIAL,
