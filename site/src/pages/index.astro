@@ -124,9 +124,11 @@ ErasurePlanner(data_map, graph, registry).erase_subject(session, user_id)  # Art
         <div class="hero-grid">
           <div class="hero-actions">
             <code class="install"
-              ><span class="prompt">$</span><span id="install-cmd">uv add effaced effaced-stripe</span><span
-                class="caret"
-                aria-hidden="true"></span><button
+              ><span class="prompt">$</span><span
+                id="install-cmd"
+                data-cmd={`uv add "effaced @ git+https://github.com/jaylann/effaced#subdirectory=packages/effaced" "effaced-stripe @ git+https://github.com/jaylann/effaced#subdirectory=packages/effaced-stripe"`}
+                >uv add effaced effaced-stripe</span
+              ><span class="caret" aria-hidden="true"></span><button
                 type="button"
                 data-copy
                 aria-live="polite"
@@ -134,8 +136,9 @@ ErasurePlanner(data_map, graph, registry).erase_subject(session, user_id)  # Art
               ></code
             >
             <p class="hero-note">
-              Pre-release — not yet on PyPI. The command above lands with 0.1.0; until
-              then, <a href={docs('quickstart/')}>install from GitHub</a>.
+              Pre-release — not yet on PyPI. The short command lands with 0.1.0; until
+              then, Copy gives you the working
+              <a href={docs('quickstart/')}>install-from-GitHub</a> one-liner.
             </p>
             <div class="cta-row">
               <a class="btn btn-solid" href={docs()}>Read the docs</a>
@@ -437,7 +440,9 @@ ErasurePlanner(data_map, graph, registry).erase_subject(session, user_id)  # Art
       // copy-to-clipboard for the install command
       const copyBtn = document.querySelector<HTMLButtonElement>('[data-copy]');
       copyBtn?.addEventListener('click', async () => {
-        const cmd = document.getElementById('install-cmd')?.textContent ?? '';
+        const el = document.getElementById('install-cmd');
+        // pre-publish: data-cmd carries the working git+https install line
+        const cmd = el?.dataset.cmd ?? el?.textContent ?? '';
         try {
           await navigator.clipboard.writeText(cmd);
           copyBtn.textContent = 'Copied';
