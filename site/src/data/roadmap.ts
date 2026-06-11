@@ -92,6 +92,13 @@ export const tiers: RoadmapTier[] = [
         docsPath: 'guides/stripe/',
       },
       {
+        name: 'Completeness linter',
+        scope:
+          'Flags columns that look like PII but were never annotated — your unavoidable responsibility, made visible and CI-gateable.',
+        status: 'shipped',
+        docsPath: 'concepts/completeness/',
+      },
+      {
         name: 'Saga operator surface',
         scope: 'Read-only visibility into the outbox: what is pending, retrying, abandoned.',
         status: 'in-progress',
@@ -111,13 +118,6 @@ export const tiers: RoadmapTier[] = [
     sub: 'v0.2.0 · demand-pulled',
     note: 'Seeded from the 0.1.0 retro. Items get pulled when real usage demands them — and dropped when nobody asks.',
     items: [
-      {
-        name: 'Completeness linter',
-        scope:
-          'Flags columns that look like PII but were never annotated — your unavoidable responsibility, made visible and CI-gateable.',
-        status: 'in-progress',
-        ref: { kind: 'pr', number: 52 },
-      },
       {
         name: 'S3 resolver',
         scope: 'Erase and export subject-owned objects in S3 buckets.',

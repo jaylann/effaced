@@ -18,14 +18,16 @@ data_map = collect_data_map(Base.metadata)
 - **`DataMap`** — the whole manifest: a tuple of tables plus its
   `schema_version`.
 - **`TableEntry`** — one store: its `name`, its `subject_link` (how rows
-  reach the subject; `None` until declared — the completeness check
-  flags that loudly), and its annotated `columns`.
+  reach the subject; `None` until declared — graph resolution refuses a
+  PII-holding table without one), and its annotated `columns`.
 - **`ColumnEntry`** — one annotated field: its `name` and the full
   `PiiSpec` attached to it.
 
 `collect_data_map` includes only tables carrying at least one annotation
 (a `pii()` column or a `subject_link()`). Everything is frozen pydantic —
-manifests are values you can diff, snapshot, and test against.
+manifests are values you can diff, snapshot, and test against. The exact
+complement — what your schema holds that the manifest does *not* cover —
+is what the [completeness linter](../completeness/) reports.
 
 ## Versioning: old manifests are never rejected
 
