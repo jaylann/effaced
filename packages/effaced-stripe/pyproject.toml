@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "effaced-stripe"
-version = "0.0.0"
+version = "0.1.0"
 description = "Stripe resolver for effaced — export and erase a data subject's PII held in Stripe."
 readme = "README.md"
 requires-python = ">=3.11"
