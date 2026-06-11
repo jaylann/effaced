@@ -1,8 +1,10 @@
+<div align="center">
+
 # effaced
 
-Every SaaS eventually has to let a user export their data, delete their account, and prove consent was given. Hand-rolled versions are almost always wrong in the same ways: they miss PII in related tables and third-party systems, they hard-delete legally retained records, and they keep no defensible record of any of it.
+**GDPR data-subject mechanisms for the modern Python stack.**
 
-**effaced** ships correct, tested mechanisms for the GDPR data-subject rights — export (Art. 15), erasure (Art. 17), consent (Art. 7), and an append-only audit trail (Art. 5(2)) — across your own database **and** the external systems you actually use (Stripe first; more resolvers demand-pulled).
+Export · Erasure · Consent · Audit — across your database **and** the external systems you use.
 
 **We ship the mechanisms. You own the compliance.**
 
@@ -12,7 +14,25 @@ Every SaaS eventually has to let a user export their data, delete their account,
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/jaylann/effaced/badge)](https://scorecard.dev/viewer/?uri=github.com/jaylann/effaced)
 
-**Docs:** [jaylann.github.io/effaced](https://jaylann.github.io/effaced/) — guides, concepts, and the full API reference (generated from the docstrings you'll read in this repo).
+**[Docs](https://jaylann.github.io/effaced/)** · [Quickstart](https://jaylann.github.io/effaced/docs/quickstart/) · [Example app](examples/fastapi-quickstart) · [Why effaced?](#why-not-)
+
+</div>
+
+---
+
+Every SaaS eventually has to let a user export their data, delete their account, and prove consent was given. Hand-rolled versions are almost always wrong in the same ways: they miss PII in related tables and third-party systems, they hard-delete legally retained records, and they keep no defensible record of any of it.
+
+**effaced** ships correct, tested mechanisms for the GDPR data-subject rights — across your own database and the external systems you actually use (Stripe first; more resolvers demand-pulled).
+
+## What you get
+
+| Right | Article | Mechanism |
+|---|---|---|
+| Export | Art. 15 | `Exporter` — full subject bundle, including legally retained fields and external systems |
+| Erasure | Art. 17 | `ErasurePlanner` — FK-safe delete/anonymize, retention-aware, durable saga for external calls |
+| Consent | Art. 7 | `ConsentLedger` — withdrawal as easy as grant, by construction |
+| Accountability | Art. 5(2) | `DatabaseAuditSink` — append-only audit trail, no PII in events |
+| External systems | — | `Resolver` protocol + first-party `StripeResolver` |
 
 ## 30-second quickstart
 
@@ -84,6 +104,8 @@ ErasurePlanner(
 
 Everything else — FK-safe ordering, anonymize-vs-delete, the durable outbox for external calls, retries, idempotency, the audit trail — is bookkeeping effaced does between those calls. A runnable end-to-end version (FastAPI + local Postgres) lives in [examples/fastapi-quickstart](examples/fastapi-quickstart).
 
+A complete runnable application lives in [`examples/fastapi-quickstart`](examples/fastapi-quickstart).
+
 ## How erasure actually works
 
 Erasure is a **saga, not a function call**. The local deletion runs in one atomic transaction; external API calls (which cannot join that transaction) are enqueued durably *in the same transaction* and fanned out afterwards with retries and idempotency. When the Stripe API is down mid-deletion, the system is in a known, recorded state — not a half-erased mystery.
@@ -99,7 +121,30 @@ erase_subject(...)
       └── audit trail records every outcome, including abandonment
 ```
 
-The runner half is one call — `await SagaRunner(...).run_once()` — driven by whatever you already operate: a worker process, a cron job, or a FastAPI background thread ([wiring examples](docs/runbooks/saga-runner-wiring.md)). Failures retry on an exponential backoff; an entry that keeps failing is **abandoned loudly** (audited, surfaced for operators — never silently dropped), and `ERASURE_COMPLETED` lands in the audit trail when a subject's last external call succeeds. Concurrent runners are safe: claiming uses `FOR UPDATE SKIP LOCKED`, and a crashed runner's claims heal via a lease (ADR 0010).
+The runner half is one call — `await SagaRunner(...).run_once()` — driven by whatever you already operate: a worker process, a cron job, or a FastAPI background thread ([wiring guide](https://jaylann.github.io/effaced/docs/guides/saga-runner-wiring/), [operator runbook](docs/runbooks/saga-runner-wiring.md)). Failures retry on an exponential backoff; an entry that keeps failing is **abandoned loudly** (audited, surfaced for operators — never silently dropped), and `ERASURE_COMPLETED` lands in the audit trail when a subject's last external call succeeds. Concurrent runners are safe: claiming uses `FOR UPDATE SKIP LOCKED`, and a crashed runner's claims heal via a lease (ADR 0010).
+
+## Documentation
+
+Full docs live at **[jaylann.github.io/effaced](https://jaylann.github.io/effaced/)** — the API reference is generated from the same docstrings you'll read in this repo.
+
+| | |
+|---|---|
+| [Quickstart](https://jaylann.github.io/effaced/docs/quickstart/) | Annotate, wire, run all three rights end to end |
+| [Concepts](https://jaylann.github.io/effaced/docs/concepts/annotations/) | Annotations, manifest, export, erasure, saga, consent, audit, resolvers |
+| [Guides](https://jaylann.github.io/effaced/docs/guides/stripe/) | Stripe resolver, saga-runner wiring, audit hardening |
+| [API reference](https://jaylann.github.io/effaced/docs/reference/) | Generated from docstrings, fully typed |
+| [`examples/fastapi-quickstart`](examples/fastapi-quickstart) | Runnable FastAPI app exercising consent, export, and erasure |
+| [`docs/runbooks/`](docs/runbooks) | Operator runbooks (saga wiring, audit hardening, release) |
+| [`docs/decisions/`](docs/decisions) | Architecture decision records |
+
+## Packages
+
+| Package | What | PyPI |
+|---|---|---|
+| [`effaced`](packages/effaced) | Core: annotations, manifest, export, erasure, consent, audit, saga, resolver interface | `uv add effaced` |
+| [`effaced-stripe`](packages/effaced-stripe) | First-party Stripe resolver | `uv add effaced-stripe` |
+
+Write your own resolver by implementing the small [`Resolver` protocol](packages/effaced/src/effaced/resolvers/base.py) — it is public API with the strictest stability promise in the library.
 
 ## Why not …
 
@@ -116,16 +161,7 @@ The runner half is one call — `await SagaRunner(...).run_once()` — driven by
 - **Not able to find data you never declared.** If a model isn't annotated, its data isn't exported or erased. effaced makes that responsibility visible (a completeness linter is on the roadmap) instead of pretending to eliminate it.
 - **Not a cookie-consent CMP, not analytics, not a hosted database.**
 
-## Packages
-
-| Package | What | PyPI |
-|---|---|---|
-| [`effaced`](packages/effaced) | Core: annotations, manifest, export, erasure, consent, audit, saga, resolver interface | `uv add effaced` |
-| [`effaced-stripe`](packages/effaced-stripe) | First-party Stripe resolver | `uv add effaced-stripe` |
-
-Write your own resolver by implementing the small [`Resolver` protocol](packages/effaced/src/effaced/resolvers/base.py) — it is public API with the strictest stability promise in the library.
-
-## Status
+## Status & stability
 
 Pre-release (0.x). The 0.x window is being used to get the manifest format and resolver interface right; 1.0 ships when those are stable enough to support for a year. Built library-shaped from day one and dogfooded in production (VoroAI) before launch.
 
@@ -135,7 +171,7 @@ Pre-release (0.x). The 0.x window is being used to get the manifest format and r
 
 ## Contributing & development
 
-See [CONTRIBUTING.md](CONTRIBUTING.md). TL;DR: `uv sync && just check && just test`, Conventional Commits, DCO sign-off (`git commit -s`), PRs target `stage`.
+See [CONTRIBUTING.md](CONTRIBUTING.md). TL;DR: `just bootstrap`, then `just check && just test`; Conventional Commits, DCO sign-off (`git commit -s`), PRs target `stage`.
 
 ## License
 
