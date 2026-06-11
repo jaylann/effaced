@@ -12,6 +12,10 @@ dev = [
     "pre-commit>=4.0",
     "psycopg[binary]>=3.2",
     "mutmut>=3.6",
+    # the runnable FastAPI example + its tests (examples/fastapi-quickstart)
+    "fastapi>=0.116",
+    "httpx>=0.28",
+    "uvicorn>=0.30",
 ]
 docs = [
     "griffe>=1.5",
@@ -73,7 +77,10 @@ convention = "google"
 # asserts are expected in tests; no docstring/annotation policing there;
 # test doubles legitimately ignore arguments
 "**/tests/**" = ["S101", "D", "ANN", "PLR2004", "ARG"]
-"examples/**" = ["D", "S", "ANN"]
+# RUF012: SQLAlchemy's `__table_args__` is a plain class-level dict by
+# convention; ClassVar conflicts with the DeclarativeBase stubs under mypy.
+"examples/**" = ["D", "S", "ANN", "RUF012"]
+"examples/**/test_*.py" = ["S101", "D", "ANN", "PLR2004", "ARG"]
 # the conformance suite is shipped test code: asserts are its whole point
 "packages/effaced/src/effaced/testing/**" = ["S101"]
 
@@ -90,8 +97,13 @@ strict_equality = true
 extra_checks = true
 disallow_any_unimported = true
 show_error_codes = true
-files = ["packages/effaced/src", "packages/effaced-stripe/src", "scripts"]
-exclude = ["examples/"]
+files = [
+    "packages/effaced/src",
+    "packages/effaced-stripe/src",
+    "scripts",
+    "examples/fastapi-quickstart/app.py",
+    "examples/fastapi-quickstart/models.py",
+]
 
 [tool.pydantic-mypy]
 init_forbid_extra = true
@@ -106,7 +118,11 @@ ignore_missing_imports = true
 # Tests
 # ---------------------------------------------------------------------------
 [tool.pytest.ini_options]
-testpaths = ["packages/effaced/tests", "packages/effaced-stripe/tests"]
+testpaths = [
+    "packages/effaced/tests",
+    "packages/effaced-stripe/tests",
+    "examples/fastapi-quickstart",
+]
 addopts = "-ra --strict-markers"
 markers = [
     "integration: requires a real Postgres (CI service container); excluded by default runs",
