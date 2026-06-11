@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from typing import TYPE_CHECKING
+from urllib.parse import quote
 
 import httpx
 
@@ -117,11 +118,16 @@ class SupabaseAuthResolver:
         return ResolverErasure(resolver=self.name, detail="user deleted in supabase auth")
 
     def _request(self, method: str, user_id: str) -> httpx.Response:
-        """One admin-API call on a per-call client (runs in a worker thread)."""
+        """One admin-API call on a per-call client (runs in a worker thread).
+
+        The id is percent-encoded into a single path segment — a raw
+        ``/`` or ``..`` in a ref value would otherwise be path-normalized
+        into a *different* user's endpoint (a wrong-target erasure).
+        """
         with httpx.Client(
             base_url=self._base_url,
             headers=self._headers,
             timeout=self._timeout,
             transport=self._transport,
         ) as client:
-            return client.request(method, f"/auth/v1/admin/users/{user_id}")
+            return client.request(method, f"/auth/v1/admin/users/{quote(user_id, safe='')}")

@@ -149,6 +149,23 @@ def test_connection_fault_propagates_for_saga_retry():
         erase(resolver)
 
 
+def test_ref_value_with_path_separators_cannot_target_another_user():
+    """The id is percent-encoded into a single path segment.
+
+    Without encoding, a ref value like ``"<id>/../<other>"`` would be
+    path-normalized to the *other* user's endpoint before the request
+    leaves the process — a wrong-target erasure.
+    """
+    fake = FakeGoTrueTransport(users={OTHER_ID: {"email": "bob@example.com"}})
+    resolver = make_resolver(fake)
+    outcome = erase(resolver, f"{USER_ID}/../{OTHER_ID}")
+    assert outcome.already_absent is True
+    assert fake.deleted == set()
+    assert OTHER_ID in fake.users
+    other_path = f"/auth/v1/admin/users/{OTHER_ID}".encode("ascii")
+    assert all(request.url.raw_path != other_path for request in fake.requests)
+
+
 def test_resolver_error_messages_never_leak_the_subject_ref():
     """The user id is a subject reference — it must not reach the message.
 

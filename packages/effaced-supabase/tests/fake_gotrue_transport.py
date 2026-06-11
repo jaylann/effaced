@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping
+from urllib.parse import unquote
 
 import httpx
 
@@ -49,10 +50,12 @@ class FakeGoTrueTransport(httpx.MockTransport):
             raise httpx.ConnectError("connection reset by fake transport", request=request)
         if self._error_status is not None:
             return _json_response(self._error_status, {"msg": "injected error"})
-        match = _USERS_PATH.match(request.url.path)
+        # Route on the wire-level path: a real server sees %2F as one
+        # segment, while request.url.path decodes it back to "/".
+        match = _USERS_PATH.match(request.url.raw_path.decode("ascii"))
         if match is None:
             return _json_response(400, {"msg": "unknown route"})
-        user_id = match.group("user_id")
+        user_id = unquote(match.group("user_id"))
         if request.method == "GET":
             return self._get_user(user_id)
         if request.method == "DELETE":
