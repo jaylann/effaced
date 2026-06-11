@@ -11,10 +11,12 @@ data map.
 
 <Steps>
 
-1. **Install.**
+1. **Install.** Not on PyPI yet — until 0.1.0 ships, install both
+   packages straight from the repo:
 
    ```bash
-   uv add effaced effaced-stripe
+   uv add "effaced @ git+https://github.com/jaylann/effaced#subdirectory=packages/effaced" \
+          "effaced-stripe @ git+https://github.com/jaylann/effaced#subdirectory=packages/effaced-stripe"
    ```
 
    `effaced` is the core; `effaced-stripe` is the first-party

@@ -9,8 +9,6 @@ Export · Erasure · Consent · Audit — across your database **and** the exter
 **We ship the mechanisms. You own the compliance.**
 
 [![CI](https://github.com/jaylann/effaced/actions/workflows/ci.yml/badge.svg)](https://github.com/jaylann/effaced/actions/workflows/ci.yml)
-[![PyPI](https://img.shields.io/pypi/v/effaced)](https://pypi.org/project/effaced/)
-[![Python](https://img.shields.io/pypi/pyversions/effaced)](https://pypi.org/project/effaced/)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/jaylann/effaced/badge)](https://scorecard.dev/viewer/?uri=github.com/jaylann/effaced)
 
@@ -36,8 +34,11 @@ Every SaaS eventually has to let a user export their data, delete their account,
 
 ## 30-second quickstart
 
+> **Not on PyPI yet.** Until 0.1.0 ships, install both packages straight from this repo:
+
 ```bash
-uv add effaced effaced-stripe
+uv add "effaced @ git+https://github.com/jaylann/effaced#subdirectory=packages/effaced" \
+       "effaced-stripe @ git+https://github.com/jaylann/effaced#subdirectory=packages/effaced-stripe"
 ```
 
 Annotate the models you already have — the annotations *are* the data map; there is no separate config file to drift out of sync:
@@ -104,8 +105,6 @@ ErasurePlanner(
 
 Everything else — FK-safe ordering, anonymize-vs-delete, the durable outbox for external calls, retries, idempotency, the audit trail — is bookkeeping effaced does between those calls. A runnable end-to-end version (FastAPI + local Postgres) lives in [examples/fastapi-quickstart](examples/fastapi-quickstart).
 
-A complete runnable application lives in [`examples/fastapi-quickstart`](examples/fastapi-quickstart).
-
 ## How erasure actually works
 
 Erasure is a **saga, not a function call**. The local deletion runs in one atomic transaction; external API calls (which cannot join that transaction) are enqueued durably *in the same transaction* and fanned out afterwards with retries and idempotency. When the Stripe API is down mid-deletion, the system is in a known, recorded state — not a half-erased mystery.
@@ -139,10 +138,10 @@ Full docs live at **[jaylann.github.io/effaced](https://jaylann.github.io/efface
 
 ## Packages
 
-| Package | What | PyPI |
+| Package | What | Install |
 |---|---|---|
-| [`effaced`](packages/effaced) | Core: annotations, manifest, export, erasure, consent, audit, saga, resolver interface | `uv add effaced` |
-| [`effaced-stripe`](packages/effaced-stripe) | First-party Stripe resolver | `uv add effaced-stripe` |
+| [`effaced`](packages/effaced) | Core: annotations, manifest, export, erasure, consent, audit, saga, resolver interface | `uv add effaced` (once 0.1.0 is on PyPI — from git until then, see quickstart) |
+| [`effaced-stripe`](packages/effaced-stripe) | First-party Stripe resolver | `uv add effaced-stripe` (same) |
 
 Write your own resolver by implementing the small [`Resolver` protocol](packages/effaced/src/effaced/resolvers/base.py) — it is public API with the strictest stability promise in the library.
 
@@ -163,7 +162,7 @@ Write your own resolver by implementing the small [`Resolver` protocol](packages
 
 ## Status & stability
 
-Pre-release (0.x). The 0.x window is being used to get the manifest format and resolver interface right; 1.0 ships when those are stable enough to support for a year. Built library-shaped from day one and dogfooded in production (VoroAI) before launch.
+Pre-release (0.x), not yet on PyPI. The 0.x window is being used to get the manifest format and resolver interface right — and to dogfood effaced in production before 1.0; 1.0 ships when both have survived that.
 
 **SemVer, widened:** API changes, manifest-format changes, *and any change to what gets deleted or exported* are MAJOR — silently changing compliance behaviour is the worst possible failure for a library like this.
 
