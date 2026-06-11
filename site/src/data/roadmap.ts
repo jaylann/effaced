@@ -121,7 +121,7 @@ export const tiers: RoadmapTier[] = [
       {
         name: 'S3 resolver',
         scope: 'Erase and export subject-owned objects in S3 buckets.',
-        status: 'planned',
+        status: 'shipped',
         ref: { kind: 'issue', number: 45 },
       },
       {

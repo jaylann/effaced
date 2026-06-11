@@ -12,6 +12,8 @@ dev = [
     "pre-commit>=4.0",
     "psycopg[binary]>=3.3.4",
     "mutmut>=3.6",
+    # typed boto3 client + type_defs for effaced-s3 (boto3 ships no types)
+    "types-boto3[s3]>=1.35",
     # the runnable FastAPI example + its tests (examples/fastapi-quickstart)
     "fastapi>=0.116",
     "httpx>=0.28",
@@ -30,7 +32,12 @@ default-groups = ["dev", "docs"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-src = ["packages/effaced/src", "packages/effaced-stripe/src", "packages/effaced-supabase/src"]
+src = [
+    "packages/effaced/src",
+    "packages/effaced-stripe/src",
+    "packages/effaced-supabase/src",
+    "packages/effaced-s3/src",
+]
 
 [tool.ruff.lint]
 select = [
@@ -83,6 +90,11 @@ convention = "google"
 "examples/**/test_*.py" = ["S101", "D", "ANN", "PLR2004", "ARG"]
 # the conformance suite is shipped test code: asserts are its whole point
 "packages/effaced/src/effaced/testing/**" = ["S101"]
+# N803: the S3 client protocol mirrors the AWS wire API's CamelCase kwargs;
+# renaming them would break structural compatibility with boto3 clients
+"packages/effaced-s3/src/effaced_s3/object_client.py" = ["N803"]
+# PLR0913: the fake client's constructor doubles as the test-scenario knob set
+"packages/effaced-s3/tests/**" = ["N803", "PLR0913"]
 
 # ---------------------------------------------------------------------------
 # Types — strict everywhere. PII machinery must not have untyped seams.
@@ -101,6 +113,7 @@ files = [
     "packages/effaced/src",
     "packages/effaced-stripe/src",
     "packages/effaced-supabase/src",
+    "packages/effaced-s3/src",
     "scripts",
     "examples/fastapi-quickstart/app.py",
     "examples/fastapi-quickstart/models.py",
@@ -123,6 +136,7 @@ testpaths = [
     "packages/effaced/tests",
     "packages/effaced-stripe/tests",
     "packages/effaced-supabase/tests",
+    "packages/effaced-s3/tests",
     "examples/fastapi-quickstart",
 ]
 addopts = "-ra --strict-markers"
@@ -132,7 +146,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["effaced", "effaced_stripe", "effaced_supabase"]
+source = ["effaced", "effaced_stripe", "effaced_supabase", "effaced_s3"]
 branch = true
 
 [tool.coverage.report]

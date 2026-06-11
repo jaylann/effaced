@@ -33,6 +33,12 @@
       "package-name": "effaced-supabase",
       "component": "effaced-supabase",
       "changelog-path": "CHANGELOG.md"
+    },
+    "packages/effaced-s3": {
+      "release-type": "python",
+      "package-name": "effaced-s3",
+      "component": "effaced-s3",
+      "changelog-path": "CHANGELOG.md"
     }
   }
 }

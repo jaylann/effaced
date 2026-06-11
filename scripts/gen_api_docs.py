@@ -64,11 +64,12 @@ PAGES: tuple[PageSpec, ...] = (
     PageSpec("sqlalchemy-adapter", "SQLAlchemy adapter", "effaced.adapters.sqlalchemy", 12),
     PageSpec("effaced-stripe", "effaced-stripe", "effaced_stripe", 13),
     PageSpec("effaced-supabase", "effaced-supabase", "effaced_supabase", 14),
+    PageSpec("effaced-s3", "effaced-s3", "effaced_s3", 15),
 )
 
 # Non-core workspace packages, each documented by its own page. The module
 # name maps to its directory: effaced_stripe → packages/effaced-stripe.
-EXTERNAL_PACKAGES: tuple[str, ...] = ("effaced_stripe", "effaced_supabase")
+EXTERNAL_PACKAGES: tuple[str, ...] = ("effaced_stripe", "effaced_supabase", "effaced_s3")
 
 _CODE_SPAN = re.compile(r"(`+[^`]+`+)")
 _REF = re.compile(r":([a-z]+):`([^`]+)`")  # targets may wrap across source lines
@@ -516,9 +517,8 @@ def _render_page(page: PageSpec, module: griffe.Module, symbols: SymbolMap, inde
 
 def _render_index_page(page_symbols: dict[str, SymbolMap]) -> str:
     """Render the reference landing page linking every page and symbol."""
-    description = (
-        "Generated API reference for the effaced, effaced-stripe, and effaced-supabase packages."
-    )
+    names = ", ".join(("effaced", *(name.replace("_", "-") for name in EXTERNAL_PACKAGES)))
+    description = f"Generated API reference for the {names} packages."
     lines = _frontmatter("API reference", description, 0)
     lines += ["", description]
     for page in PAGES:

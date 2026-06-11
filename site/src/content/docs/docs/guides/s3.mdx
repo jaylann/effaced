@@ -1,0 +1,121 @@
+---
+title: S3 resolver
+description: Export and erase a subject's user-generated objects in S3 with the first-party effaced-s3 package.
+sidebar:
+  order: 3
+---
+
+Object storage is where subject-owned files live: avatars, uploads,
+attachments. `effaced-s3` is the first-party
+[resolver](../../concepts/resolvers/) that brings those objects into your
+Art. 15 exports and Art. 17 erasures.
+
+## Install
+
+Not on PyPI yet — until its first release, install from the repo:
+
+```bash
+uv add effaced \
+       "effaced-s3 @ git+https://github.com/jaylann/effaced#subdirectory=packages/effaced-s3"
+```
+
+The package depends on `effaced` and `boto3`; installing it does not pull
+AWS dependencies into projects that only use the core.
+
+## Register
+
+```python
+from effaced import ResolverRegistry, SubjectRef
+from effaced_s3 import S3Resolver
+
+registry = ResolverRegistry()
+registry.register(S3Resolver(bucket="my-app-user-content"))
+```
+
+Credentials come from the standard AWS chain (environment, shared config,
+instance role). For custom endpoints or scoped sessions (MinIO,
+Cloudflare R2, localstack), build your own client and pass it via
+`client=`. Grant the credentials only what the resolver uses:
+`s3:ListBucket`, `s3:ListBucketVersions`, `s3:GetObject`,
+`s3:DeleteObject`, `s3:DeleteObjectVersion` — scoped to the bucket.
+
+## Routing: refs of kind "s3"
+
+A ref is routed to the resolver whose `name` equals the ref's `kind`. The
+S3 resolver's name is `"s3"`, and the ref's value is the **key prefix**
+that scopes the subject's objects:
+
+```python
+s3_ref = SubjectRef(kind="s3", value=f"users/{user_id}/")
+
+exporter.export_subject(session, user_id, refs=(s3_ref,))   # Art. 15
+planner.erase_subject(session, user_id, refs=(s3_ref,))     # Art. 17
+```
+
+The resolver touches **only** keys under the prefix, and validates it
+before any S3 call: a blank prefix raises `ResolverError` (it will
+never enumerate or erase a whole bucket), and so does a prefix that
+doesn't end with `/` — S3 prefixes are literal substring matches, so
+`users/1` also matches `users/10/...`, while `users/1/` does not.
+
+## What it does on S3's side
+
+- **Export (Art. 15):** per object — key, size, content type,
+  last-modified, user metadata (`x-amz-meta-*`), and by default the
+  object's content, base64-encoded. Exports cover current versions.
+- **Erasure (Art. 17):** permanently deletes **every object version and
+  delete marker** under the prefix, in batches. A plain delete on a
+  versioned bucket only hides data behind a delete marker; this resolver
+  destroys it. Unversioned buckets take the same path.
+
+### Why content is included by default
+
+For user-generated objects the bytes usually *are* the personal data — an
+avatar is a photo of the subject, and metadata alone is not a copy of it
+(EDPB Guidelines 01/2022 on the right of access; CJEU C-487/21 on what a
+"copy" means). Pass `include_content=False` for metadata-only exports
+only when you provide the files through another complete, retainable
+channel — whether that satisfies an access request is a determination
+you, the controller, make.
+
+`max_object_bytes=` caps how large an object the export will load. An
+object over the cap fails the export **loudly** (`ResolverError`,
+surfacing in the bundle's `incomplete_sources`) — never a silently
+thinned bundle.
+
+## Idempotency: "already gone" is success
+
+Erasing a prefix S3 holds nothing under yields `already_absent=True` —
+success, never an error. And when a batch delete partially fails, the
+resolver keeps deleting the rest, then raises so the saga retries:
+already-deleted versions re-delete as no-ops, so retries converge instead
+of erroring on work that already happened.
+
+## When S3 is down
+
+External calls cannot join your local database transaction, so erasure
+enqueues them durably in the same transaction and the
+[saga runner](../../concepts/saga/) executes them afterwards:
+
+- Throttling (`SlowDown`), connection faults, 5xx — and any error code
+  the taxonomy does not recognize — retry on an exponential backoff.
+- Non-retryable failures (bad credentials, missing permissions, missing
+  bucket, wrong-region endpoint) and exhausted retries **abandon the
+  entry loudly**: audited, surfaced for operators, never silently
+  dropped.
+
+See [wiring the saga runner](../saga-runner-wiring/) for how to drive the
+retries and monitor abandonment.
+
+:::caution[S3-compatible stores]
+Erasure semantics assume AWS behaviour: `ListObjectVersions` works on
+unversioned buckets (reporting version id `null`). Some S3-compatible
+stores diverge on versioning APIs — verify yours before relying on
+all-versions erasure.
+:::
+
+:::note
+Exception messages and erasure details carry counts and error codes only
+— never keys or prefixes, which are user content. Audit events stay
+PII-free.
+:::
