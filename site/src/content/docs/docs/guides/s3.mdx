@@ -52,10 +52,11 @@ exporter.export_subject(session, user_id, refs=(s3_ref,))   # Art. 15
 planner.erase_subject(session, user_id, refs=(s3_ref,))     # Art. 17
 ```
 
-The resolver touches **only** keys under the prefix. A blank prefix
-raises `ResolverError` before any S3 call — it will never enumerate or
-erase a whole bucket. Keep the trailing delimiter in the ref value:
-`users/1` also matches `users/10/...`; `users/1/` does not.
+The resolver touches **only** keys under the prefix, and validates it
+before any S3 call: a blank prefix raises `ResolverError` (it will
+never enumerate or erase a whole bucket), and so does a prefix that
+doesn't end with `/` — S3 prefixes are literal substring matches, so
+`users/1` also matches `users/10/...`, while `users/1/` does not.
 
 ## What it does on S3's side
 

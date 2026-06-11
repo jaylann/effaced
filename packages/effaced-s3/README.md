@@ -35,12 +35,13 @@ it via `client=`.
 ## Prefix scoping — the one rule that matters
 
 The subject ref's `value` is a key prefix, and the resolver touches
-**only** keys under it. A blank or whitespace prefix raises
-`ResolverError` before any S3 call — the resolver will never enumerate
-or erase a whole bucket. Design your key layout so each subject's
-objects live under one prefix (`users/{id}/`), and make sure prefixes
-can't collide (`users/1` also matches `users/10/...` — keep the
-trailing delimiter in the ref value).
+**only** keys under it. Two guards run before any S3 call: a blank
+prefix raises `ResolverError` (the resolver will never enumerate or
+erase a whole bucket), and so does a prefix that doesn't end with `/`
+— S3 prefixes are literal substring matches, so `users/1` also matches
+`users/10/...`, which would bleed one subject's operation into
+another's data. Design your key layout so each subject's objects live
+under one `/`-terminated prefix (`users/{id}/`).
 
 ## IAM setup
 

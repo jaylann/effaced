@@ -25,8 +25,11 @@ pytestmark = pytest.mark.property
 # deadline=None for the same reason).
 no_deadline = settings(deadline=None)
 
-SUBJECT_PREFIX = "subject/"
-BYSTANDER_PREFIX = "bystander/"
+# Deliberate sibling stems: the subject's stem is a literal string-prefix of
+# the bystander's, so any unterminated-prefix matching bleeds — the property
+# is structurally sensitive to the exact failure S3's substring Prefix invites.
+SUBJECT_PREFIX = "users/4/"
+BYSTANDER_PREFIX = "users/42/"
 
 _key_suffixes = st.sets(
     st.text(

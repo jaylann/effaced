@@ -122,8 +122,8 @@ class TestExportMapping:
 
 
 class TestPrefixGuard:
-    @pytest.mark.parametrize("prefix", [" ", "   ", "\t"])
-    def test_blank_prefix_is_rejected_before_any_call(self, prefix: str) -> None:
+    @pytest.mark.parametrize("prefix", [" ", "   ", "\t", "users/4", "users", "users/42/a.png"])
+    def test_unsafe_prefix_is_rejected_before_any_call(self, prefix: str) -> None:
         fake = FakeS3Client(objects={AVATAR_KEY: AVATAR_BODY})
         resolver = _resolver(fake)
         with pytest.raises(ResolverError):
@@ -131,6 +131,15 @@ class TestPrefixGuard:
         with pytest.raises(ResolverError):
             asyncio.run(resolver.erase_subject(SubjectRef(kind="s3", value=prefix)))
         assert fake.calls == []
+
+    def test_sibling_stem_subjects_never_bleed(self) -> None:
+        sibling = "users/421/avatar.png"
+        fake = FakeS3Client(objects={"users/42/a.png": b"mine", sibling: b"not mine"})
+        resolver = _resolver(fake)
+        export = _export(resolver, "users/42/")
+        assert _exported_keys(export) == {"users/42/a.png"}
+        _erase(resolver, "users/42/")
+        assert fake.stored_keys == {sibling}
 
 
 class TestErasure:

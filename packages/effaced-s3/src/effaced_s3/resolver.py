@@ -38,9 +38,20 @@ def _default_client(region_name: str | None) -> S3ObjectClient:
 
 
 def _checked_prefix(ref: SubjectRef) -> str:
-    """The ref's key prefix; blank prefixes are refused before any S3 call."""
+    """The ref's key prefix, validated before any S3 call.
+
+    S3 prefixes are literal substring matches, so a prefix that is not
+    delimiter-terminated also matches sibling subjects (``users/4``
+    matches ``users/42/avatar.png``) — that is cross-subject bleed, the
+    one thing a resolver must never do. Both guards run before any call.
+    """
     if not ref.value.strip():
         raise ResolverError("subject ref prefix is blank — refusing to touch the whole bucket")
+    if not ref.value.endswith("/"):
+        raise ResolverError(
+            "subject ref prefix must end with '/' — an unterminated prefix also "
+            "matches sibling subjects ('users/4' matches 'users/42/...')"
+        )
     return ref.value
 
 
@@ -117,9 +128,12 @@ class S3Resolver:
 
     Expects refs of kind ``"s3"`` (refs are routed to the resolver whose
     name equals their kind — ADR 0008) whose value is the subject's key
-    prefix, e.g. ``"users/42/"``; the bucket is fixed at construction. A
-    blank prefix raises :class:`~effaced.exceptions.ResolverError` before
-    any S3 call — the resolver never enumerates or erases a whole bucket.
+    prefix, e.g. ``"users/42/"``; the bucket is fixed at construction.
+    The prefix must be non-blank and end with ``"/"`` — anything else
+    raises :class:`~effaced.exceptions.ResolverError` before any S3 call,
+    because an unterminated prefix also matches sibling subjects
+    (``users/4`` matches ``users/42/...``) and a blank one is the whole
+    bucket.
 
     Erasure deletes **every object version and delete marker** under the
     prefix: a plain delete on a versioned bucket only hides data behind a
@@ -196,8 +210,8 @@ class S3Resolver:
         Raises:
             ResolverError: The credentials are invalid or lack a
                 permission, the bucket does not exist, the prefix is
-                blank, or an object exceeds ``max_object_bytes`` —
-                retrying cannot succeed.
+                blank or not ``"/"``-terminated, or an object exceeds
+                ``max_object_bytes`` — retrying cannot succeed.
         """
         prefix = _checked_prefix(ref)
         try:
@@ -230,8 +244,9 @@ class S3Resolver:
         Raises:
             ResolverError: The credentials are invalid or lack a
                 permission, the bucket does not exist, the prefix is
-                blank, or S3 refused every failed deletion for
-                non-retryable reasons — retrying cannot succeed.
+                blank or not ``"/"``-terminated, or S3 refused every
+                failed deletion for non-retryable reasons — retrying
+                cannot succeed.
             PartialEraseError: Some versions failed transiently this
                 attempt; propagates so the saga retries to convergence.
         """
