@@ -1,6 +1,6 @@
 # effaced
 
-GDPR data-subject mechanisms — Art. 15 export, Art. 17 erasure, Art. 7 consent, append-only audit — across the user's own database and external systems (resolvers; Stripe first). uv workspace monorepo: `packages/effaced` (core) + `packages/effaced-stripe`, plus `site/` (Astro Starlight docs + marketing, pnpm, outside the uv workspace — ADR 0011). **We ship mechanisms, never compliance determinations.**
+GDPR data-subject mechanisms — Art. 15 export, Art. 17 erasure, Art. 7 consent, append-only audit — across the user's own database and external systems (resolvers; Stripe and Supabase first). uv workspace monorepo: `packages/effaced` (core) + `packages/effaced-stripe` + `packages/effaced-supabase`, plus `site/` (Astro Starlight docs + marketing, pnpm, outside the uv workspace — ADR 0011). **We ship mechanisms, never compliance determinations.**
 
 ## Read these first
 

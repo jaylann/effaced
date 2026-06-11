@@ -127,7 +127,7 @@ export const tiers: RoadmapTier[] = [
       {
         name: 'Supabase Auth resolver',
         scope: 'Reach the subject’s auth.users record via the Admin API — idempotent, conformance-tested.',
-        status: 'planned',
+        status: 'shipped',
         ref: { kind: 'issue', number: 56 },
       },
       {
