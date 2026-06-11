@@ -57,7 +57,7 @@ from effaced.saga import BackoffPolicy, Outbox, OutboxEntry, OutboxStatus, SagaR
 try:
     __version__ = version("effaced")
 except PackageNotFoundError:  # pragma: no cover - only hit on uninstalled source trees
-    __version__ = "0.0.0"
+    __version__ = "0.1.0"
 
 __all__ = [
     "MANIFEST_SCHEMA_VERSION",

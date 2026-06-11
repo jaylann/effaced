@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "effaced"
-version = "0.0.0"
+version = "0.1.0"
 description = "GDPR data-subject mechanisms — export, erasure, consent, and audit across your own database and the external systems you use. We ship the mechanisms. You own the compliance."
 readme = "README.md"
 requires-python = ">=3.11"
