@@ -17,10 +17,13 @@ cd examples/fastapi-quickstart
 uv run uvicorn app:app --reload
 ```
 
-In your own project the install line is:
+In your own project the install line is (`effaced` isn't on PyPI yet — until
+0.1.0 ships, take it from git):
 
 ```bash
-uv add effaced effaced-stripe fastapi uvicorn "psycopg[binary]"
+uv add "effaced @ git+https://github.com/jaylann/effaced#subdirectory=packages/effaced" \
+       "effaced-stripe @ git+https://github.com/jaylann/effaced#subdirectory=packages/effaced-stripe" \
+       fastapi uvicorn "psycopg[binary]"
 ```
 
 Startup creates the tables (your migrations would normally own that) and
