@@ -1,0 +1,74 @@
+---
+title: Stability and guarantees
+description: Pre-alpha status, the widened SemVer rule, protocol and manifest stability promises, and what effaced explicitly does not guarantee.
+sidebar:
+  order: 3
+---
+
+## Status: pre-alpha (0.x)
+
+Both packages are 0.x and not yet published to PyPI. The 0.x window is
+being used to get the manifest format and the resolver interface right —
+and to dogfood effaced in production before 1.0; 1.0 ships when both have
+survived that.
+
+## Widened SemVer: behaviour is API
+
+For a compliance-mechanisms library, the worst failure is *silently
+changing what gets deleted or exported* — you upgrade a patch release and
+your erasure quietly covers less (legal exposure) or more (destroys
+retained records). Classic SemVer only covers signatures, so effaced
+widens it ([ADR 0003](https://github.com/jaylann/effaced/blob/stage/docs/decisions/0003-widened-semver.md)).
+
+MAJOR includes:
+
+1. API changes (the classic rule),
+2. manifest-format changes,
+3. **any change to what gets deleted or exported** — even with identical
+   signatures.
+
+Consequences you can rely on:
+
+- Erasure/export behaviour changes are flagged under a prominent
+  **Security** section in changelogs — an erasure bug is a
+  data-protection bug, and the changelog says so loudly.
+- Expect more majors than a typical library; that is the honest price of
+  the guarantee.
+- Deprecations get a runway (warning, then a window, then removal in the
+  next major). Nothing is yanked.
+
+## Protocol stability
+
+The `Resolver` and `AuditSink` protocols are public API with the
+strictest stability promise in the library: they evolve **additively
+only** — optional methods with default implementations, never changes to
+existing signatures. A custom resolver you write today is not broken by a
+minor release.
+
+Part of the same contract: resolver erasure is idempotent. Erasing a
+subject that is already gone is success (`already_absent=True`), never an
+error — saga retries depend on it.
+
+## Manifest forward migration
+
+Any change to the serialized manifest format bumps
+`MANIFEST_SCHEMA_VERSION` and ships an explicit forward migration. Old
+manifests are migrated forward, **never rejected**. A manifest newer than
+the installed library fails loudly with upgrade guidance instead of
+guessing.
+
+## Not legal advice
+
+:::caution[Mechanisms, not determinations]
+effaced is **not legal advice and not a compliance guarantee**. It gives
+you correct, tested machinery to implement Articles 15, 17, 7, and 30 —
+and an auditable record that you did. Whether your processing is lawful,
+whether your retention reasons hold, whether an abandoned erasure needs
+escalation under your obligations: those are legal determinations only
+you (and your counsel) can make. Nothing in this documentation claims
+otherwise, and no release ever will.
+:::
+
+Related: effaced cannot find data you never declared. Unannotated models
+are not exported or erased — that responsibility stays visible and stays
+yours.

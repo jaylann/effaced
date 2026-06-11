@@ -15,7 +15,8 @@ class ErasureResult(BaseModel):
 
     Attributes:
         subject_id: The subject that was erased.
-        completed_at: When the local transaction committed (UTC).
+        completed_at: When the local phase finished (UTC); durable once
+            the caller commits.
         deleted: Record counts deleted, by table.
         anonymized: Record counts anonymized, by table.
         retained: Record counts left in place under a retention duty, by table.

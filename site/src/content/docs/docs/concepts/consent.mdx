@@ -1,0 +1,76 @@
+---
+title: Consent
+description: Art. 7 as append-only events — withdrawal as easy as granting, status derived, every change mirrored into the audit trail.
+---
+
+Art. 7(3) requires that withdrawing consent be as easy as giving it. In
+effaced both are literally the same call — one immutable `ConsentRecord`
+appended to the ledger:
+
+```python
+ledger = ConsentLedger(tables.consent_records, audit)
+
+ledger.record(session, ConsentRecord(
+    subject_id="42",
+    purpose="newsletter",
+    policy_version="2026-01",
+    granted=True,                      # False = withdrawal — same call, same cost
+    recorded_at=datetime.now(UTC),
+    source="signup_form",
+))
+```
+
+## Events, not state
+
+Consent rows are never updated or deleted. Current status is *derived* —
+the latest record per (subject, purpose) — which is what makes the
+Art. 5(2) accountability question answerable: not just "does the subject
+consent?" but *what consent was given, when, and against which policy
+version*.
+
+```python
+ledger.status(session, "42", "newsletter")   # bool, derived from the latest record
+ledger.history(session, "42")                # the full, unredacted event sequence
+```
+
+Two precise edges of `status`:
+
+- "Latest" means greatest `recorded_at` — supply distinct, caller-clock
+  timestamps.
+- Exact timestamp ties resolve to the **withdrawing** record: when the
+  order of a grant and a withdrawal is unknowable, effaced assumes
+  consent was withdrawn. The conservative reading is the only defensible
+  one.
+
+`policy_version` is load-bearing: consent is given to a concrete policy
+text, so record which version the subject actually saw. A new policy
+version means new grants.
+
+## Audit mirroring: no consent change persists unaudited
+
+Every `record()` mirrors a `CONSENT_GRANTED` / `CONSENT_WITHDRAWN` event
+into the audit trail. The payload carries only the purpose and policy
+version — never the record's `source` or anything else that could be PII.
+
+The transactional split (ADR 0006) is deliberate and asymmetric:
+
+- The consent **row** writes through *your* session and commits when you
+  commit.
+- The **audit event** goes through the constructor's sink, which persists
+  independently (the default `DatabaseAuditSink` commits each append in
+  its own short transaction).
+- A failing sink **raises out of `record()` before you can commit** — so
+  no consent change can ever persist unaudited. Do not commit a session
+  after `record()` raised.
+- The converse — an audit event for a consent write you then roll back —
+  is possible and is the deliberate, evidence-preserving direction: a
+  spurious "attempted" event is harmless, a missing one is not.
+
+:::note
+The ledger gives you a defensible *record* of consent. Whether a given
+grant meets the GDPR's bar for valid consent — freely given, specific,
+informed, unambiguous — is a determination for you and your counsel, not
+something a library can decide.
+:::
+
+Full signatures: [API reference](../../reference/consent/).

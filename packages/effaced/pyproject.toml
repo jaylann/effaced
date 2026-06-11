@@ -48,3 +48,17 @@ Changelog = "https://github.com/jaylann/effaced/blob/main/packages/effaced/CHANG
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/effaced"]
+
+# Mutation testing — weekly deep-checks workflow, not per-PR (slow). Run from
+# this directory: mutmut only puts mutants/src on sys.path, so it must see the
+# package as src/effaced. The whole tree is copied; mutation is restricted to
+# the erasure-critical modules below.
+[tool.mutmut]
+source_paths = ["src"]
+only_mutate = [
+    "src/effaced/audit/*",
+    "src/effaced/consent/*",
+    "src/effaced/erasure/*",
+    "src/effaced/manifest/*",
+    "src/effaced/saga/*",
+]

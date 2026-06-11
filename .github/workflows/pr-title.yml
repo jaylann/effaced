@@ -10,6 +10,9 @@ permissions:
 jobs:
   semantic:
     name: Conventional Commits title
+    # dependabot titles are conventional but capitalized ("chore(deps): Bump …");
+    # a skipped required check counts as satisfied
+    if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

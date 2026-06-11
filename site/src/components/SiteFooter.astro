@@ -1,0 +1,37 @@
+---
+/** Footer shared by the marketing pages (landing, roadmap). */
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const docs = (path = '') => `${base}/docs/${path}`;
+const github = 'https://github.com/jaylann/effaced';
+---
+
+<footer class="footer">
+  <div class="wrap">
+    <div class="footer-cols">
+      <div class="footer-col">
+        <span class="mono-label">Documentation</span>
+        <a href={docs('quickstart/')}>Quickstart</a>
+        <a href={docs('concepts/erasure/')}>Concepts</a>
+        <a href={docs('reference/')}>API reference</a>
+        <a href={docs('guides/saga-runner-wiring/')}>Guides</a>
+      </div>
+      <div class="footer-col">
+        <span class="mono-label">Project</span>
+        <a href={`${base}/roadmap/`}>Roadmap</a>
+        <a href={docs('project/comparison/')}>Comparison</a>
+        <a href={docs('project/stability/')}>Stability & SemVer</a>
+        <a href={`${github}/tree/stage/docs/decisions`}>Decision records</a>
+        <a href={docs('project/contributing/')}>Contributing</a>
+      </div>
+      <div class="footer-col">
+        <span class="mono-label">Elsewhere</span>
+        <a href={github}>GitHub</a>
+        <a href={`${github}/blob/stage/LICENSE`}>Apache-2.0</a>
+      </div>
+    </div>
+    <p class="colophon">
+      <span class="self-redact">© 2026 Justin Lanfermann</span> · this line is erasable, your
+      obligations are not
+    </p>
+  </div>
+</footer>

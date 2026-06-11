@@ -38,3 +38,14 @@ coverage.xml
 
 # Logs
 *.log
+
+# mutmut (weekly mutation testing)
+mutants/
+
+# site (Astro + Starlight, pnpm)
+node_modules/
+site/dist/
+.astro/
+# generated API reference (scripts/gen_api_docs.py) — keep the dir via .gitkeep
+site/src/content/docs/docs/reference/*
+!site/src/content/docs/docs/reference/.gitkeep

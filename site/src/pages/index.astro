@@ -1,0 +1,491 @@
+---
+import '@fontsource-variable/public-sans';
+import '@fontsource/ibm-plex-mono/400.css';
+import '@fontsource/ibm-plex-mono/500.css';
+import '../styles/tokens.css';
+import '../styles/landing.css';
+import { Code } from 'astro:components';
+import vitesseBlack from 'shiki/themes/vitesse-black.mjs';
+import SagaDiagram from '../components/SagaDiagram.astro';
+import SiteNav from '../components/SiteNav.astro';
+import SiteFooter from '../components/SiteFooter.astro';
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const docs = (path = '') => `${base}/docs/${path}`;
+const github = 'https://github.com/jaylann/effaced';
+
+const title = 'effaced — personal data, provably gone';
+const description =
+  'GDPR data-subject mechanisms for Python — export (Art. 15), erasure (Art. 17), consent (Art. 7), and an append-only audit trail — across your database and the external systems you actually use.';
+const ogImage = Astro.site ? new URL(`${base}/og.png`, Astro.site).href : `${base}/og.png`;
+
+const annotateCode = `from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from effaced import ErasureStrategy, PiiCategory, RetentionPolicy, pii, subject_link
+
+class User(Base):
+    __tablename__ = "users"
+    __table_args__ = {"info": subject_link("")}          # this IS the data subject
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    email: Mapped[str] = mapped_column(info=pii(PiiCategory.CONTACT))
+
+class Invoice(Base):
+    __tablename__ = "invoices"
+    __table_args__ = {"info": subject_link("user")}      # reaches the subject via .user
+
+    billing_address: Mapped[str] = mapped_column(
+        info=pii(
+            PiiCategory.FINANCIAL,
+            erasure=ErasureStrategy.RETAIN,              # legally retained — never deleted,
+            retention=RetentionPolicy(reason="§147 AO"), # and the audit trail says why
+        )
+    )`;
+
+const callsCode = `data_map = collect_data_map(Base.metadata)
+graph = resolve_subject_graph(data_map, Base.registry)
+tables = bind_tables(Base.metadata)        # effaced-owned tables ride your migrations
+audit = DatabaseAuditSink(session_factory, tables.audit_events)
+registry = ResolverRegistry()
+registry.register(StripeResolver(api_key="rk_live_..."))   # the registry doubles as
+                                                           # your "where is my PII" list
+
+ConsentLedger(tables.consent_records, audit).record(session, record)       # Art. 7
+Exporter(data_map, graph, Base.metadata, audit, registry).export_subject(
+    session, user_id, refs=(stripe_ref,)
+)                                                                          # Art. 15
+ErasurePlanner(data_map, graph, registry).erase_subject(session, user_id)  # Art. 17`;
+---
+
+<!doctype html>
+<html lang="en" class="no-js" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="icon" type="image/svg+xml" href={`${base}/favicon.svg`} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content={ogImage} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#000000" />
+    <meta name="color-scheme" content="dark" />
+    {Astro.site && <link rel="canonical" href={new URL(`${base}/`, Astro.site).href} />}
+    {Astro.site && <meta property="og:url" content={new URL(`${base}/`, Astro.site).href} />}
+    <script
+      type="application/ld+json"
+      set:html={JSON.stringify({
+        '@context': 'https://schema.org',
+        '@type': 'SoftwareApplication',
+        name: 'effaced',
+        description,
+        applicationCategory: 'DeveloperApplication',
+        operatingSystem: 'Any',
+        license: 'https://www.apache.org/licenses/LICENSE-2.0',
+        url: 'https://github.com/jaylann/effaced',
+      })}
+    />
+  </head>
+
+  <body>
+    <div class="doc-edge" aria-hidden="true">
+      <div class="wrap">
+        <span>EFFACED // DATA-SUBJECT MECHANISMS</span>
+        <span>ART. 15 · 17 · 7 · 5(2)</span>
+        <span>APACHE-2.0 // PRE-ALPHA 0.x</span>
+      </div>
+    </div>
+
+    <SiteNav />
+
+    <main>
+      <header class="hero wrap">
+        <p class="hero-file-line">
+          <span>CASE FILE EF-2026-0611</span>
+          <span>RE: RIGHT TO ERASURE</span>
+          <span>DISPOSITION: <span class="redacted" data-scramble>GRANTED</span></span>
+        </p>
+        <h1>Personal data, <em>provably</em> gone.</h1>
+        <p class="hero-lede">
+          effaced ships the GDPR data-subject mechanisms — export (Art. 15), erasure (Art. 17),
+          consent (Art. 7), and an append-only audit trail (Art. 5(2)) — across your own database
+          <strong>and</strong> the external systems you actually use. Stripe first.
+        </p>
+
+        <div class="hero-grid">
+          <div class="hero-actions">
+            <code class="install"
+              ><span class="prompt">$</span><span
+                id="install-cmd"
+                data-cmd={`uv add "effaced @ git+https://github.com/jaylann/effaced#subdirectory=packages/effaced" "effaced-stripe @ git+https://github.com/jaylann/effaced#subdirectory=packages/effaced-stripe"`}
+                >uv add effaced effaced-stripe</span
+              ><span class="caret" aria-hidden="true"></span><button
+                type="button"
+                data-copy
+                aria-live="polite"
+                aria-label="Copy install command">Copy</button
+              ></code
+            >
+            <p class="hero-note">
+              Pre-alpha — not yet on PyPI. The short command lands with 0.1.0; until
+              then, Copy gives you the working
+              <a href={docs('quickstart/')}>install-from-GitHub</a> one-liner.
+            </p>
+            <div class="cta-row">
+              <a class="btn btn-solid" href={docs()}>Read the docs</a>
+              <a class="btn btn-outline" href={github}>GitHub</a>
+            </div>
+            <p class="hero-credo">
+              We ship the mechanisms. <strong>You own the compliance.</strong>
+            </p>
+          </div>
+
+          <div class="record" data-record aria-label="Example subject record being erased">
+            <div class="record-head">
+              <span>SUBJECT RECORD · USERS №1284</span>
+              <span>EXHIBIT A</span>
+            </div>
+            <div class="record-rows">
+              <div class="record-row">
+                <span class="k">email</span>
+                <span class="v"><span class="redacted" data-scramble>jane.doe@example.com</span></span>
+              </div>
+              <div class="record-row">
+                <span class="k">stripe</span>
+                <span class="v"><span class="redacted" data-scramble>cus_9XK42MQ7L1</span></span>
+              </div>
+              <div class="record-row">
+                <span class="k">invoice №881</span>
+                <span class="v"
+                  >Hauptstr. 14, München<span class="note" data-note
+                    >RETAINED · §147 AO · REASON RECORDED</span
+                  ></span
+                >
+              </div>
+              <div class="record-row">
+                <span class="k">audit</span>
+                <span class="v" data-audit-line>ERASURE_COMPLETED · RECORDED</span>
+              </div>
+            </div>
+            <span class="stamp record-stamp" data-stamp>ERASED · AUDITED</span>
+          </div>
+        </div>
+      </header>
+
+      <section class="section" aria-labelledby="problem-h">
+        <div class="wrap">
+          <div class="section-head reveal">
+            <span class="index">01</span>
+            <h2 id="problem-h">Hand-rolled erasure fails the same three ways.</h2>
+          </div>
+          <div class="failures reveal">
+            <article class="failure">
+              <span class="stamp">MISSED</span>
+              <h3>PII survives in related tables.</h3>
+              <p>
+                The user row is deleted; the addresses, support tickets, and the Stripe customer
+                object live on. Nobody declared them, so nobody erased them.
+              </p>
+              <span class="exhibit">EXHIBIT 1 · JOINED TABLES, THIRD PARTIES</span>
+            </article>
+            <article class="failure">
+              <span class="stamp">OVERDELETED</span>
+              <h3>Legally retained records get hard-deleted.</h3>
+              <p>
+                Invoices carry statutory retention duties. A naive cascade deletes them anyway —
+                trading one legal problem for another.
+              </p>
+              <span class="exhibit">EXHIBIT 2 · RETENTION VS. CASCADE</span>
+            </article>
+            <article class="failure">
+              <span class="stamp">UNRECORDED</span>
+              <h3>No defensible record of any of it.</h3>
+              <p>
+                Art. 5(2) expects you to demonstrate what happened. A bare <code>DELETE</code> leaves
+                nothing to show — success and silent failure look identical.
+              </p>
+              <span class="exhibit">EXHIBIT 3 · ACCOUNTABILITY GAP</span>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="mechanisms-h">
+        <div class="wrap">
+          <div class="section-head reveal">
+            <span class="index">02</span>
+            <h2 id="mechanisms-h">Four mechanisms. Each one a contract, not a feature.</h2>
+          </div>
+          <div class="mechanisms reveal">
+            <a class="mechanism" href={docs('concepts/export/')}>
+              <span class="art">ART. 15</span>
+              <h3>Export</h3>
+              <p>
+                One structured bundle of everything a subject's data touches — local tables and
+                resolvers. Failures never silently shrink the bundle; they are recorded as
+                incomplete sources.
+              </p>
+            </a>
+            <a class="mechanism" href={docs('concepts/erasure/')}>
+              <span class="art">ART. 17</span>
+              <h3>Erasure</h3>
+              <p>
+                Delete or anonymize in FK-safe order, skip and record what the law makes you keep,
+                and enqueue every external deletion durably — all in one atomic transaction.
+              </p>
+            </a>
+            <a class="mechanism" href={docs('concepts/consent/')}>
+              <span class="art">ART. 7</span>
+              <h3>Consent</h3>
+              <p>
+                An append-only ledger where withdrawing is exactly as easy as granting — one call,
+                one immutable record, mirrored into the audit trail before your commit.
+              </p>
+            </a>
+            <a class="mechanism" href={docs('concepts/audit/')}>
+              <span class="art">ART. 5(2)</span>
+              <h3>Audit</h3>
+              <p>
+                Append-only by construction — there is no update or delete surface to misuse. Every
+                erasure, export, and consent change leaves a PII-free, replayable record.
+              </p>
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="code-h">
+        <div class="wrap">
+          <div class="section-head reveal">
+            <span class="index">03</span>
+            <h2 id="code-h">The annotations are the data map.</h2>
+          </div>
+          <div class="code-pair">
+            <div class="code-block reveal">
+              <div class="caption">
+                <span class="mono-label">STEP 1</span>
+                <p>
+                  Annotate the models you already have — there is no separate config file to drift
+                  out of sync.
+                </p>
+              </div>
+              <div class="code-frame">
+                <div class="code-frame-head" aria-hidden="true">
+                  <span>models.py</span><span class="lang">python</span>
+                </div>
+                <Code code={annotateCode} lang="python" theme={vitesseBlack} />
+              </div>
+            </div>
+            <div class="code-block reveal">
+              <div class="caption">
+                <span class="mono-label">STEP 2</span>
+                <p>The entire integration surface is three calls.</p>
+              </div>
+              <div class="code-frame">
+                <div class="code-frame-head" aria-hidden="true">
+                  <span>gdpr.py</span><span class="lang">python</span>
+                </div>
+                <Code code={callsCode} lang="python" theme={vitesseBlack} />
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="saga-h">
+        <div class="wrap">
+          <div class="section-head reveal">
+            <span class="index">04</span>
+            <h2 id="saga-h">Erasure is a saga, not a function call.</h2>
+          </div>
+          <div class="saga-grid">
+            <div class="saga-copy reveal">
+              <p>
+                External APIs cannot join your database transaction. effaced doesn't pretend they
+                can: the local phase commits atomically, and every external deletion is enqueued
+                <strong>in that same transaction</strong> — then fanned out by a runner you already
+                operate.
+              </p>
+              <p>
+                When Stripe is down mid-erasure, you don't have a half-erased mystery. You have a
+                committed local state, a durable queue, retries with backoff — and an entry that
+                keeps failing is <strong>abandoned loudly</strong>: audited and surfaced, never
+                silently dropped.
+              </p>
+              <p>
+                <a class="bar-link" href={docs('concepts/saga/')}>How the saga works →</a>
+              </p>
+            </div>
+            <div class="reveal"><SagaDiagram /></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="compare-h">
+        <div class="wrap">
+          <div class="section-head reveal">
+            <span class="index">05</span>
+            <h2 id="compare-h">An honest comparison.</h2>
+          </div>
+          <div class="reveal">
+            <table class="ledger">
+              <thead>
+                <tr><th scope="col">Alternative</th><th scope="col">The gap</th></tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>Roll your own</td>
+                  <td>
+                    Misses PII in related tables and third parties; deletes retained invoices; no
+                    Art. 5(2) record; breaks mid-flight when an API is down.
+                  </td>
+                </tr>
+                <tr>
+                  <td>django-gdpr-assist</td>
+                  <td>
+                    Closest prior art — archived since ~2022, Django-only, local ORM only. effaced
+                    is the maintained successor for the modern Python stack.
+                  </td>
+                </tr>
+                <tr>
+                  <td>DSR platforms</td>
+                  <td>
+                    OneTrust, Transcend et al. are heavy, expensive, DPO-facing SaaS — not a
+                    drop-in developer library.
+                  </td>
+                </tr>
+                <tr>
+                  <td>GDPR boilerplates</td>
+                  <td>
+                    Shallow download/delete buttons in a template — not reusable machinery with an
+                    audit trail.
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <p class="compare-foot">
+              Including what effaced is <em>not</em> — read the
+              <a class="bar-link" href={docs('project/comparison/')}>full comparison</a>.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      <section class="section" aria-labelledby="legal-h">
+        <div class="wrap">
+          <div class="legal reveal">
+            <span class="stamp" id="legal-h">NOT LEGAL ADVICE</span>
+            <div>
+              <p>
+                effaced gives you correct machinery to implement Articles 15, 17, 7, and 30 — and
+                an auditable record that you did. Whether your processing is lawful is a legal
+                determination only you and your counsel can make.
+              </p>
+              <p>
+                Pre-alpha 0.x, under <strong>widened SemVer</strong>: any change to what gets
+                deleted or exported is a MAJOR version, regardless of syntax. Silently changing
+                behaviour like that is the worst failure a library like this can have — see
+                <a class="bar-link" href={docs('project/stability/')}>stability</a>.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <SiteFooter />
+
+    <script>
+      document.documentElement.classList.remove('no-js');
+
+      const motionOK = !window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+      // copy-to-clipboard for the install command
+      const copyBtn = document.querySelector<HTMLButtonElement>('[data-copy]');
+      copyBtn?.addEventListener('click', async () => {
+        const el = document.getElementById('install-cmd');
+        // pre-publish: data-cmd carries the working git+https install line
+        const cmd = el?.dataset.cmd ?? el?.textContent ?? '';
+        try {
+          await navigator.clipboard.writeText(cmd);
+          copyBtn.textContent = 'Copied';
+          setTimeout(() => (copyBtn.textContent = 'Copy'), 1600);
+        } catch {
+          copyBtn.textContent = 'Copy';
+        }
+      });
+
+      // scroll reveals (sections + saga diagram)
+      const io = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (entry.isIntersecting) {
+              entry.target.classList.add('in-view');
+              io.unobserve(entry.target);
+            }
+          }
+        },
+        { threshold: 0.18 },
+      );
+      for (const el of document.querySelectorAll('.reveal, [data-saga]')) io.observe(el);
+
+      // hero record: scramble → redact → stamp. Without motion, the markup's
+      // default state already shows the finished (redacted, stamped) document.
+      const GLYPHS = '█▓▒░#@%&*+=';
+      const scramble = (el: HTMLElement, original: string, done: () => void): void => {
+        let frame = 0;
+        const tick = (): void => {
+          frame += 1;
+          el.textContent = [...original]
+            .map((ch) => (ch === ' ' ? ch : (GLYPHS[Math.floor(Math.random() * GLYPHS.length)] ?? ch)))
+            .join('');
+          if (frame < 14) {
+            setTimeout(tick, 38);
+          } else {
+            el.textContent = original;
+            done();
+          }
+        };
+        tick();
+      };
+
+      if (motionOK) {
+        const targets = [...document.querySelectorAll<HTMLElement>('[data-scramble]')];
+        const stampEl = document.querySelector<HTMLElement>('[data-stamp]');
+        const noteEl = document.querySelector<HTMLElement>('[data-note]');
+        const auditEl = document.querySelector<HTMLElement>('[data-audit-line]');
+
+        for (const t of targets) t.classList.add('armed');
+        stampEl?.classList.add('armed');
+        if (noteEl) noteEl.style.opacity = '0';
+        if (auditEl) auditEl.style.opacity = '0';
+
+        let i = 0;
+        const next = (): void => {
+          const t = targets[i];
+          i += 1;
+          if (!t) {
+            if (noteEl) {
+              noteEl.style.transition = 'opacity 300ms ease-in';
+              noteEl.style.opacity = '1';
+            }
+            setTimeout(() => {
+              if (auditEl) {
+                auditEl.style.transition = 'opacity 300ms ease-in';
+                auditEl.style.opacity = '1';
+              }
+              stampEl?.classList.add('pressed');
+            }, 450);
+            return;
+          }
+          scramble(t, t.textContent ?? '', () => {
+            t.classList.add('struck');
+            setTimeout(next, 260);
+          });
+        };
+        setTimeout(next, 700);
+      }
+    </script>
+  </body>
+</html>

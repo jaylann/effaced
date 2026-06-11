@@ -9,19 +9,35 @@ Storage-agnostic core. **No module outside `adapters/` may import SQLAlchemy or 
 | `categories/` | `PiiCategory`, `LegalBasis`, `ErasureStrategy` enums | members are manifest format — removal/rename = MAJOR |
 | `annotations/` | `PiiSpec`, `RetentionPolicy`, `SubjectLink`, `SubjectRef` (frozen pydantic) | `RETAIN` requires a `RetentionPolicy` (validator) |
 | `manifest/` | `DataMap`, `TableEntry`, `ColumnEntry`, `migration.py` | format change ⇒ bump `MANIFEST_SCHEMA_VERSION` + migration branch; old payloads never rejected |
-| `adapters/sqlalchemy/` | `pii()`/`subject_link()` info-dict helpers, `collect_data_map()` | the ONLY SQLAlchemy-aware code |
+| `manifest/resolution/` | `JoinHop`, `TableAccessPlan`, `SubjectGraph`, `fk_safe_deletion_order()` | pure data + stdlib graphlib, runtime-only (never serialized); incoherent graphs are unrepresentable |
+| `lint/` | `CompletenessFinding` (frozen pydantic; `column=None` ⇒ whole table unannotated) | findings are questions, not verdicts — never a compliance determination; storage-agnostic, linters live in adapters |
+| `adapters/sqlalchemy/` | `pii()`/`subject_link()` info-dict helpers, `collect_data_map()`, `resolve_subject_graph()`, `lint_completeness(metadata)` (exact complement of the collector; PK/FK + `effaced_*` exempt), `SurrogateRegistry`/`default_surrogate_registry()`, `ErasureExecutor(metadata, surrogates)` (the `StepExecutor` impl: hop-chain-scoped DELETE/per-row ANONYMIZE/RETAIN count), `storage/` (`bind_tables()` → `EffacedTables`: the effaced-owned `effaced_*` tables) | the ONLY SQLAlchemy-aware code |
 | `export/` | `Exporter`, `ExportBundle`, `ExportRecord` | failures land in `incomplete_sources`, never silent omission |
-| `erasure/` | `ErasurePlanner`, `ErasurePlan`/`ErasureStep`, `ErasureResult` | plans are inspectable before execution; local steps atomic, external via outbox |
-| `consent/` | `ConsentLedger`, `ConsentRecord` | records are immutable events; status is derived, never stored |
-| `audit/` | `AuditEvent(+Type)`, `AuditSink` protocol, `DatabaseAuditSink` | append-only by construction; payloads are small scalars, never rich PII |
+| `erasure/` | `ErasurePlanner(data_map, graph, registry, *, executor, outbox, audit_sink)`, `ErasurePlan`/`ErasureStep`, `ErasureResult`, `StepExecutor` protocol | plans are inspectable before execution; local steps + outbox enqueue atomic in the caller's session (never committed here); row-delete vs anonymize-in-place is ADR 0007, ref→resolver routing is ADR 0008 (kind == name; unmatched kind ⇒ `ResolverError`, unmatched resolver ⇒ skipped + audited), execution/audit/re-run semantics are ADR 0009 — changing any is MAJOR |
+| `consent/` | `ConsentLedger(consent_records, audit_sink)`, `ConsentRecord` | records are immutable events; status is derived (latest per subject+purpose; timestamp ties resolve to withdrawn), never stored; rows write via the caller's session, every `record()` mirrors an event into the constructor's `AuditSink` |
+| `audit/` | `AuditEvent(+Type)`, `AuditSink` protocol, `DatabaseAuditSink(session_factory, audit_events)` | append-only by construction; payloads are small scalars, never rich PII; the database sink commits each append in its own short transaction (ADR 0006); unreadable `event_type` on read ⇒ `AuditIntegrityError`, never skipped |
 | `resolvers/` | `Resolver` protocol, `ResolverRegistry`, result models | public API, additive-only; explicit registration, no discovery |
-| `saga/` | `Outbox`, `OutboxEntry(+Status)`, `SagaRunner` | entries enqueue in the SAME transaction as local erasure; `entry_id` is the idempotency key |
+| `saga/` | `Outbox(session_factory, outbox)`, `OutboxEntry(+Status)`, `BackoffPolicy`, `SagaRunner(registry, outbox, audit, *, max_attempts, batch_size, backoff)` | `enqueue` writes flattened entries through the CALLER's session (same transaction as local erasure), never commits; `entry_id` is the idempotency key; `claim_batch`/`mark_*`/`list_abandoned`/`status_counts` use the constructor's `session_factory`; the operator surface (`list_abandoned()`, `status_counts()`) is read-only — requeue needs an ADR first (abandonment is permanent under ADR 0010); one `next_attempt_at` gate is both crash lease and backoff schedule, attempts count claims, `ResolverError` ⇒ immediate abandon, `ERASURE_COMPLETED` needs every subject entry SUCCEEDED (ADR 0010 — changing any is MAJOR) |
+| `testing/` | `ResolverConformanceSuite`, `InMemoryResolver`, `assert_data_map_complete(metadata, *, exempt_tables, exempt_columns)` (CI gate over `lint_completeness`; stale exemptions fail) | public API, additive-only; imports pytest at runtime by design (ADR 0011) — NEVER re-export from root `__init__.py`; its `_run` is the second sanctioned `asyncio.run` bridge |
 
-`__init__.py` files: docstring + re-exports only. New public class ⇒ new file ⇒ re-export ⇒ add to root `__all__` (test_public_api guards it).
+`__init__.py` files: docstring + re-exports only. New public class ⇒ new file ⇒ re-export ⇒ add to root `__all__` (test_public_api guards it). Exception: `testing/` stays out of the root `__all__` so `import effaced` never pulls pytest.
 
-## When implementing engine logic (currently NotImplementedError)
+## When implementing engine logic
 
-- Keep signatures — they are the published API surface; changing them is breaking.
+- Keep signatures — they are the published API surface; changing them is breaking. The sync/async shape is settled by ADR 0006 (sync engine `def`s taking the caller's `Session`; async only on `Resolver` methods and `SagaRunner.run_once`).
 - Every outcome (success, failure, retention skip, abandonment) emits an audit event.
 - FK-safe ordering comes from metadata, never from user-supplied order.
 - Add bleed/retention/idempotency property tests alongside (see `.claude/rules/testing.md`).
+
+## Erasure-executor invariants (ADR 0007/0008 — learned the hard way)
+
+- Hop-chain subqueries: alias every *inner* level, keep only the outermost as the raw `Table`, or self-referential hops auto-correlate and scope wrong.
+- `ANONYMIZE` updates row-by-row with fresh surrogates per cell; one scoped UPDATE writes a single shared surrogate and breaks unique constraints.
+- `subject_id` is published as `str` but subject PKs are often `Integer`; coerce via `column.type.python_type` — typed-parameter drivers (psycopg3) reject `integer = text`.
+- Refs route to the resolver whose `name` equals the ref's `kind` (ADR 0008): unmatched ref kind ⇒ `ResolverError` before any audit event; resolver with no matching ref ⇒ skipped + recorded in `skipped_resolvers`, never an error.
+- A table with **zero** annotated columns that is fully PII-owned (only PK/FK columns) is row-deleted by the planner — `all(...)` over an empty column set is vacuously true (`Order` in the test schema is the precedent). Link-only tables are erased, not skipped.
+
+## Saga invariants (ADR 0010 — learned the hard way)
+
+- `mark_succeeded` locks the subject's outbox rows `FOR UPDATE` ordered by `entry_id` *before* updating — identical lock order across runners prevents lock-order-inversion deadlock; claimers never wait (`SKIP LOCKED`) so no cycle exists.
+- `attempts` increments at *claim* time, not failure time — a runner crashing before bookkeeping would otherwise never raise the counter and the entry would be re-claimed forever instead of converging to ABANDONED.

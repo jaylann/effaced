@@ -1,0 +1,52 @@
+---
+title: Documentation
+description: GDPR data-subject mechanisms — Art. 15 export, Art. 17 erasure, Art. 7 consent, append-only audit — for your own database and external systems.
+---
+
+import { Card, CardGrid } from '@astrojs/starlight/components';
+
+**effaced** ships correct, tested mechanisms for the GDPR data-subject
+rights — export (Art. 15), erasure (Art. 17), consent (Art. 7), and an
+append-only audit trail (Art. 5(2)) — across your own database **and** the
+external systems you actually use (Stripe first; more resolvers
+demand-pulled). You annotate the models you already have; the annotations
+*are* the data map, and the entire integration surface is three calls:
+record consent, export a subject, erase a subject.
+
+**We ship the mechanisms. You own the compliance.** effaced gives you the
+machinery to implement Articles 15, 17, 7, and 30 — and an auditable record
+that you did. Whether your processing is lawful is a legal determination
+only you and your counsel can make; nothing here is legal advice.
+
+<CardGrid>
+  <Card title="Quickstart" icon="rocket">
+    Install, annotate two models, wire the three calls, run the saga
+    runner — the whole loop in a few minutes.
+
+    [Get started](quickstart/)
+  </Card>
+  <Card title="Concepts" icon="open-book">
+    The contracts behind each mechanism: [annotations](concepts/annotations/),
+    [erasure](concepts/erasure/), [the saga](concepts/saga/),
+    [export](concepts/export/), [consent](concepts/consent/),
+    [audit](concepts/audit/), [resolvers](concepts/resolvers/), and the
+    [manifest](concepts/manifest/).
+  </Card>
+  <Card title="Guides" icon="setting">
+    Operational how-tos: [wiring the saga runner](guides/saga-runner-wiring/)
+    into the worker or cron you already run, and the
+    [Stripe resolver](guides/stripe/).
+  </Card>
+  <Card title="API reference" icon="document">
+    Generated from the source docstrings — every public class, protocol,
+    and signature. [Browse the reference](reference/).
+  </Card>
+</CardGrid>
+
+:::note[Status: pre-release 0.x]
+The 0.x window is being used to get the manifest format and resolver
+interface right; 1.0 ships when those are stable enough to support for a
+year. effaced follows a **widened SemVer**: API changes, manifest-format
+changes, *and any change to what gets deleted or exported* are MAJOR —
+see [stability](project/stability/).
+:::

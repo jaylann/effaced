@@ -34,14 +34,42 @@ test-pg *args:
 # everything CI runs, locally
 ci: check test
 
-# coverage report
+# coverage report (gated: fails under the pyproject fail_under floor)
 cov:
     uv run pytest -m "not integration" --cov --cov-report=term-missing
+
+# domain-invariant scan — same rules and pin as the CI semgrep job
+semgrep:
+    SEMGREP_ENABLE_VERSION_CHECK=0 uvx semgrep@1.165.0 scan --config .semgrep --error --metrics=off
+
+# lint the workflows themselves — same zizmor pin as CI
+lint-actions:
+    uvx zizmor@1.25.2 .github/workflows/
 
 # build both packages' sdists+wheels into dist/
 build:
     uv build --package effaced --out-dir dist
     uv build --package effaced-stripe --out-dir dist
+
+# regenerate the API reference (griffe → MDX) into site/src/content/docs/docs/reference/
+site-gen:
+    uv run python scripts/gen_api_docs.py
+
+# install site dependencies (Astro + Starlight via pnpm)
+site-install:
+    cd site && pnpm install
+
+# docs/marketing dev server (regenerates the API reference first)
+site-dev: site-gen
+    cd site && pnpm dev
+
+# production site build into site/dist/ (regenerates the API reference first)
+site-build: site-gen
+    cd site && pnpm build
+
+# serve the production build locally (respects the /effaced base path)
+site-preview:
+    cd site && pnpm preview
 
 # compact repo state: branch, status, recent commits
 st:
@@ -62,5 +90,5 @@ pr-open title type area:
 
 # clean build/test artifacts
 clean:
-    rm -rf dist/ .pytest_cache/ .mypy_cache/ .ruff_cache/ .hypothesis/ htmlcov/ .coverage coverage.xml
+    rm -rf dist/ .pytest_cache/ .mypy_cache/ .ruff_cache/ .hypothesis/ htmlcov/ .coverage coverage.xml packages/effaced/mutants/
     find . -type d -name __pycache__ -prune -exec rm -rf {} +

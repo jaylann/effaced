@@ -1,0 +1,20 @@
+# Core is storage-agnostic: only effaced/adapters/ may touch SQLAlchemy at
+# runtime (.claude/rules/python.md). TYPE_CHECKING-only imports are fine.
+rules:
+  - id: no-sqlalchemy-import-outside-adapters
+    languages: [python]
+    severity: ERROR
+    message: >
+      Only effaced/adapters/ may import SQLAlchemy at runtime — the core is
+      storage-agnostic. If you only need types, import under
+      `if TYPE_CHECKING:`.
+    paths:
+      include:
+        - packages/effaced/src/effaced/
+      exclude:
+        - packages/effaced/src/effaced/adapters/
+    patterns:
+      - pattern: import sqlalchemy
+      - pattern-not-inside: |
+          if TYPE_CHECKING:
+              ...

@@ -1,6 +1,6 @@
 # 0005. Docs engine deferred; docstring discipline enforced now
 
-- **Status:** accepted
+- **Status:** superseded by [0011](0011-astro-starlight-site.md)
 - **Date:** 2026-06-10
 
 ## Context

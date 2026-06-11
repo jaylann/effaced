@@ -1,0 +1,15 @@
+# Pydantic-first modeling: validators are the invariant enforcement layer
+# (.claude/rules/python.md). Bypassing them in production code is forbidden.
+rules:
+  - id: no-model-construct-in-src
+    languages: [python]
+    severity: ERROR
+    message: >
+      model_construct() bypasses validators — in this codebase validators carry
+      domain invariants (e.g. RETAIN requires a RetentionPolicy). Never use it
+      in production code; construct models normally.
+    paths:
+      include:
+        - packages/effaced/src/
+        - packages/effaced-stripe/src/
+    pattern: $M.model_construct(...)

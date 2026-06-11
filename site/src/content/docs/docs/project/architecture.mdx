@@ -1,0 +1,68 @@
+---
+title: Architecture
+description: Monorepo layout, the one-concept-per-file philosophy, the sync-first API, and an index of all architecture decision records.
+sidebar:
+  order: 2
+---
+
+## Monorepo layout
+
+effaced is a [uv workspace](https://docs.astral.sh/uv/concepts/projects/workspaces/)
+monorepo. Each package is its own PyPI distribution with its own version,
+changelog, and release tag:
+
+| Path | Package | What |
+|---|---|---|
+| `packages/effaced` | `effaced` | Core: annotations, manifest, export, erasure, consent, audit, saga, resolver interface |
+| `packages/effaced-stripe` | `effaced-stripe` | First-party Stripe resolver |
+| `site/` | — | This docs site (Astro Starlight, pnpm) — inside the repo, outside the uv workspace |
+
+Resolvers live in separate packages so the core stays dependency-light: a
+user without Stripe never installs the Stripe SDK, and a Stripe SDK bump
+never forces a core release (ADR 0001). Future resolvers follow the same
+shape: `packages/effaced-<name>`.
+
+## One concept per file
+
+The codebase is deliberately small-grained: one class per file, the file
+named after the class it holds (`pii_spec.py` holds `PiiSpec`), a hard
+600-line cap per file enforced in CI, and packages over modules
+(`erasure/{plan,planner,result}.py` rather than one `erasure.py`). The
+payoff for users: everything is greppable, and the import path tells you
+where a concept lives.
+
+The same discipline extends to typing (mypy `--strict`, zero errors) and
+data modeling (frozen pydantic models with validated invariants).
+
+## Sync-first API
+
+The public engine API is synchronous: `Exporter.export_subject`,
+`erase_subject`, and the `ConsentLedger` methods are plain `def` taking
+your open SQLAlchemy `Session` as the first parameter. `async def`
+appears only where I/O is inherently async — `Resolver` protocol methods
+and `SagaRunner.run_once`.
+
+Rationale (ADR 0006): effaced does not own its database I/O — it runs on
+a caller-provided session, and sync `Session` is the universal
+denominator. Sync apps (Flask, Django, scripts, cron) are first-class
+with zero configuration; async apps pay one documented line per call site
+(`run_in_threadpool`, or a plain `def` route).
+
+## ADR index
+
+Significant decisions are recorded as architecture decision records.
+Summaries below; full text on GitHub.
+
+| ADR | Title | In one line |
+|---|---|---|
+| [0001](https://github.com/jaylann/effaced/blob/stage/docs/decisions/0001-monorepo-uv-workspace.md) | uv workspace monorepo | Per-resolver packages keep the core dependency-light and independently versioned. |
+| [0002](https://github.com/jaylann/effaced/blob/stage/docs/decisions/0002-stage-main-release-please.md) | stage→main with release-please | Releases are automated end-to-end; nobody pushes tags or edits versions by hand. |
+| [0003](https://github.com/jaylann/effaced/blob/stage/docs/decisions/0003-widened-semver.md) | Widened SemVer | Behaviour is API: any change to what gets deleted or exported is MAJOR. |
+| [0004](https://github.com/jaylann/effaced/blob/stage/docs/decisions/0004-dco.md) | DCO over CLA | Contributions are signed off per commit; no CLA signup friction. |
+| [0005](https://github.com/jaylann/effaced/blob/stage/docs/decisions/0005-docs-engine-deferred.md) | Docs engine deferred | Superseded by 0011; docstring discipline was enforced from day one. |
+| [0006](https://github.com/jaylann/effaced/blob/stage/docs/decisions/0006-session-strategy.md) | Sync-first session strategy | Sync engine API on the caller's `Session`; async only at the resolver/saga edges. |
+| [0007](https://github.com/jaylann/effaced/blob/stage/docs/decisions/0007-erasure-plan-semantics.md) | Erasure plan semantics | When a row may be deleted vs. anonymized in place; conflicts fail loudly before anything runs. |
+| [0008](https://github.com/jaylann/effaced/blob/stage/docs/decisions/0008-ref-resolver-matching.md) | Ref→resolver matching | A ref's `kind` names its resolver; unknown kinds fail loudly, unmatched resolvers are skipped and recorded. |
+| [0009](https://github.com/jaylann/effaced/blob/stage/docs/decisions/0009-erasure-execution-audit-semantics.md) | Erasure execution audit semantics | What the trail records on success, failure, and re-run; re-runs are no-op successes. |
+| [0010](https://github.com/jaylann/effaced/blob/stage/docs/decisions/0010-saga-runner-semantics.md) | Saga runner semantics | Claiming via `FOR UPDATE SKIP LOCKED`, lease-based crash recovery, retry/abandonment taxonomy, completion under lock. |
+| [0011](https://github.com/jaylann/effaced/blob/stage/docs/decisions/0011-astro-starlight-site.md) | Astro Starlight site | This docs site; API reference generated from docstrings via griffe. |

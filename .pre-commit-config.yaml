@@ -19,6 +19,11 @@ repos:
         args: [--fix]
       - id: ruff-format
 
+  - repo: https://github.com/crate-ci/typos
+    rev: v1.47.2
+    hooks:
+      - id: typos
+
   - repo: https://github.com/compilerla/conventional-pre-commit
     rev: v3.6.0
     hooks:

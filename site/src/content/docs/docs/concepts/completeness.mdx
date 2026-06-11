@@ -1,0 +1,68 @@
+---
+title: Completeness linting
+description: lint_completeness flags every table and column the data map does not cover; assert_data_map_complete turns that into a CI gate with conscious, reviewable exemptions.
+---
+
+effaced cannot find data you never declared — no library can. What it can
+do is point at every place such data could hide, so "we forgot to annotate
+the new column" becomes a build failure instead of a silent gap in your
+exports and erasures.
+
+`lint_completeness` is the exact complement of
+[`collect_data_map`](../manifest/): every table in your metadata is either
+in the data map, flagged whole ("this table carries no effaced
+annotations"), or one of the effaced-owned `effaced_*` tables. Inside a
+mapped table, every column is either annotated, a primary/foreign key, or
+flagged. Nothing falls through.
+
+```python
+from effaced import lint_completeness
+
+for finding in lint_completeness(Base.metadata):
+    print(finding.message)
+# table 'app_settings' carries no effaced annotations — its data is
+#   invisible to export and erasure
+# column users.theme is not annotated and is neither a primary nor a
+#   foreign key
+```
+
+A finding is a **question, not a verdict**: it marks data the manifest
+does not cover so a human can either annotate it or consciously exempt
+it. effaced never decides on your behalf that data is not personal —
+mechanisms, not determinations.
+
+## The CI gate
+
+Drop `assert_data_map_complete` into any test and the build fails the
+moment a new table or column appears without an annotation:
+
+```python
+from effaced.testing import assert_data_map_complete
+
+def test_data_map_covers_the_schema() -> None:
+    assert_data_map_complete(
+        Base.metadata,
+        exempt_tables=("app_settings",),   # no personal data, judged so
+        exempt_columns=("users.theme",),   # a UI preference, not PII
+    )
+```
+
+Exemptions are conscious acknowledgements that live in your test code and
+get reviewed like any other code — the judgement "this holds no personal
+data" stays visible and stays yours. An exempt table silences all of its
+findings; an exempt column (`"table.column"`) silences just that field.
+
+Stale exemptions fail too: if an exemption no longer matches any finding
+(the table was dropped, or finally annotated), the gate flags it for
+removal, so the list never outlives the schema it judged.
+
+## What is never flagged
+
+- **Primary and foreign keys** — structural identity, covered by the
+  subject graph rather than per-column annotations.
+- **`effaced_*` tables** — the [audit](../audit/), consent, and outbox
+  tables mounted by `bind_tables` are effaced-owned.
+
+Everything else in a mapped table needs an annotation or an exemption.
+The linter is read-only and needs no database connection — it walks the
+same `MetaData` the [collector](../manifest/) does.

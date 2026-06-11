@@ -1,0 +1,91 @@
+---
+title: The manifest
+description: DataMap and the subject graph — the derived, versioned picture of where personal data lives, with forward migrations and no rejected history.
+---
+
+The manifest is effaced's answer to "where is the personal data?": a
+complete, versioned `DataMap` of every annotated store. It is **derived,
+never authored** — adapters walk your models and build it from the
+[annotations](../annotations/) they find, so it cannot drift from the
+schema the way a hand-maintained config file would:
+
+```python
+data_map = collect_data_map(Base.metadata)
+```
+
+## Structure
+
+- **`DataMap`** — the whole manifest: a tuple of tables plus its
+  `schema_version`.
+- **`TableEntry`** — one store: its `name`, its `subject_link` (how rows
+  reach the subject; `None` until declared — graph resolution refuses a
+  PII-holding table without one), and its annotated `columns`.
+- **`ColumnEntry`** — one annotated field: its `name` and the full
+  `PiiSpec` attached to it.
+
+`collect_data_map` includes only tables carrying at least one annotation
+(a `pii()` column or a `subject_link()`). Everything is frozen pydantic —
+manifests are values you can diff, snapshot, and test against. The exact
+complement — what your schema holds that the manifest does *not* cover —
+is what the [completeness linter](../completeness/) reports.
+
+## Versioning: old manifests are never rejected
+
+Serialize with `data_map.to_payload()` (for audit snapshots, diffing,
+tooling), load with `DataMap.from_payload(...)`. Every payload carries the
+`MANIFEST_SCHEMA_VERSION` it was written under, and the loading rules are
+strict in one direction only:
+
+- Any change to the serialized format bumps `MANIFEST_SCHEMA_VERSION`
+  and ships an explicit forward migration — a MAJOR release.
+- **Old manifests are migrated forward, never rejected.** A payload you
+  snapshotted years ago must load on every future effaced.
+- A manifest *newer* than the installed library fails loudly with
+  upgrade guidance (`ManifestError`) — guessing at a format you don't
+  understand is not an option.
+
+The enum vocabularies (`PiiCategory`, `LegalBasis`, `ErasureStrategy`)
+are part of the format: adding members is MINOR, removing or renaming
+them is MAJOR.
+
+## The subject graph: resolved at runtime, never serialized
+
+The manifest records *dotted relationship paths* (`"order.user"`); the
+engines need *join columns*. That resolution happens at runtime, against
+the ORM mappers:
+
+```python
+graph = resolve_subject_graph(data_map, Base.registry)
+```
+
+The resulting `SubjectGraph` holds one `TableAccessPlan` per table — its
+hop chain of foreign-key column pairs down to the subject, and whether the
+table is *fully PII-owned* (every physical column annotated, primary-key,
+or foreign-key — the precondition for whole-row deletion, see
+[erasure](../erasure/)). The graph's `deletion_order` is FK-safe: children
+before parents, the subject table last.
+
+Two properties make the split worth understanding:
+
+- **The graph is runtime-only and never serialized.** Join columns are a
+  property of the *current* schema; persisting them would freeze a stale
+  view. The manifest persists; the graph is recomputed.
+- **Incoherent graphs are unrepresentable.** Validators reject duplicate
+  accesses, chains that don't terminate at the subject table, and graphs
+  with no subject — consumers (the planner, the exporter) never re-check.
+  `resolve_subject_graph` itself fails loudly on unmapped tables, paths
+  through many-to-many secondary tables, FK cycles, and a missing or
+  ambiguous `subject_link("")`.
+
+Both the exporter and the erasure planner verify at construction that
+their data map and graph describe the same set of tables — disagreement
+is a `ManifestError`, not a silent partial answer.
+
+:::tip[Snapshot the manifest]
+`to_payload()` output committed alongside a release (or recorded via a
+`MANIFEST_SNAPSHOT` audit event) gives you a reviewable diff of *what the
+application considered personal data, when* — useful evidence, and a
+cheap PR-review gate for accidental annotation changes.
+:::
+
+Full signatures: [API reference](../../reference/manifest/).

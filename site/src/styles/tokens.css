@@ -1,0 +1,58 @@
+/**
+ * effaced design tokens — redaction, terminal-grade.
+ *
+ * Full-black by default: the dark theme is the document and redaction bars
+ * are paper-white. The light theme is the inverse — ink bars on white.
+ *
+ * One accent only: stamp red. Reserved for stamp moments (annotations,
+ * legal callouts, link hovers) and never used decoratively.
+ */
+:root {
+  /* neutral ramp */
+  --ef-black: #000000;
+  --ef-gray-950: #0c0c0c;
+  --ef-gray-900: #161616;
+  --ef-gray-800: #232323;
+  --ef-gray-700: #343434;
+  --ef-gray-500: #6e6e6e;
+  --ef-gray-400: #9b9b9b;
+  --ef-gray-300: #c3c3c3;
+  --ef-gray-100: #ececec;
+  --ef-white: #f7f7f7;
+
+  /* the one accent: rubber-stamp red */
+  --ef-stamp: #e8492c;
+  --ef-stamp-soft: rgb(232 73 44 / 12%);
+
+  /* semantic — full black is the default */
+  --ef-bg: var(--ef-black);
+  --ef-bg-raised: var(--ef-gray-950);
+  --ef-fg: var(--ef-white);
+  --ef-fg-muted: var(--ef-gray-400);
+  --ef-fg-faint: var(--ef-gray-500);
+  --ef-hairline: var(--ef-gray-800);
+  --ef-bar: var(--ef-white); /* redaction bars: paper-white on black… */
+  --ef-shadow: var(--ef-gray-900);
+
+  /* type: mono carries the brand, sans carries the prose */
+  --ef-font-display: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --ef-font-sans: 'Public Sans Variable', 'Helvetica Neue', Arial, sans-serif;
+  --ef-font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  /* geometry: printed-form austerity */
+  --ef-radius: 2px;
+  --ef-rule: 1px solid var(--ef-hairline);
+}
+
+:root[data-theme='light'] {
+  --ef-bg: #ffffff;
+  --ef-bg-raised: #fafafa;
+  --ef-fg: #0a0a0a;
+  --ef-fg-muted: #595959;
+  --ef-fg-faint: #8c8c8c;
+  --ef-hairline: #e4e4e4;
+  --ef-bar: #0a0a0a; /* …and ink on white. The same document, inverted. */
+  --ef-shadow: #ececec;
+  --ef-stamp: #c53017;
+  --ef-stamp-soft: rgb(197 48 23 / 10%);
+}

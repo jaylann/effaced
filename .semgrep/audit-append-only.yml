@@ -1,0 +1,57 @@
+# The audit trail is append-only BY CONSTRUCTION (CLAUDE.md non-negotiable #4).
+# These rules turn that invariant into a build failure instead of a review note.
+rules:
+  - id: audit-sink-mutating-method
+    languages: [python]
+    severity: ERROR
+    message: >
+      Audit sinks are append-only by construction: no update/delete/remove/purge
+      surface may exist anywhere in effaced.audit. Adding one is an automatic
+      blocker (.claude/rules/gdpr-semantics.md).
+    paths:
+      include:
+        - packages/effaced/src/effaced/audit/
+    pattern-either:
+      - pattern: |
+          def update(...): ...
+      - pattern: |
+          def delete(...): ...
+      - pattern: |
+          def remove(...): ...
+      - pattern: |
+          def purge(...): ...
+      - pattern: |
+          def truncate(...): ...
+
+  - id: audit-table-update-delete
+    languages: [python]
+    severity: ERROR
+    message: >
+      UPDATE/DELETE against the audit events table is forbidden — the trail is
+      append-only evidence. Inserts only.
+    paths:
+      include:
+        - packages/
+    patterns:
+      - pattern-either:
+          - pattern: $X.update(...)
+          - pattern: $X.delete(...)
+      - metavariable-pattern:
+          metavariable: $X
+          patterns:
+            - pattern-regex: (?i).*audit.*
+
+  - id: audit-table-raw-sql-mutation
+    languages: [generic]
+    severity: ERROR
+    message: >
+      Raw SQL UPDATE/DELETE targeting effaced_audit_events is forbidden — the
+      audit trail is append-only evidence.
+    paths:
+      include:
+        - packages/
+    patterns:
+      - pattern-either:
+          - pattern-regex: (?i)UPDATE\s+effaced_audit_events
+          - pattern-regex: (?i)DELETE\s+FROM\s+effaced_audit_events
+          - pattern-regex: (?i)TRUNCATE\s+(TABLE\s+)?effaced_audit_events

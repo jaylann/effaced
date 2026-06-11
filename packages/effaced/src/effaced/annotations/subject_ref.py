@@ -12,7 +12,9 @@ class SubjectRef(BaseModel):
     subject's rich PII — the library moves identifiers, not data.
 
     Attributes:
-        kind: Namespace of the identifier (``"stripe_customer"``, ``"email"``).
+        kind: Namespace of the identifier (``"stripe"``, ``"email"``). Refs
+            are routed to the resolver whose ``name`` equals the ref's
+            ``kind`` (ADR 0008).
         value: The identifier itself.
         extra: Additional identifiers a resolver may need (string-typed on
             purpose — refs must stay loggable and PII-light).
@@ -20,6 +22,6 @@ class SubjectRef(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    kind: str = Field(min_length=1)
-    value: str = Field(min_length=1)
+    kind: str = Field(min_length=1, max_length=255)
+    value: str = Field(min_length=1, max_length=255)
     extra: dict[str, str] = Field(default_factory=dict)

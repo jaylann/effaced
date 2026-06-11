@@ -26,9 +26,9 @@ class ConsentRecord(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    subject_id: str = Field(min_length=1)
-    purpose: str = Field(min_length=1)
-    policy_version: str = Field(min_length=1)
+    subject_id: str = Field(min_length=1, max_length=255)
+    purpose: str = Field(min_length=1, max_length=255)
+    policy_version: str = Field(min_length=1, max_length=255)
     granted: bool
     recorded_at: datetime
-    source: str | None = None
+    source: str | None = Field(default=None, max_length=255)

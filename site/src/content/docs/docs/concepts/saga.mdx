@@ -1,0 +1,100 @@
+---
+title: The saga
+description: Why erasure is a saga, not a function call — the transactional outbox, SagaRunner, retries, backoff, and loud abandonment.
+---
+
+A Stripe API call cannot join your database transaction. A hand-rolled
+erasure that deletes local rows and *then* calls Stripe is one network
+failure away from a half-erased subject nobody can account for — locally
+gone, externally present, with no record of which. That failure mode is
+the reason effaced treats erasure as a **saga, not a function call**.
+
+## The transactional outbox
+
+`erase_subject` writes one outbox entry per matched (resolver, ref) pair
+**through your session**, in the same transaction as the local deletion:
+
+```
+erase_subject(...)
+ ├── one atomic DB transaction
+ │    ├── delete / anonymize in FK-safe order
+ │    ├── skip + record legally retained fields
+ │    └── enqueue outbox entries for external systems
+ └── saga runner (your worker/cron)
+      ├── Stripe: delete customer ── retry w/ backoff, "already gone" = success
+      └── audit trail records every outcome, including abandonment
+```
+
+Either the local erasure and all its pending external follow-ups commit
+together, or none do. Each entry's `entry_id` doubles as the idempotency
+key for the external call. Whatever happens afterwards — an API outage, a
+crashed worker — the system is always in a known, recorded state.
+
+## SagaRunner: you drive it
+
+```python
+runner = SagaRunner(registry, outbox, audit, max_attempts=8, batch_size=50)
+processed = await runner.run_once()
+```
+
+`run_once` claims one batch of due entries, awaits the resolver calls
+concurrently, and books every outcome. The runner owns no event loop and
+no schedule — drive it from whatever you already operate: a worker
+process, a cron job, or a background thread
+([wiring examples](../../guides/saga-runner-wiring/)). It makes blocking
+database calls between awaits, so never run it on a serving event loop.
+
+Concurrent runners are safe: claiming uses `FOR UPDATE SKIP LOCKED`, and a
+crashed runner's claims heal via a lease — an `IN_FLIGHT` entry whose
+lease expired is simply re-claimed, and the idempotent resolver call
+converges on the same outcome.
+
+## Retries, backoff, abandonment (ADR 0010)
+
+What happens to a claimed entry depends on how the resolver call ends:
+
+| Outcome | Entry becomes | Audited |
+| --- | --- | --- |
+| `ResolverErasure` (incl. `already_absent=True`) | `SUCCEEDED` | `ERASURE_STEP_SUCCEEDED` |
+| `ResolverError` (non-retryable by contract, or unknown resolver name) | `ABANDONED` immediately | `ERASURE_STEP_FAILED` with `abandoned: true` |
+| Any other exception, attempts below `max_attempts` | `FAILED`, retried on the backoff schedule | not audited; `last_error` on the row |
+| Any other exception, attempts exhausted | `ABANDONED` | `ERASURE_STEP_FAILED` with `abandoned: true` |
+
+`BackoffPolicy` is deterministic exponential doubling — 30 s base, 1 h
+cap, 5 min claim lease by default, no jitter (`SKIP LOCKED` already
+spreads concurrent runners). Size the lease above your slowest resolver
+call: an expired lease mid-call means double execution — idempotent, but
+wasteful. `attempts` counts *claims*, not failures, so even an entry that
+crashes its runner every time converges to `ABANDONED` instead of being
+re-claimed forever.
+
+:::caution[Abandonment is loud, never silent]
+An entry that exhausts its retries (or fails non-retryably) is abandoned
+**loudly**: `ERASURE_STEP_FAILED` with `abandoned: true` lands in the
+audit trail and the entry stays visible to operators —
+`outbox.list_abandoned()` returns the full entries, oldest first, and
+`outbox.status_counts()` gives per-status totals for dashboards. Nothing
+is ever silently dropped — monitoring abandoned entries is part of
+operating the saga.
+:::
+
+## `ERASURE_COMPLETED`
+
+When an entry succeeds and **all** of the subject's outbox entries are now
+`SUCCEEDED`, the runner emits `ERASURE_COMPLETED` — the audit trail's
+statement that the erasure finished everywhere, local and external. The
+check runs under lock so exactly one runner observes the transition; a
+crash at the wrong instant can duplicate the event but never lose it.
+Runner audit events are generally at-least-once: assert on state, not
+exact event counts.
+
+An `ABANDONED` entry blocks completion permanently — its
+`ERASURE_STEP_FAILED` is the subject's terminal record until an operator
+fixes the cause, clears the abandoned row, and re-runs `erase_subject`
+(re-runs enqueue fresh entries; the completion check spans all
+generations).
+
+The claim query, failure taxonomy, backoff schedule, and completion
+condition are all erasure semantics — changing any of them is MAJOR under
+[widened SemVer](../../project/stability/). Full signatures:
+[API reference](../../reference/saga/).

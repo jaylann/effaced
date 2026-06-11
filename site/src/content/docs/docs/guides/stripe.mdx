@@ -1,0 +1,92 @@
+---
+title: Stripe resolver
+description: Export and erase a subject's billing PII held in Stripe with the first-party effaced-stripe package.
+sidebar:
+  order: 2
+---
+
+Stripe is the external system almost everyone has, and it holds real PII:
+customer names, emails, billing addresses, payment-method metadata.
+`effaced-stripe` is the first-party [resolver](../../concepts/resolvers/)
+that brings that data into your Art. 15 exports and Art. 17 erasures.
+
+## Install
+
+Not on PyPI yet — until 0.1.0 ships, install from the repo:
+
+```bash
+uv add "effaced @ git+https://github.com/jaylann/effaced#subdirectory=packages/effaced" \
+       "effaced-stripe @ git+https://github.com/jaylann/effaced#subdirectory=packages/effaced-stripe"
+```
+
+The package depends on `effaced` and the official Stripe SDK; installing
+it does not pull Stripe dependencies into projects that only use the core.
+
+## Register
+
+```python
+from effaced import ResolverRegistry, SubjectRef
+from effaced_stripe import StripeResolver
+
+registry = ResolverRegistry()
+registry.register(StripeResolver(api_key="rk_live_..."))
+```
+
+Prefer a **restricted** Stripe API key with customer read/write over a
+full secret key — the resolver needs nothing else.
+
+Registration is explicit by design: the registry doubles as your auditable
+"where is my PII" list. There is no auto-discovery.
+
+## Routing: refs of kind "stripe"
+
+A ref is routed to the resolver whose `name` equals the ref's `kind`. The
+Stripe resolver's name is `"stripe"`, and the ref's value is the Stripe
+customer id:
+
+```python
+stripe_ref = SubjectRef(kind="stripe", value=stripe_customer_id)
+
+exporter.export_subject(session, user_id, refs=(stripe_ref,))   # Art. 15
+planner.erase_subject(session, user_id, refs=(stripe_ref,))     # Art. 17
+```
+
+A ref whose kind matches no registered resolver fails loudly before any
+work — a typo'd kind never silently drops Stripe from an answer. A
+registered resolver with no matching ref is skipped and recorded as such
+("the subject has no identity in that system").
+
+## What it does on Stripe's side
+
+- **Export (Art. 15):** collects the customer profile, addresses, and
+  payment-method metadata. Full card numbers are never included — Stripe
+  does not expose them via API.
+- **Erasure (Art. 17):** deletes the customer via Stripe's customer
+  deletion, which Stripe itself implements as a GDPR-aware redaction.
+
+## Idempotency: "already gone" is success
+
+Erasing a customer Stripe no longer knows yields `already_absent=True` —
+success, never an error. This is the contract the saga's retries depend
+on: a re-run after a partial failure converges instead of erroring on
+work that already happened.
+
+## When Stripe is down
+
+External calls cannot join your local database transaction, so erasure
+enqueues them durably in the same transaction and the
+[saga runner](../../concepts/saga/) executes them afterwards:
+
+- Transient failures (rate limits, 5xx) retry on an exponential backoff.
+- Non-retryable failures (misconfiguration, `ResolverError`) and exhausted
+  retries **abandon the entry loudly**: audited, surfaced for operators,
+  never silently dropped. An abandoned entry blocks `ERASURE_COMPLETED`
+  for its subject until you remediate and re-run.
+
+See [wiring the saga runner](../saga-runner-wiring/) for how to drive the
+retries and monitor abandonment.
+
+:::note
+The resolver never accepts or logs emails or names — refs carry the
+opaque customer id only, and audit events stay PII-free.
+:::

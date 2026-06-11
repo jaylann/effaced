@@ -11,14 +11,27 @@ those calls.
 
 from importlib.metadata import PackageNotFoundError, version
 
-from effaced.adapters.sqlalchemy import collect_data_map, pii, subject_link
+from effaced.adapters.sqlalchemy import (
+    EffacedTables,
+    ErasureExecutor,
+    SurrogateRegistry,
+    bind_tables,
+    collect_data_map,
+    default_surrogate_registry,
+    lint_completeness,
+    pii,
+    resolve_subject_graph,
+    subject_link,
+)
 from effaced.annotations import PiiSpec, RetentionPolicy, SubjectLink, SubjectRef
 from effaced.audit import AuditEvent, AuditEventType, AuditSink, DatabaseAuditSink
 from effaced.categories import ErasureStrategy, LegalBasis, PiiCategory
 from effaced.consent import ConsentLedger, ConsentRecord
-from effaced.erasure import ErasurePlan, ErasurePlanner, ErasureResult, ErasureStep
+from effaced.erasure import ErasurePlan, ErasurePlanner, ErasureResult, ErasureStep, StepExecutor
 from effaced.exceptions import (
+    AnonymizationError,
     AuditIntegrityError,
+    ConfigurationError,
     ConsentError,
     EffacedError,
     ManifestError,
@@ -27,9 +40,19 @@ from effaced.exceptions import (
     SubjectResolutionError,
 )
 from effaced.export import ExportBundle, Exporter, ExportRecord
-from effaced.manifest import MANIFEST_SCHEMA_VERSION, DataMap, TableEntry
+from effaced.lint import CompletenessFinding
+from effaced.manifest import (
+    MANIFEST_SCHEMA_VERSION,
+    ColumnEntry,
+    DataMap,
+    JoinHop,
+    SubjectGraph,
+    TableAccessPlan,
+    TableEntry,
+    fk_safe_deletion_order,
+)
 from effaced.resolvers import Resolver, ResolverErasure, ResolverExport, ResolverRegistry
-from effaced.saga import Outbox, OutboxEntry, OutboxStatus, SagaRunner
+from effaced.saga import BackoffPolicy, Outbox, OutboxEntry, OutboxStatus, SagaRunner
 
 try:
     __version__ = version("effaced")
@@ -38,16 +61,23 @@ except PackageNotFoundError:  # pragma: no cover - only hit on uninstalled sourc
 
 __all__ = [
     "MANIFEST_SCHEMA_VERSION",
+    "AnonymizationError",
     "AuditEvent",
     "AuditEventType",
     "AuditIntegrityError",
     "AuditSink",
+    "BackoffPolicy",
+    "ColumnEntry",
+    "CompletenessFinding",
+    "ConfigurationError",
     "ConsentError",
     "ConsentLedger",
     "ConsentRecord",
     "DataMap",
     "DatabaseAuditSink",
     "EffacedError",
+    "EffacedTables",
+    "ErasureExecutor",
     "ErasurePlan",
     "ErasurePlanner",
     "ErasureResult",
@@ -56,6 +86,7 @@ __all__ = [
     "ExportBundle",
     "ExportRecord",
     "Exporter",
+    "JoinHop",
     "LegalBasis",
     "ManifestError",
     "Outbox",
@@ -71,12 +102,21 @@ __all__ = [
     "RetentionPolicy",
     "RetentionViolationError",
     "SagaRunner",
+    "StepExecutor",
+    "SubjectGraph",
     "SubjectLink",
     "SubjectRef",
     "SubjectResolutionError",
+    "SurrogateRegistry",
+    "TableAccessPlan",
     "TableEntry",
     "__version__",
+    "bind_tables",
     "collect_data_map",
+    "default_surrogate_registry",
+    "fk_safe_deletion_order",
+    "lint_completeness",
     "pii",
+    "resolve_subject_graph",
     "subject_link",
 ]
