@@ -66,7 +66,7 @@ lock are exercised under `FOR UPDATE` / `SKIP LOCKED`, not only on SQLite.
 
 `just cov` and CI's test job run pytest with `--cov`; the workspace
 `pyproject.toml` sets `[tool.coverage.report] fail_under = 95` (branch
-coverage, sources `effaced` + `effaced_stripe` + `effaced_s3`), so any run below 95% fails
+coverage, sources `effaced` + `effaced_stripe` + `effaced_supabase` + `effaced_s3`), so any run below 95% fails
 the build. Issue #18 asked for a gate of at least 85% on
 `packages/effaced/src` — the enforced gate exceeds it.
 

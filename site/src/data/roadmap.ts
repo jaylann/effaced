@@ -127,7 +127,7 @@ export const tiers: RoadmapTier[] = [
       {
         name: 'Supabase Auth resolver',
         scope: 'Reach the subject’s auth.users record via the Admin API — idempotent, conformance-tested.',
-        status: 'planned',
+        status: 'shipped',
         ref: { kind: 'issue', number: 56 },
       },
       {
@@ -152,7 +152,8 @@ export const tiers: RoadmapTier[] = [
       },
       {
         name: 'Retention-expiry sweep',
-        scope: 'Purge or anonymize retained records once their declared retention window lapses.',
+        scope:
+          'Surface records whose declared retention window has lapsed — report-only and audited, per ADR 0012.',
         status: 'planned',
         ref: { kind: 'issue', number: 48 },
       },
@@ -165,9 +166,9 @@ export const tiers: RoadmapTier[] = [
       },
       {
         name: 'Requeue of abandoned outbox entries',
-        scope: 'Decide (as an ADR) how an operator safely re-runs an abandoned external deletion.',
+        scope: 'Operator API to safely re-run an abandoned external deletion, per ADR 0015.',
         status: 'planned',
-        ref: { kind: 'issue', number: 50 },
+        ref: { kind: 'issue', number: 90 },
       },
       {
         name: 'Versioned docs + custom domain',

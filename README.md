@@ -21,7 +21,7 @@ Export · Erasure · Consent · Audit — across your database **and** the exter
 
 Every SaaS eventually has to let a user export their data, delete their account, and prove consent was given. Hand-rolled versions are almost always wrong in the same ways: they miss PII in related tables and third-party systems, they hard-delete legally retained records, and they keep no defensible record of any of it.
 
-**effaced** ships correct, tested mechanisms for the GDPR data-subject rights — across your own database and the external systems you actually use (Stripe first; more resolvers demand-pulled).
+**effaced** ships correct, tested mechanisms for the GDPR data-subject rights — across your own database and the external systems you actually use (Stripe, Supabase, and S3 first; more resolvers demand-pulled).
 
 ## What you get
 
@@ -31,7 +31,7 @@ Every SaaS eventually has to let a user export their data, delete their account,
 | Erasure | Art. 17 | `ErasurePlanner` — FK-safe delete/anonymize, retention-aware, durable saga for external calls |
 | Consent | Art. 7 | `ConsentLedger` — withdrawal as easy as grant, by construction |
 | Accountability | Art. 5(2) | `DatabaseAuditSink` — append-only audit trail, no PII in events |
-| External systems | — | `Resolver` protocol + first-party `StripeResolver` and `S3Resolver` |
+| External systems | — | `Resolver` protocol + first-party `StripeResolver`, `SupabaseAuthResolver`, and `S3Resolver` |
 
 ## 30-second quickstart
 
@@ -142,6 +142,7 @@ Full docs live at **[jaylann.github.io/effaced](https://jaylann.github.io/efface
 |---|---|---|
 | [`effaced`](packages/effaced) | Core: annotations, manifest, export, erasure, consent, audit, saga, resolver interface | `uv add effaced` |
 | [`effaced-stripe`](packages/effaced-stripe) | First-party Stripe resolver | `uv add effaced-stripe` |
+| [`effaced-supabase`](packages/effaced-supabase) | First-party Supabase resolvers (Auth today) | `uv add effaced-supabase` (unreleased — from git until its first release: `uv add "effaced-supabase @ git+https://github.com/jaylann/effaced#subdirectory=packages/effaced-supabase"`) |
 | [`effaced-s3`](packages/effaced-s3) | First-party S3 resolver — subject-owned objects (avatars, uploads, attachments) | `uv add effaced-s3` (from git until its first release, see quickstart) |
 
 Write your own resolver by implementing the small [`Resolver` protocol](packages/effaced/src/effaced/resolvers/base.py) — it is public API with the strictest stability promise in the library.

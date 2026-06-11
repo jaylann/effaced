@@ -32,7 +32,12 @@ default-groups = ["dev", "docs"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
-src = ["packages/effaced/src", "packages/effaced-stripe/src", "packages/effaced-s3/src"]
+src = [
+    "packages/effaced/src",
+    "packages/effaced-stripe/src",
+    "packages/effaced-supabase/src",
+    "packages/effaced-s3/src",
+]
 
 [tool.ruff.lint]
 select = [
@@ -107,6 +112,7 @@ show_error_codes = true
 files = [
     "packages/effaced/src",
     "packages/effaced-stripe/src",
+    "packages/effaced-supabase/src",
     "packages/effaced-s3/src",
     "scripts",
     "examples/fastapi-quickstart/app.py",
@@ -129,6 +135,7 @@ ignore_missing_imports = true
 testpaths = [
     "packages/effaced/tests",
     "packages/effaced-stripe/tests",
+    "packages/effaced-supabase/tests",
     "packages/effaced-s3/tests",
     "examples/fastapi-quickstart",
 ]
@@ -139,7 +146,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["effaced", "effaced_stripe", "effaced_s3"]
+source = ["effaced", "effaced_stripe", "effaced_supabase", "effaced_s3"]
 branch = true
 
 [tool.coverage.report]

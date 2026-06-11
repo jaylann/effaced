@@ -50,6 +50,7 @@ lint-actions:
 build:
     uv build --package effaced --out-dir dist
     uv build --package effaced-stripe --out-dir dist
+    uv build --package effaced-supabase --out-dir dist
     uv build --package effaced-s3 --out-dir dist
 
 # regenerate the API reference (griffe → MDX) into site/src/content/docs/docs/reference/
