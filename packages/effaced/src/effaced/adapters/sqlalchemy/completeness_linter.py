@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from effaced.adapters.sqlalchemy.info import INFO_KEY
 from effaced.annotations import PiiSpec, SubjectLink
+from effaced.exceptions import ManifestError
 from effaced.lint import CompletenessFinding
 
 if TYPE_CHECKING:
@@ -36,6 +37,12 @@ def lint_completeness(metadata: MetaData) -> tuple[CompletenessFinding, ...]:
 
     Returns:
         All findings, in deterministic table order, then column order.
+
+    Raises:
+        ManifestError: If an ``info`` entry under the effaced key is not a
+            recognised annotation object — exactly the metadata
+            :func:`collect_data_map` rejects, so the complement contract
+            holds even on malformed input.
     """
     return tuple(
         finding
@@ -47,10 +54,14 @@ def lint_completeness(metadata: MetaData) -> tuple[CompletenessFinding, ...]:
 
 def _lint_table(table: Table) -> Iterator[CompletenessFinding]:
     """Yield one table's findings (see :func:`lint_completeness`)."""
+    link = table.info.get(INFO_KEY)
+    if link is not None and not isinstance(link, SubjectLink):
+        msg = f"table {table.name!r}: info[{INFO_KEY!r}] is not a SubjectLink"
+        raise ManifestError(msg)
     annotated = {
         column.name for column in table.columns if isinstance(column.info.get(INFO_KEY), PiiSpec)
     }
-    if not annotated and not isinstance(table.info.get(INFO_KEY), SubjectLink):
+    if link is None and not annotated:
         yield CompletenessFinding(table=table.name)
         return
     for column in table.columns:

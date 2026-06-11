@@ -13,6 +13,8 @@ from effaced import (
     pii,
     subject_link,
 )
+from effaced.adapters.sqlalchemy import INFO_KEY
+from effaced.exceptions import ManifestError
 from effaced.testing import assert_data_map_complete
 
 
@@ -103,3 +105,18 @@ def test_exempt_table_silences_its_column_findings() -> None:
 def test_stale_exemptions_fail_loudly() -> None:
     with pytest.raises(AssertionError, match="long_gone"):
         assert_data_map_complete(_annotated_metadata(), exempt_tables=("long_gone",))
+
+
+def test_malformed_table_annotation_raises_like_the_collector() -> None:
+    """The complement contract holds on malformed input: both sides reject it."""
+    metadata = MetaData()
+    Table(
+        "broken",
+        metadata,
+        Column("id", Integer, primary_key=True),
+        info={INFO_KEY: "not a SubjectLink"},
+    )
+    with pytest.raises(ManifestError, match="broken"):
+        lint_completeness(metadata)
+    with pytest.raises(ManifestError, match="broken"):
+        assert_data_map_complete(metadata)
