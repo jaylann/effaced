@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "effaced-s3"
+version = "0.0.0"
+description = "S3 resolver for effaced — export and erase a data subject's user-generated objects held in S3."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Justin Lanfermann", email = "Justin@Lanfermann.dev" }]
+keywords = ["gdpr", "s3", "aws", "privacy", "data-erasure", "effaced"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+    "Typing :: Typed",
+]
+dependencies = [
+    "effaced",
+    "boto3>=1.35",
+]
+
+[project.urls]
+Homepage = "https://effaced.dev"
+Repository = "https://github.com/jaylann/effaced"
+Issues = "https://github.com/jaylann/effaced/issues"
+Changelog = "https://github.com/jaylann/effaced/blob/main/packages/effaced-s3/CHANGELOG.md"
+
+[tool.uv.sources]
+effaced = { workspace = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/effaced_s3"]

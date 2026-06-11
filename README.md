@@ -31,16 +31,15 @@ Every SaaS eventually has to let a user export their data, delete their account,
 | Erasure | Art. 17 | `ErasurePlanner` — FK-safe delete/anonymize, retention-aware, durable saga for external calls |
 | Consent | Art. 7 | `ConsentLedger` — withdrawal as easy as grant, by construction |
 | Accountability | Art. 5(2) | `DatabaseAuditSink` — append-only audit trail, no PII in events |
-| External systems | — | `Resolver` protocol + first-party `StripeResolver` |
+| External systems | — | `Resolver` protocol + first-party `StripeResolver` and `S3Resolver` |
 
 ## 30-second quickstart
 
-> **Not on PyPI yet.** Until 0.1.0 ships, install both packages straight from this repo:
-
 ```bash
-uv add "effaced @ git+https://github.com/jaylann/effaced#subdirectory=packages/effaced" \
-       "effaced-stripe @ git+https://github.com/jaylann/effaced#subdirectory=packages/effaced-stripe"
+uv add effaced effaced-stripe
 ```
+
+(`effaced-s3` is not on PyPI yet — until its first release, install it straight from this repo: `uv add "effaced-s3 @ git+https://github.com/jaylann/effaced#subdirectory=packages/effaced-s3"`.)
 
 Annotate the models you already have — the annotations *are* the data map; there is no separate config file to drift out of sync:
 
@@ -141,8 +140,9 @@ Full docs live at **[jaylann.github.io/effaced](https://jaylann.github.io/efface
 
 | Package | What | Install |
 |---|---|---|
-| [`effaced`](packages/effaced) | Core: annotations, manifest, export, erasure, consent, audit, saga, resolver interface | `uv add effaced` (once 0.1.0 is on PyPI — from git until then, see quickstart) |
-| [`effaced-stripe`](packages/effaced-stripe) | First-party Stripe resolver | `uv add effaced-stripe` (same) |
+| [`effaced`](packages/effaced) | Core: annotations, manifest, export, erasure, consent, audit, saga, resolver interface | `uv add effaced` |
+| [`effaced-stripe`](packages/effaced-stripe) | First-party Stripe resolver | `uv add effaced-stripe` |
+| [`effaced-s3`](packages/effaced-s3) | First-party S3 resolver — subject-owned objects (avatars, uploads, attachments) | `uv add effaced-s3` (from git until its first release, see quickstart) |
 
 Write your own resolver by implementing the small [`Resolver` protocol](packages/effaced/src/effaced/resolvers/base.py) — it is public API with the strictest stability promise in the library.
 

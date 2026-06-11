@@ -8,6 +8,7 @@ paths: ["**/*.py"]
 - mypy runs `--strict` with the pydantic plugin (`disallow_any_unimported`, `strict_equality`, `extra_checks` on top). It must stay at zero errors.
 - No `Any` where a real type exists. `object` for "truly anything JSON-ish" beats `Any`.
 - `# type: ignore` requires the error code AND an inline reason: `# type: ignore[type-arg]  # sessionmaker generic unbound here`.
+- Untyped SDKs (boto3) can't hide behind `ignore_missing_imports` — `disallow_any_unimported` rejects every annotation using them. Pattern: stub package (`types-boto3[s3]`) in the root dev group, `TYPE_CHECKING`-only imports of its type_defs, and a hand-rolled `Protocol` for the client subset (the stubbed client satisfies it structurally — see `effaced_s3/object_client.py`; AWS CamelCase kwargs get a per-file `N803` ignore).
 - Ruff `ANN` rules enforce annotations syntactically; don't suppress them outside tests.
 - `from __future__ import annotations` at the top of every module.
 - `session.execute(<DML>)` is typed `Result[Any]`, which has no `rowcount`; `cast("CursorResult[Any]", ...)` (TYPE_CHECKING import) to read it.

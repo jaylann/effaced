@@ -1,10 +1,10 @@
 """Generate the MDX API reference for the docs site via griffe static analysis.
 
 Renders ``site/src/content/docs/docs/reference/*.mdx`` (Astro Starlight) from
-the docstrings and signatures of ``effaced`` and ``effaced_stripe``.
+the docstrings and signatures of the workspace packages (:data:`ROOT_PACKAGES`).
 
-Constraint — pure static analysis: this script must NEVER import ``effaced``
-or ``effaced_stripe``. CI runs it with only the ``docs`` dependency group
+Constraint — pure static analysis: this script must NEVER import any of the
+workspace packages. CI runs it with only the ``docs`` dependency group
 installed, so the packages may be absent; griffe reads the source trees
 directly. Type annotations are rendered as text, never resolved.
 
@@ -62,7 +62,16 @@ PAGES: tuple[PageSpec, ...] = (
     PageSpec("exceptions", "Exceptions", "effaced.exceptions", 11),
     PageSpec("sqlalchemy-adapter", "SQLAlchemy adapter", "effaced.adapters.sqlalchemy", 12),
     PageSpec("effaced-stripe", "effaced-stripe", "effaced_stripe", 13),
+    PageSpec("effaced-s3", "effaced-s3", "effaced_s3", 14),
 )
+
+# Root module name -> package directory. Every PageSpec module path must start
+# with one of these roots; every root's __all__ must be fully claimed by pages.
+ROOT_PACKAGES: dict[str, str] = {
+    "effaced": "packages/effaced",
+    "effaced_stripe": "packages/effaced-stripe",
+    "effaced_s3": "packages/effaced-s3",
+}
 
 _CODE_SPAN = re.compile(r"(`+[^`]+`+)")
 _REF = re.compile(r":([a-z]+):`([^`]+)`")  # targets may wrap across source lines
@@ -112,11 +121,17 @@ def _resolve(module: griffe.Module, name: str) -> griffe.Object | None:
     return member
 
 
-def _page_module(page: PageSpec, effaced: griffe.Module, stripe: griffe.Module) -> griffe.Module:
+def _page_root(page: PageSpec) -> str:
+    """The root package a page's module path belongs to."""
+    return page.module.split(".", 1)[0]
+
+
+def _page_module(page: PageSpec, roots: dict[str, griffe.Module]) -> griffe.Module:
     """Locate the loaded module a page documents."""
-    if page.module == "effaced_stripe":
-        return stripe
-    found = effaced[page.module.removeprefix("effaced.")]
+    root = roots[_page_root(page)]
+    if "." not in page.module:
+        return root
+    found = root[page.module.split(".", 1)[1]]
     if not isinstance(found, griffe.Module):
         msg = f"{page.module} is not a module"
         raise TypeError(msg)
@@ -510,7 +525,8 @@ def _render_page(page: PageSpec, module: griffe.Module, symbols: SymbolMap, inde
 
 def _render_index_page(page_symbols: dict[str, SymbolMap]) -> str:
     """Render the reference landing page linking every page and symbol."""
-    description = "Generated API reference for the effaced and effaced-stripe packages."
+    names = ", ".join(name.replace("_", "-") for name in ROOT_PACKAGES)
+    description = f"Generated API reference for the {names} packages."
     lines = _frontmatter("API reference", description, 0)
     lines += ["", description]
     for page in PAGES:
@@ -543,19 +559,17 @@ def _unclaimed(public: tuple[str, ...], claimed: set[str], pkg: str) -> list[str
     return [f"{pkg}.{name}" for name in public if name not in claimed]
 
 
-def _collect(effaced: griffe.Module, stripe: griffe.Module) -> dict[str, SymbolMap]:
+def _collect(roots: dict[str, griffe.Module]) -> dict[str, SymbolMap]:
     """Select the documented symbols for every page, failing on unclaimed names."""
-    effaced_public = _public_names(effaced)
-    stripe_public = _public_names(stripe)
+    public = {name: _public_names(module) for name, module in roots.items()}
     page_symbols: dict[str, SymbolMap] = {}
-    claimed: dict[str, set[str]] = {"effaced": set(), "effaced_stripe": set()}
+    claimed: dict[str, set[str]] = {name: set() for name in roots}
     for page in PAGES:
-        public = stripe_public if page.module == "effaced_stripe" else effaced_public
-        symbols = _select_symbols(_page_module(page, effaced, stripe), public)
+        root = _page_root(page)
+        symbols = _select_symbols(_page_module(page, roots), public[root])
         page_symbols[page.slug] = symbols
-        claimed["effaced_stripe" if page.module == "effaced_stripe" else "effaced"] |= set(symbols)
-    missing = _unclaimed(effaced_public, claimed["effaced"], "effaced")
-    missing += _unclaimed(stripe_public, claimed["effaced_stripe"], "effaced_stripe")
+        claimed[root] |= set(symbols)
+    missing = [name for root in roots for name in _unclaimed(public[root], claimed[root], root)]
     if missing:
         for name in missing:
             print(f"error: {name} is exported but no PageSpec claims it", file=sys.stderr)
@@ -575,16 +589,16 @@ def _write(outputs: dict[str, str]) -> None:
 
 def main() -> int:
     """Generate every reference page; non-zero exit on any consistency failure."""
-    effaced = _load("effaced", [ROOT / "packages" / "effaced" / "src"])
-    stripe = _load(
-        "effaced_stripe",
-        [ROOT / "packages" / "effaced-stripe" / "src", ROOT / "packages" / "effaced" / "src"],
-    )
-    page_symbols = _collect(effaced, stripe)
+    core_src = ROOT / ROOT_PACKAGES["effaced"] / "src"
+    roots = {
+        name: _load(name, [ROOT / directory / "src", core_src])
+        for name, directory in ROOT_PACKAGES.items()
+    }
+    page_symbols = _collect(roots)
     index = _build_index(page_symbols)
     outputs: dict[str, str] = {"index.mdx": _render_index_page(page_symbols)}
     for page in PAGES:
-        module = _page_module(page, effaced, stripe)
+        module = _page_module(page, roots)
         outputs[f"{page.slug}.mdx"] = _render_page(page, module, page_symbols[page.slug], index)
     broken = sorted(name for name, text in outputs.items() if _REF.search(text))
     if broken:

@@ -27,6 +27,12 @@
       "package-name": "effaced-stripe",
       "component": "effaced-stripe",
       "changelog-path": "CHANGELOG.md"
+    },
+    "packages/effaced-s3": {
+      "release-type": "python",
+      "package-name": "effaced-s3",
+      "component": "effaced-s3",
+      "changelog-path": "CHANGELOG.md"
     }
   }
 }

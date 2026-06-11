@@ -1,0 +1,12 @@
+# effaced-s3
+
+First-party S3 resolver. Depends on `effaced` (workspace source) + `boto3`.
+
+- `S3Resolver` implements the `Resolver` protocol (structural; `test_s3_resolver_conformance.py` runs the shared `effaced.testing.ResolverConformanceSuite`). Keep `name == "s3"` stable forever — it's recorded in audits and outbox entries.
+- Refs: `kind="s3"`, `value=<key prefix>` (e.g. `users/42/`). A blank/whitespace prefix raises `ResolverError` **before any client call** — the resolver must never enumerate or erase a whole bucket.
+- **Erasure is all-versions:** `list_object_versions` → batched `delete_objects` removes every version *and* delete marker under the prefix; works on unversioned buckets too (`VersionId="null"`). Export covers current versions only — a deliberate, documented asymmetry.
+- **Idempotency:** nothing listed under the prefix ⇒ `ResolverErasure(already_absent=True)` — success, not an error. Partial batch failure: keep deleting the rest, then raise `PartialEraseError` (plain `Exception`, NOT `ResolverError`) so the saga retries; re-deletes are no-ops, so retries converge. Only all-non-retryable per-key errors raise `ResolverError` (taxonomy table in `errors.py`; unknown codes default to transient — abandonment is permanent, retry is safe).
+- **Export content default:** `include_content=True` (base64 body) — for user-generated objects the bytes are the personal data (EDPB Guidelines 01/2022 §150–155). `max_object_bytes` exceeded ⇒ `ResolverError`, never a silently thinned bundle. The exported field set lives in `export_records.py` and is behaviour under widened SemVer: removing/recategorising a field is MAJOR.
+- **No keys or prefixes in exception messages or `ResolverErasure.detail`** — counts and error codes only (apps log messages; key names are user content).
+- Uses the **sync** boto3 client wrapped in `asyncio.to_thread`; SDK retries are off (`Config(retries={"max_attempts": 1, "mode": "standard"})` — total attempts, so 1 = no retries); the saga runner owns retries (ADR 0010).
+- Typing: boto3 ships no types; annotations come from `types-boto3[s3]` (root dev group) under `TYPE_CHECKING` only — end users never need the stubs. The resolver talks to the `S3ObjectClient` protocol (`object_client.py`), the typed five-method subset; tests inject `FakeS3Client` (`tests/fake_s3_client.py`), which raises **real** `botocore` exceptions so the taxonomy is exercised against genuine types.

@@ -40,6 +40,7 @@ All test paths are relative to `packages/effaced/tests/`. Tags:
 | **Ref→resolver routing.** A ref routes to the resolver whose `name` equals its `kind`; an unmatched kind raises before any audit event; a resolver with no matching ref is skipped and recorded, never an error. | ADR 0008 | [unit] `test_erase_subject.py::test_refs_route_to_the_resolver_named_by_their_kind`, `::test_unmatched_ref_kind_fails_loudly_before_any_event`, `::test_resolver_without_matching_ref_is_skipped_and_audited`, `test_exporter_resolvers.py::test_ref_without_resolver_raises_before_any_audit_event`, `::test_resolver_without_matching_ref_is_skipped_not_incomplete` |
 | **Export failures are never silent.** A failed resolver lands in `incomplete_sources`; local records survive the failure. | `export/` contract | [unit] `test_exporter_resolvers.py::test_failing_resolver_lands_in_incomplete_sources`, `::test_local_records_survive_resolver_failure` |
 | **Atomic local phase.** Local row changes and outbox entries commit or roll back together, in the caller's transaction; audit evidence persists independently. | ADR 0009; gdpr-semantics rule | [unit] `test_erase_subject.py::test_rollback_discards_rows_and_outbox_but_keeps_audit`, `test_outbox.py::test_rollback_discards_enqueued_entries` · [pg] `test_erase_subject_pg.py::test_killed_transaction_rolls_back_rows_and_outbox_together`, `test_end_to_end_pg.py::test_full_pipeline_retains_invoice_and_never_touches_subject_two` (committed entries claimed by the saga on real locking) |
+| **S3 resolver semantics** (paths relative to `packages/effaced-s3/tests/`). Erasure removes every version and delete marker under the prefix and only under it; nothing listed is success (`already_absent=True`); a partially failed batch raises `PartialEraseError` and retries converge; exports are page-size invariant; a blank prefix is refused before any S3 call; messages and details never carry keys or prefixes. | `effaced-s3` README/CLAUDE.md; resolver idempotency contract (ADR 0010) | conformance: `test_s3_resolver_conformance.py` (shared `ResolverConformanceSuite`) · [property] `test_s3_resolver_properties.py::test_erase_converges_and_never_bleeds`, `::test_export_is_invariant_under_page_size`, `::test_partial_failure_retries_to_convergence` · [unit] `test_s3_resolver.py` (versioned/unversioned erase, batch bounds, taxonomy, prefix guard, leak checks) |
 
 ## Fault-injection matrix
 
@@ -65,7 +66,7 @@ lock are exercised under `FOR UPDATE` / `SKIP LOCKED`, not only on SQLite.
 
 `just cov` and CI's test job run pytest with `--cov`; the workspace
 `pyproject.toml` sets `[tool.coverage.report] fail_under = 95` (branch
-coverage, sources `effaced` + `effaced_stripe`), so any run below 95% fails
+coverage, sources `effaced` + `effaced_stripe` + `effaced_s3`), so any run below 95% fails
 the build. Issue #18 asked for a gate of at least 85% on
 `packages/effaced/src` — the enforced gate exceeds it.
 

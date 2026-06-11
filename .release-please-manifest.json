@@ -1,4 +1,5 @@
 {
   "packages/effaced": "0.1.0",
-  "packages/effaced-stripe": "0.1.0"
+  "packages/effaced-stripe": "0.1.0",
+  "packages/effaced-s3": "0.0.0"
 }

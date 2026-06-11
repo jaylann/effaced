@@ -46,10 +46,11 @@ semgrep:
 lint-actions:
     uvx zizmor@1.25.2 .github/workflows/
 
-# build both packages' sdists+wheels into dist/
+# build all packages' sdists+wheels into dist/
 build:
     uv build --package effaced --out-dir dist
     uv build --package effaced-stripe --out-dir dist
+    uv build --package effaced-s3 --out-dir dist
 
 # regenerate the API reference (griffe → MDX) into site/src/content/docs/docs/reference/
 site-gen:
