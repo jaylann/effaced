@@ -1,6 +1,6 @@
 ---
 title: Export
-description: Art. 15 collection across your database and external systems — one structured bundle, with failures surfaced, never silently omitted.
+description: Art. 15 collection across your database and external systems — one structured, machine-readable bundle (also Art. 20's format), with failures surfaced, never silently omitted.
 ---
 
 An Art. 15 answer has to cover everything you hold on a subject — local
@@ -36,6 +36,21 @@ in async web apps dispatch it via a threadpool (FastAPI:
 
 Group and render `records` however your product needs;
 `bundle.model_dump(mode="json")` gives a JSON-ready payload.
+
+## Art. 20 portability
+
+Art. 20 entitles the subject to receive their data "in a structured,
+commonly used and machine-readable format". The bundle already *is* that
+format: frozen pydantic, schema-versioned, JSON-serializable, with every
+record carrying its source, field, and category. There is no separate
+portability mechanism — hand the subject the same bundle (or its
+`model_dump(mode="json")` payload) your Art. 15 flow produces.
+
+The determinations stay yours: whether Art. 20 applies to a given request
+(it covers data processed by automated means on consent or contract, which
+the subject provided) and whether the bundle's scope matches that subset
+is a legal call effaced does not make. The mechanism is the format and the
+collection; the applicability is not.
 
 ## The `incomplete_sources` contract
 

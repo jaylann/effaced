@@ -26,7 +26,7 @@ Every SaaS eventually has to let a user export their data, delete their account,
 
 | Right | Article | Mechanism |
 |---|---|---|
-| Export | Art. 15 | `Exporter` — full subject bundle, including legally retained fields and external systems |
+| Export | Art. 15 · 20 | `Exporter` — full subject bundle, including legally retained fields and external systems; the structured, machine-readable bundle satisfies Art. 20's *format* requirement (whether a request falls under Art. 20 stays your call) |
 | Erasure | Art. 17 | `ErasurePlanner` — FK-safe delete/anonymize, retention-aware, durable saga for external calls |
 | Consent | Art. 7 | `ConsentLedger` — withdrawal as easy as grant, by construction |
 | Accountability | Art. 5(2) | `DatabaseAuditSink` — append-only audit trail, no PII in events |
@@ -96,7 +96,7 @@ stripe_ref = SubjectRef(kind="stripe", value=stripe_customer_id)  # kind == reso
 ConsentLedger(tables.consent_records, audit).record(session, record)  # Art. 7 — withdraw == grant
 Exporter(data_map, graph, Base.metadata, audit, registry).export_subject(
     session, user_id, refs=(stripe_ref,)
-)                                                                      # Art. 15
+)                                                                      # Art. 15 / Art. 20
 ErasurePlanner(
     data_map, graph, registry,
     executor=ErasureExecutor(Base.metadata), outbox=outbox, audit_sink=audit,
