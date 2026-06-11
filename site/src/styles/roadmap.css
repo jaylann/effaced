@@ -1,0 +1,158 @@
+/**
+ * Roadmap page — tier grids and status stamps.
+ *
+ * Builds on landing.css atoms (.wrap, .section, .stamp, .reveal, .legal).
+ * One accent only: stamp red marks SHIPPED — everything not yet real is
+ * differentiated by ink weight and border style, never by new hues.
+ */
+
+/* ---------- hero ---------- */
+
+.roadmap-hero {
+  padding-block: clamp(4rem, 8vw, 6.5rem) clamp(3rem, 6vw, 5rem);
+}
+
+.roadmap-hero h1 {
+  font-family: var(--ef-font-display);
+  font-size: clamp(2rem, 5.5vw, 4rem);
+  font-weight: 600;
+  letter-spacing: -0.035em;
+  line-height: 1.08;
+  margin: 0 0 1.5rem;
+  max-width: 18ch;
+  text-wrap: balance;
+}
+
+.roadmap-hero h1 em {
+  font-style: normal;
+  color: var(--ef-stamp);
+}
+
+.roadmap-hero .hero-lede {
+  margin-bottom: 0;
+}
+
+/* ---------- tier grid ---------- */
+
+.tier-sub {
+  font-family: var(--ef-font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ef-fg-faint);
+  white-space: nowrap;
+}
+
+.tier-note {
+  font-size: 0.9375rem;
+  color: var(--ef-fg-muted);
+  max-width: 64ch;
+  margin: -1rem 0 1.75rem;
+}
+
+.tier-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--ef-hairline);
+  border: var(--ef-rule);
+}
+
+@media (max-width: 44rem) {
+  .tier-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.tier-item {
+  background: var(--ef-bg);
+  padding: 1.6rem 1.5rem 1.4rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+  position: relative;
+  text-decoration: none;
+}
+
+.tier-item .eyebrow {
+  font-family: var(--ef-font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ef-fg-faint);
+}
+
+.tier-item h3 {
+  font-family: var(--ef-font-display);
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
+  padding-right: 7.5rem; /* clear the stamp */
+}
+
+.tier-item p {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--ef-fg-muted);
+  max-width: 48ch;
+}
+
+/* hover arrow, only on linked items */
+a.tier-item::after {
+  content: '→';
+  position: absolute;
+  bottom: 1.3rem;
+  right: 1.5rem;
+  font-family: var(--ef-font-mono);
+  color: var(--ef-fg-faint);
+  transition: transform 160ms ease;
+}
+
+a.tier-item:hover::after,
+a.tier-item:focus-visible::after {
+  transform: translateX(4px);
+  color: var(--ef-stamp);
+}
+
+.tier-item.faint h3,
+.tier-item.faint p {
+  color: var(--ef-fg-faint);
+}
+
+/* ---------- status stamps ---------- */
+
+.tier-item .stamp {
+  position: absolute;
+  top: 1.35rem;
+  right: 1.5rem;
+  font-size: 0.625rem;
+}
+
+/* SHIPPED keeps the default stamp red — the earned stamp moment. */
+
+.stamp-in-progress {
+  color: var(--ef-fg);
+  border-color: var(--ef-fg);
+}
+
+.stamp-planned {
+  color: var(--ef-fg-muted);
+  border-color: var(--ef-fg-muted);
+  transform: none; /* a stamp not yet pressed */
+}
+
+.stamp-exploring {
+  color: var(--ef-fg-faint);
+  border-color: var(--ef-fg-faint);
+  border-style: dashed;
+  transform: none;
+  mask-image: none;
+  -webkit-mask-image: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  a.tier-item::after {
+    transition: none;
+  }
+}
