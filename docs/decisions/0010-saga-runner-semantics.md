@@ -2,6 +2,7 @@
 
 - **Status:** accepted
 - **Date:** 2026-06-11
+- **Amended by:** [0015](0015-outbox-requeue.md) (abandonment is permanent *unless an operator requeues*)
 
 ## Context
 
