@@ -10,7 +10,7 @@ dev = [
     "mypy>=1.10",
     "ruff>=0.8",
     "pre-commit>=4.0",
-    "psycopg[binary]>=3.2",
+    "psycopg[binary]>=3.3.4",
     "mutmut>=3.6",
     # the runnable FastAPI example + its tests (examples/fastapi-quickstart)
     "fastapi>=0.116",
