@@ -1,6 +1,6 @@
 # effaced
 
-GDPR data-subject mechanisms — Art. 15 export, Art. 17 erasure, Art. 7 consent, append-only audit — across the user's own database and external systems (resolvers; Stripe first). uv workspace monorepo: `packages/effaced` (core) + `packages/effaced-stripe`. **We ship mechanisms, never compliance determinations.**
+GDPR data-subject mechanisms — Art. 15 export, Art. 17 erasure, Art. 7 consent, append-only audit — across the user's own database and external systems (resolvers; Stripe first). uv workspace monorepo: `packages/effaced` (core) + `packages/effaced-stripe`, plus `site/` (Astro Starlight docs + marketing, pnpm, outside the uv workspace — ADR 0011). **We ship mechanisms, never compliance determinations.**
 
 ## Read these first
 
@@ -12,7 +12,7 @@ Rules auto-load by `paths:` frontmatter; when you touch X, the matching rule is 
 | `packages/*/src/**` | `.claude/rules/gdpr-semantics.md` (widened SemVer, retention, audit, idempotency) |
 | `**/tests/**` | `.claude/rules/testing.md` |
 | `.github/**`, justfile, release-please files | `.claude/rules/ci.md` |
-| Any `.md` or docstring wording | `.claude/rules/docs.md` |
+| Any `.md`, docstring wording, or `site/**` | `.claude/rules/docs.md` |
 | Git anything | `.claude/rules/git-workflow.md` |
 
 ## Build & test
@@ -23,6 +23,8 @@ just test         # pytest, unit + property (integration excluded)
 just test-pg      # integration tests (needs EFFACED_TEST_DATABASE_URL)
 just fmt          # ruff format + autofix
 uv sync --all-packages
+just site-dev     # docs/marketing site dev server (regenerates API reference first)
+just site-build   # production site build into site/dist/
 ```
 
 ## Non-negotiables

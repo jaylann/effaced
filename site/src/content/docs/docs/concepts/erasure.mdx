@@ -1,0 +1,114 @@
+---
+title: Erasure
+description: Art. 17 as an atomic local phase plus a durable outbox — inspectable plans, FK-safe order, retention honoured, every outcome audited.
+---
+
+Erasing a subject touches your database *and* external systems, and those
+two can't share a transaction. effaced therefore splits erasure in two:
+the local phase runs atomically in your session, and external calls are
+enqueued durably **in the same transaction**, then fanned out by the
+[saga runner](../saga/). The system is always in a known, recorded state —
+never a half-erased mystery.
+
+```python
+planner = ErasurePlanner(
+    data_map, graph, registry,
+    executor=ErasureExecutor(Base.metadata),
+    outbox=outbox,
+    audit_sink=audit,
+)
+result = planner.erase_subject(session, "42", refs=(stripe_ref,))
+```
+
+`erase_subject` never commits or rolls back your session: the row changes
+and the outbox entries become durable together when *you* commit, and a
+rollback undoes both. After it raises, do not commit the session.
+
+## Plans are inspectable contracts
+
+`planner.plan(subject_id, refs=...)` computes the full programme without a
+session and without I/O — a pure function of the manifest, so you (and
+your tests) can assert exactly what an erasure will touch before anything
+happens. The row-level semantics (ADR 0007):
+
+- **A whole row is deleted** iff *every* annotated column on the table is
+  `DELETE` **and** the table is *fully PII-owned* — every physical column
+  is PII-annotated, a primary-key member, or a foreign-key member. Keys
+  are structural plumbing; an unannotated payload column means row
+  deletion would erase more than the manifest declares.
+- **Otherwise the row survives** and steps are column-level: one
+  `ANONYMIZE` step for every non-`RETAIN` column, one `RETAIN` step for
+  the retained columns. On a surviving row, even `DELETE`-declared columns
+  are anonymized with a **type-valid surrogate, never `NULL`** —
+  `NOT NULL` and unique constraints keep holding, and an irreversible
+  surrogate is content erasure. Surrogates come from the extensible
+  `SurrogateRegistry`, consumed only at execution time.
+- **Conflicts fail loudly before anything runs.** If a surviving table's
+  path to the subject passes through a table planned for row deletion,
+  the plan is unsatisfiable: `RetentionViolationError` when a retention
+  duty is at stake, `ManifestError` when the manifest is merely
+  incomplete.
+
+This is the conservative direction throughout: the planner never deletes
+more than the manifest declares.
+
+## FK-safe order and retention
+
+Local steps follow the [subject graph's](../manifest/) deletion order —
+children before parents, the subject table last — so foreign keys never
+block a legitimate erasure. Fields declared `ErasureStrategy.RETAIN` are
+never deleted by any code path; the `RETAIN` step touches nothing and
+exists so the retention decision is *recorded*, not silently applied. The
+declaration itself requires a `RetentionPolicy` naming the legal reason —
+see [annotations](../annotations/).
+
+## External steps ride the outbox
+
+Each ref is routed to the resolver whose `name` equals the ref's `kind`
+(ADR 0008). A ref kind matching no registered resolver raises
+`ResolverError` before any work — a typo must never silently drop an
+external system from an Art. 17 answer. A registered resolver with no
+matching ref is skipped, and that is a complete answer ("the subject has
+no identity in that system"), recorded in the completion event's
+`skipped_resolvers`. Matched pairs become outbox entries written through
+your session; [the saga](../saga/) takes it from there.
+
+## Audit trail (ADR 0009)
+
+One local erasure leaves the sequence:
+
+1. `ERASURE_REQUESTED` before the first step — with the default
+   `DatabaseAuditSink` each event commits independently, so the attempt
+   stays recorded even if the erasure later rolls back.
+2. One `ERASURE_STEP_SUCCEEDED` per local step, **including `RETAIN`
+   steps** — the RETAIN event *is* the auditable retention decision. The
+   append is part of the step: an outcome that can't be recorded counts
+   as a failure.
+3. On the first failure, `ERASURE_STEP_FAILED` (exception *class name*
+   only — messages can embed row values, and the trail stays PII-free),
+   then the original exception re-raises.
+4. `ERASURE_LOCAL_COMPLETED` last, with totals. `ERASURE_COMPLETED` is
+   the saga runner's to emit, once every external call has succeeded.
+
+Validation failures (missing wiring, plan conflicts, unmatched ref kinds)
+raise *before* any event — a malformed call never became a data-subject
+request, so it deliberately leaves no audit trace.
+
+## Re-running is a no-op success
+
+Erasure is idempotent by contract: re-running for an already-erased
+subject succeeds. Row-deleting tables report zero; surviving rows still
+match by subject id and are re-anonymized with fresh surrogates; external
+work re-enqueues under fresh idempotency keys and converges at the
+resolvers ("already gone" is success). Each attempt appends a full audit
+sequence — every attempt is evidence.
+
+:::caution[Widened SemVer]
+Any change to *what gets deleted* — the plan semantics above, the routing
+rule, the audit sequence — is a MAJOR release, regardless of whether a
+signature changed. Silently changing erasure behaviour is the worst
+possible failure for a library like this. See
+[stability](../../project/stability/).
+:::
+
+Full signatures: [API reference](../../reference/erasure/).

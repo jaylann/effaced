@@ -1,0 +1,49 @@
+---
+// Wordmark override: the brand redacts itself on hover.
+const base = import.meta.env.BASE_URL;
+const home = base.endsWith('/') ? base : `${base}/`;
+---
+
+<a href={home} class="ef-wordmark" aria-label="effaced — home">
+  <span class="ef-wordmark-text">effa<span class="ef-wordmark-tail">ced</span></span>
+</a>
+
+<style>
+  .ef-wordmark {
+    display: inline-flex;
+    align-items: baseline;
+    text-decoration: none;
+    color: var(--sl-color-white);
+    font-family: var(--ef-font-display);
+    font-size: 1.05rem;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 1;
+  }
+
+  .ef-wordmark-tail {
+    position: relative;
+    display: inline-block;
+  }
+
+  .ef-wordmark-tail::after {
+    content: '';
+    position: absolute;
+    inset: 4% -2% -4% -2%;
+    background: var(--ef-bar, var(--sl-color-white));
+    transform: scaleX(0);
+    transform-origin: left center;
+    transition: transform 280ms steps(7);
+  }
+
+  .ef-wordmark:hover .ef-wordmark-tail::after,
+  .ef-wordmark:focus-visible .ef-wordmark-tail::after {
+    transform: scaleX(1);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .ef-wordmark-tail::after {
+      transition: none;
+    }
+  }
+</style>

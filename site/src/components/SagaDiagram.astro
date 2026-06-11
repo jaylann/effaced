@@ -1,0 +1,177 @@
+---
+// The saga, drawn like a routing slip: one atomic transaction, a durable
+// outbox, a runner fanning out. Strokes draw themselves on scroll.
+---
+
+<figure class="saga-figure" data-saga>
+  <svg
+    viewBox="0 0 560 470"
+    role="img"
+    aria-labelledby="saga-title"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <title id="saga-title">
+      erase_subject runs one atomic database transaction that deletes or anonymizes in FK-safe
+      order, records retained fields, and enqueues outbox entries. A saga runner you operate fans
+      the outbox out to Stripe with retries; the audit trail records every outcome, including
+      abandonment.
+    </title>
+
+    <text class="lbl call" x="24" y="30">erase_subject(session, user_id)</text>
+
+    <g class="box b1">
+      <rect x="24" y="44" width="512" height="124" />
+      <text class="lbl head" x="44" y="72">ONE ATOMIC TRANSACTION</text>
+      <line class="hair" x1="24" y1="84" x2="536" y2="84" />
+      <text class="lbl row" x="44" y="106">├─ DELETE / ANONYMIZE · FK-SAFE ORDER</text>
+      <text class="lbl row" x="44" y="128">├─ LEGALLY RETAINED FIELDS · SKIPPED + RECORDED</text>
+      <text class="lbl row" x="44" y="150">└─ OUTBOX ENTRIES · ENQUEUED IN THE SAME TXN</text>
+    </g>
+
+    <path class="wire w1" d="M 280 168 V 204" />
+
+    <g class="box b2">
+      <rect x="178" y="204" width="204" height="40" />
+      <text class="lbl head" x="280" y="229" text-anchor="middle">DURABLE OUTBOX</text>
+    </g>
+
+    <path class="wire w2" d="M 280 244 V 280" />
+
+    <g class="box b3">
+      <rect x="116" y="280" width="328" height="40" />
+      <text class="lbl head" x="280" y="305" text-anchor="middle">
+        SAGA RUNNER · YOUR WORKER / CRON
+      </text>
+    </g>
+
+    <path class="wire w3" d="M 280 320 V 344 H 140 V 368" />
+    <path class="wire w4" d="M 280 320 V 344 H 420 V 368" />
+
+    <g class="box b4">
+      <rect x="36" y="368" width="208" height="72" />
+      <text class="lbl head" x="56" y="394">STRIPE · DELETE CUSTOMER</text>
+      <text class="lbl row" x="56" y="414">RETRY W/ BACKOFF</text>
+      <text class="lbl row" x="56" y="430">"ALREADY GONE" = SUCCESS</text>
+    </g>
+
+    <g class="box b5 accent">
+      <rect x="316" y="368" width="208" height="72" />
+      <text class="lbl head" x="336" y="394">AUDIT TRAIL · APPEND-ONLY</text>
+      <text class="lbl row" x="336" y="414">EVERY OUTCOME RECORDED</text>
+      <text class="lbl row" x="336" y="430">ABANDONMENT IS NEVER SILENT</text>
+    </g>
+  </svg>
+  <figcaption class="mono-label">FIG. 1 — ERASURE AS A SAGA</figcaption>
+</figure>
+
+<style>
+  .saga-figure {
+    margin: 0;
+    display: grid;
+    gap: 0.9rem;
+  }
+
+  svg {
+    width: 100%;
+    height: auto;
+  }
+
+  rect {
+    stroke: var(--ef-fg);
+    stroke-width: 1.5;
+    fill: var(--ef-bg);
+  }
+
+  .accent rect {
+    stroke: var(--ef-stamp);
+  }
+
+  .hair {
+    stroke: var(--ef-hairline);
+    stroke-width: 1;
+  }
+
+  .wire {
+    stroke: var(--ef-fg-faint);
+    stroke-width: 1.5;
+    stroke-dasharray: 4 4;
+  }
+
+  .lbl {
+    font-family: var(--ef-font-mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    fill: var(--ef-fg-muted);
+  }
+
+  .lbl.head {
+    fill: var(--ef-fg);
+    font-weight: 500;
+  }
+
+  .accent .lbl.head {
+    fill: var(--ef-stamp);
+  }
+
+  .lbl.call {
+    fill: var(--ef-stamp);
+    letter-spacing: 0.04em;
+  }
+
+  /* draw-in: boxes fade up, wires dash-flow, staggered when in view */
+  .box,
+  .wire,
+  .lbl.call {
+    opacity: 0;
+    transition: opacity 500ms ease-out;
+  }
+
+  [data-saga].in-view .lbl.call {
+    opacity: 1;
+  }
+
+  [data-saga].in-view .box,
+  [data-saga].in-view .wire {
+    opacity: 1;
+  }
+
+  [data-saga].in-view .b1 {
+    transition-delay: 80ms;
+  }
+  [data-saga].in-view .w1 {
+    transition-delay: 280ms;
+  }
+  [data-saga].in-view .b2 {
+    transition-delay: 400ms;
+  }
+  [data-saga].in-view .w2 {
+    transition-delay: 560ms;
+  }
+  [data-saga].in-view .b3 {
+    transition-delay: 680ms;
+  }
+  [data-saga].in-view .w3,
+  [data-saga].in-view .w4 {
+    transition-delay: 860ms;
+  }
+  [data-saga].in-view .b4,
+  [data-saga].in-view .b5 {
+    transition-delay: 1000ms;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .box,
+    .wire,
+    .lbl.call {
+      opacity: 1;
+      transition: none;
+    }
+  }
+
+  :global(.no-js) .box,
+  :global(.no-js) .wire,
+  :global(.no-js) .lbl.call {
+    opacity: 1;
+  }
+</style>

@@ -1,0 +1,106 @@
+---
+title: Resolvers
+description: The Resolver protocol reaches PII beyond your database — explicit registration, kind-based routing, and a strict idempotency contract.
+---
+
+Your database is not the only place you hold personal data: Stripe has the
+billing profile, your CRM has the contact history, S3 has the uploads. A
+**resolver** is one external system's implementation of export and
+erasure, and the `Resolver` protocol is effaced's most stability-protected
+public API — extended additively only, so a resolver written against 0.x
+keeps working across its major version.
+
+```python
+class Resolver(Protocol):
+    @property
+    def name(self) -> str: ...                                      # "stripe"
+    async def export_subject(self, ref: SubjectRef) -> ResolverExport: ...
+    async def erase_subject(self, ref: SubjectRef) -> ResolverErasure: ...
+```
+
+## The registry is your PII inventory
+
+```python
+registry = ResolverRegistry()
+registry.register(StripeResolver(api_key="rk_live_..."))
+```
+
+Registration is explicit on purpose — no auto-discovery, no entry-point
+magic. The registry doubles as the auditable declaration of *every place
+this application holds PII outside its own database*: grep your wiring
+code and you have the external half of your data inventory. Registering a
+second resolver under an existing name raises — silent replacement would
+falsify that picture.
+
+## Routing: `ref.kind == resolver.name` (ADR 0008)
+
+Engines receive a flat tuple of `SubjectRef`s; each ref is routed to the
+resolver whose `name` equals the ref's `kind` — one deterministic
+equality, no extra configuration:
+
+```python
+SubjectRef(kind="stripe", value="cus_9xKL...")   # → the resolver named "stripe"
+```
+
+- A ref kind matching **no** registered resolver fails loudly with
+  `ResolverError`, before any work or audit event — a typo must never
+  silently drop an external system from an Art. 15/17 answer.
+- A registered resolver with **no** matching ref is skipped — "the
+  subject has no identity in that system" is a complete answer, recorded
+  in the operation's completion audit payload, never an error.
+- Several refs of one kind mean several calls to that resolver.
+
+Resolver names are recorded in audit events and outbox rows, so renaming
+a resolver is a MAJOR change.
+
+## The idempotency contract
+
+Implementations **must** treat "already gone" as success:
+
+```python
+ResolverErasure(resolver="stripe", already_absent=True)   # success, not an error
+```
+
+The [saga runner](../saga/) retries failed calls and may re-execute after
+a crash or an expired lease; re-runs of `erase_subject` re-enqueue
+external work. A non-idempotent resolver would turn that convergence into
+errors or double-effects. Two more contract points:
+
+- Raise `ResolverError` **only** for non-retryable failures — the runner
+  abandons those immediately. Transient errors (timeouts, rate limits)
+  should raise their underlying exception and be retried on backoff.
+- Don't bind event-loop-affine resources (async HTTP clients) in
+  `__init__` — create them inside the call. Resolver methods may be
+  driven from different event loops: the exporter's per-call loop and the
+  saga runner's (ADR 0006).
+
+## Writing your own
+
+A minimal sketch:
+
+```python
+class CrmResolver:
+    @property
+    def name(self) -> str:
+        return "crm"
+
+    async def export_subject(self, ref: SubjectRef) -> ResolverExport:
+        records = await self._fetch(ref.value)        # client created per call
+        return ResolverExport(resolver=self.name, records=records)
+
+    async def erase_subject(self, ref: SubjectRef) -> ResolverErasure:
+        try:
+            await self._delete(ref.value)
+        except NotFoundError:
+            return ResolverErasure(resolver=self.name, already_absent=True)
+        return ResolverErasure(resolver=self.name)
+```
+
+Export records are `ExportRecord`s like local ones — `source` is your
+resolver name, and they merge straight into the
+[export bundle](../export/).
+
+The first-party `StripeResolver` (`uv add effaced-stripe`) covers the
+external system almost everyone has — see the
+[Stripe guide](../../guides/stripe/). Full protocol docs:
+[API reference](../../reference/resolvers/).

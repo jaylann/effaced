@@ -51,6 +51,26 @@ build:
     uv build --package effaced --out-dir dist
     uv build --package effaced-stripe --out-dir dist
 
+# regenerate the API reference (griffe → MDX) into site/src/content/docs/docs/reference/
+site-gen:
+    uv run python scripts/gen_api_docs.py
+
+# install site dependencies (Astro + Starlight via pnpm)
+site-install:
+    cd site && pnpm install
+
+# docs/marketing dev server (regenerates the API reference first)
+site-dev: site-gen
+    cd site && pnpm dev
+
+# production site build into site/dist/ (regenerates the API reference first)
+site-build: site-gen
+    cd site && pnpm build
+
+# serve the production build locally (respects the /effaced base path)
+site-preview:
+    cd site && pnpm preview
+
 # compact repo state: branch, status, recent commits
 st:
     @git branch --show-current

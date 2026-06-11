@@ -13,9 +13,12 @@ dev = [
     "psycopg[binary]>=3.2",
     "mutmut>=3.6",
 ]
+docs = [
+    "griffe>=1.5",
+]
 
 [tool.uv]
-default-groups = ["dev"]
+default-groups = ["dev", "docs"]
 
 # ---------------------------------------------------------------------------
 # Lint / format — ruff owns both. Shared by every workspace member.
@@ -85,7 +88,7 @@ strict_equality = true
 extra_checks = true
 disallow_any_unimported = true
 show_error_codes = true
-files = ["packages/effaced/src", "packages/effaced-stripe/src"]
+files = ["packages/effaced/src", "packages/effaced-stripe/src", "scripts"]
 exclude = ["examples/"]
 
 [tool.pydantic-mypy]

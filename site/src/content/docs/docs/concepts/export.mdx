@@ -1,0 +1,78 @@
+---
+title: Export
+description: Art. 15 collection across your database and external systems — one structured bundle, with failures surfaced, never silently omitted.
+---
+
+An Art. 15 answer has to cover everything you hold on a subject — local
+tables *and* the external systems that hold PII on your behalf. The
+`Exporter` walks the [data map](../manifest/) for local data and fans out
+to registered [resolvers](../resolvers/) for the rest:
+
+```python
+exporter = Exporter(data_map, graph, Base.metadata, audit, registry)
+bundle = exporter.export_subject(session, "42", refs=(stripe_ref,))
+```
+
+`export_subject` only reads — it never writes through your session. It is
+a blocking call that drives async resolvers on an internal event loop, so
+in async web apps dispatch it via a threadpool (FastAPI:
+`run_in_threadpool`, or a plain `def` route).
+
+## The bundle
+
+`ExportBundle` is a frozen pydantic model:
+
+- `subject_id` and `generated_at` (UTC).
+- `schema_version` — the [manifest schema version](../manifest/) the
+  bundle was built under, so downstream tooling can interpret old bundles
+  correctly.
+- `records` — one `ExportRecord` per exported value, local and external
+  alike: `source` (table or resolver name), `field`, `category`, the
+  `value` itself, and the Art. 15 metadata declared in the annotations —
+  `legal_basis`, `purpose`, `retention_reason`. Recording *why* data is
+  held is required Art. 15(1)(a) metadata; effaced surfaces exactly what
+  you declared.
+- `incomplete_sources` — see below.
+
+Group and render `records` however your product needs;
+`bundle.model_dump(mode="json")` gives a JSON-ready payload.
+
+## The `incomplete_sources` contract
+
+A resolver call that fails does **not** fail the export and does **not**
+silently shrink the bundle — the resolver's name lands in
+`incomplete_sources`. A bundle with a non-empty `incomplete_sources` is an
+honest partial answer: you know exactly which system is missing and can
+retry or escalate. Silent omission would be the worst outcome — a subject
+(or a regulator) reading a bundle as complete when it isn't.
+
+The boundary cases are deliberate:
+
+- A ref whose `kind` matches no registered resolver raises
+  `ResolverError` *before* any work or audit event — a typo'd kind must
+  never silently drop an external source from the answer.
+- A registered resolver with **no** matching ref is *skipped*: "the
+  subject has no identity in that system" is a complete answer, recorded
+  in the `EXPORT_COMPLETED` audit payload's `skipped_resolvers`, never in
+  `incomplete_sources`.
+- A local database failure propagates as an exception after
+  `EXPORT_REQUESTED` was appended — a requested-but-never-completed trail
+  is the abandonment marker.
+
+## Audit trail
+
+Every export appends `EXPORT_REQUESTED` before collection and
+`EXPORT_COMPLETED` after, with record counts, incomplete sources, and
+skipped resolvers in the payload — counts and names only, never the
+exported values. Input validation failures raise before any event: a
+malformed call never became a data-subject request.
+
+:::note
+What lands in a bundle is exactly what the manifest declares. An
+unannotated column is not exported, and changing what gets exported — by
+annotation or by library behaviour — is MAJOR under
+[widened SemVer](../../project/stability/). Whether your bundle satisfies
+Art. 15 for your processing is a determination for you and your counsel.
+:::
+
+Full signatures: [API reference](../../reference/export/).

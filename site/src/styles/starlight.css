@@ -1,0 +1,159 @@
+/**
+ * Starlight theme — maps Starlight's palette onto the effaced tokens.
+ *
+ * Docs keep the brand (mono display, hairlines, stamp accents) but stay
+ * quiet: the content is the page, the chrome is the margin of the form.
+ * Dark (full black) is the default; light is the inverted document.
+ */
+
+/* ---- palette: full black (default) ---- */
+:root {
+  --sl-color-accent-low: #38110a;
+  --sl-color-accent: #e8492c;
+  --sl-color-accent-high: #f4a08f;
+
+  --sl-color-white: #f7f7f7;
+  --sl-color-gray-1: #ececec;
+  --sl-color-gray-2: #c3c3c3;
+  --sl-color-gray-3: #9b9b9b;
+  --sl-color-gray-4: #6e6e6e;
+  --sl-color-gray-5: #2c2c2c;
+  --sl-color-gray-6: #161616;
+  --sl-color-black: #000000;
+
+  --sl-color-bg: #000000;
+  --sl-color-bg-nav: #000000;
+  --sl-color-bg-sidebar: #000000;
+
+  --sl-font: 'Public Sans Variable', 'Helvetica Neue', Arial, sans-serif;
+  --sl-font-mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+}
+
+/* ---- palette: light = the inverted document ---- */
+:root[data-theme='light'] {
+  --sl-color-accent-low: #f6d3cb;
+  --sl-color-accent: #c53017;
+  --sl-color-accent-high: #711b0a;
+
+  --sl-color-white: #0a0a0a;
+  --sl-color-gray-1: #1f1f1f;
+  --sl-color-gray-2: #3d3d3d;
+  --sl-color-gray-3: #595959;
+  --sl-color-gray-4: #8c8c8c;
+  --sl-color-gray-5: #dcdcdc;
+  --sl-color-gray-6: #f1f1f1;
+  --sl-color-gray-7: #fafafa;
+  --sl-color-black: #ffffff;
+
+  --sl-color-bg: #ffffff;
+  --sl-color-bg-nav: #ffffff;
+  --sl-color-bg-sidebar: #ffffff;
+}
+
+:root {
+  --sl-text-code: 0.875rem;
+}
+
+/* ---- headings: mono display, tight ---- */
+.sl-markdown-content h1,
+.sl-markdown-content h2,
+.sl-markdown-content h3,
+.sl-markdown-content h4,
+h1[data-page-title] {
+  font-family: var(--ef-font-display);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.sl-markdown-content h2 {
+  border-bottom: 1px solid var(--sl-color-gray-5);
+  padding-bottom: 0.35em;
+}
+
+/* ---- asides: hairline + uppercase mono label, no tinted slabs ---- */
+.sl-markdown-content .starlight-aside {
+  border: 1px solid var(--sl-color-gray-5);
+  border-inline-start: 3px solid var(--sl-color-gray-3);
+  background: transparent;
+  border-radius: var(--ef-radius);
+  color: var(--sl-color-text);
+}
+
+.sl-markdown-content .starlight-aside--caution,
+.sl-markdown-content .starlight-aside--danger {
+  border-inline-start-color: var(--ef-stamp);
+}
+
+.sl-markdown-content .starlight-aside__title {
+  font-family: var(--ef-font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--sl-color-gray-2);
+}
+
+.sl-markdown-content .starlight-aside--caution .starlight-aside__title,
+.sl-markdown-content .starlight-aside--danger .starlight-aside__title {
+  color: var(--ef-stamp);
+}
+
+/* ---- code: flat, hairlined ---- */
+.sl-markdown-content pre,
+.sl-markdown-content code {
+  border-radius: var(--ef-radius);
+}
+
+.sl-markdown-content :not(pre) > code {
+  background: var(--sl-color-gray-6);
+  border: 1px solid var(--sl-color-gray-5);
+  padding: 0.1em 0.35em;
+}
+
+/* ---- sidebar: form-index feel ---- */
+nav.sidebar .top-level > li > details > summary .group-label > span {
+  font-family: var(--ef-font-mono);
+  font-size: 0.6875rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--sl-color-gray-3);
+}
+
+/* current-page marker: a small redaction bar instead of a tinted pill */
+nav.sidebar a[aria-current='page'],
+nav.sidebar a[aria-current='page']:hover,
+nav.sidebar a[aria-current='page']:focus {
+  background: transparent;
+  color: var(--sl-color-text-accent);
+  font-weight: 600;
+  border-radius: 0;
+  border-inline-start: 3px solid var(--ef-stamp);
+  margin-inline-start: -3px;
+}
+
+/* ---- tables: ruled like a ledger ---- */
+.sl-markdown-content table {
+  border: 1px solid var(--sl-color-gray-5);
+}
+
+.sl-markdown-content th {
+  font-family: var(--ef-font-mono);
+  font-size: 0.6875rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--sl-color-gray-3);
+}
+
+/* ---- links: quiet ink, stamp-red only on hover ---- */
+.sl-markdown-content a {
+  color: var(--sl-color-white);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--sl-color-gray-3);
+}
+
+.sl-markdown-content a:hover {
+  color: var(--sl-color-accent);
+  text-decoration-color: var(--sl-color-accent);
+}
