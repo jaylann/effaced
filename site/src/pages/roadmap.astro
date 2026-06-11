@@ -1,0 +1,144 @@
+---
+import '@fontsource-variable/public-sans';
+import '@fontsource/ibm-plex-mono/400.css';
+import '@fontsource/ibm-plex-mono/500.css';
+import '../styles/tokens.css';
+import '../styles/landing.css';
+import '../styles/roadmap.css';
+import SiteNav from '../components/SiteNav.astro';
+import SiteFooter from '../components/SiteFooter.astro';
+import { STATUS_LABEL, tiers } from '../data/roadmap';
+
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const docs = (path = '') => `${base}/docs/${path}`;
+const github = 'https://github.com/jaylann/effaced';
+
+const refUrl = (ref: { kind: 'issue' | 'pr'; number: number }) =>
+  `${github}/${ref.kind === 'issue' ? 'issues' : 'pull'}/${ref.number}`;
+
+const title = 'effaced roadmap — a roadmap, not a schedule';
+const description =
+  'Where effaced is headed: shipped mechanisms, the demand-pulled next release, the road to 1.0, and the explorations beyond — no dates promised.';
+const ogImage = Astro.site ? new URL(`${base}/og.png`, Astro.site).href : `${base}/og.png`;
+---
+
+<!doctype html>
+<html lang="en" class="no-js" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="icon" type="image/svg+xml" href={`${base}/favicon.svg`} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content={ogImage} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#000000" />
+    <meta name="color-scheme" content="dark" />
+    {Astro.site && <link rel="canonical" href={new URL(`${base}/roadmap/`, Astro.site).href} />}
+    {Astro.site && <meta property="og:url" content={new URL(`${base}/roadmap/`, Astro.site).href} />}
+  </head>
+
+  <body>
+    <div class="doc-edge" aria-hidden="true">
+      <div class="wrap">
+        <span>EFFACED // ROADMAP</span>
+        <span>DEMAND-PULLED</span>
+        <span>NO DATES PROMISED</span>
+      </div>
+    </div>
+
+    <SiteNav />
+
+    <main>
+      <header class="roadmap-hero wrap">
+        <p class="hero-file-line">
+          <span>CASE FILE EF-ROADMAP</span>
+          <span>RE: WHAT SHIPS WHEN DEMAND SHOWS</span>
+          <span>SCHEDULE: <span class="redacted">NONE</span></span>
+        </p>
+        <h1>A roadmap, <em>not</em> a schedule.</h1>
+        <p class="hero-lede">
+          effaced grows where real usage pulls it. Everything below is scoped and tracked in the
+          open — shipped mechanisms first, then the next release, then explorations that earn a
+          milestone only when someone actually needs them. Want something sooner?
+          <a class="bar-link" href={`${github}/issues`}>Say so on the issue tracker</a>.
+        </p>
+      </header>
+
+      {
+        tiers.map((tier, i) => (
+          <section class="section" aria-labelledby={`tier-${tier.id}`}>
+            <div class="wrap">
+              <div class="section-head reveal">
+                <span class="index">{String(i + 1).padStart(2, '0')}</span>
+                <h2 id={`tier-${tier.id}`}>{tier.label}</h2>
+                <span class="tier-sub">{tier.sub}</span>
+              </div>
+              {tier.note && <p class="tier-note reveal">{tier.note}</p>}
+              <div class="tier-grid reveal">
+                {tier.items.map((item) => {
+                  const href = item.ref ? refUrl(item.ref) : item.docsPath ? docs(item.docsPath) : undefined;
+                  const eyebrow = item.art ?? (item.ref ? `#${item.ref.number}` : undefined);
+                  const Tag = href ? 'a' : 'article';
+                  return (
+                    <Tag class:list={['tier-item', { faint: item.faint }]} href={href}>
+                      <span class:list={['stamp', `stamp-${item.status}`]}>
+                        {STATUS_LABEL[item.status]}
+                      </span>
+                      {eyebrow && <span class="eyebrow">{eyebrow}</span>}
+                      <h3>{item.name}</h3>
+                      <p>{item.scope}</p>
+                    </Tag>
+                  );
+                })}
+              </div>
+            </div>
+          </section>
+        ))
+      }
+
+      <section class="section" aria-labelledby="legal-h">
+        <div class="wrap">
+          <div class="legal reveal">
+            <span class="stamp" id="legal-h">NOT A SCHEDULE</span>
+            <div>
+              <p>
+                Order here is demand-pulled and no dates are promised — an item moves up when real
+                usage asks for it, and gets dropped when nobody does.
+              </p>
+              <p>
+                And shipping any of it never makes anyone compliant: effaced ships
+                <strong>mechanisms, not determinations</strong> — whether your processing is lawful
+                is a call only you and your counsel can make. See
+                <a class="bar-link" href={docs('project/stability/')}>stability & widened SemVer</a>.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <SiteFooter />
+
+    <script>
+      document.documentElement.classList.remove('no-js');
+
+      // scroll reveals — same observer as the landing
+      const io = new IntersectionObserver(
+        (entries) => {
+          for (const entry of entries) {
+            if (entry.isIntersecting) {
+              entry.target.classList.add('in-view');
+              io.unobserve(entry.target);
+            }
+          }
+        },
+        { threshold: 0.18 },
+      );
+      for (const el of document.querySelectorAll('.reveal')) io.observe(el);
+    </script>
+  </body>
+</html>

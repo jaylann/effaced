@@ -45,7 +45,13 @@ export default defineConfig({
           ],
         },
         { label: 'Guides', items: [{ autogenerate: { directory: 'docs/guides' } }] },
-        { label: 'Project', items: [{ autogenerate: { directory: 'docs/project' } }] },
+        {
+          label: 'Project',
+          items: [
+            { autogenerate: { directory: 'docs/project' } },
+            { label: 'Roadmap', link: '/roadmap/' },
+          ],
+        },
         {
           label: 'API reference',
           collapsed: true,

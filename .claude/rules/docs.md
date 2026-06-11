@@ -13,6 +13,7 @@ paths: ["**/*.md", "**/*.py", "site/**"]
 - Hand-written pages live in `site/src/content/docs/docs/`; `…/reference/` is generated and gitignored — never hand-edit it. `just site-dev` / `just site-build` regenerate it first.
 - Internal MDX links are relative with trailing slashes; absolute `/docs/...` paths break under the `/effaced/` base path on GitHub Pages.
 - Bare `{` or `<` in MDX prose breaks the build — keep them in code spans/fences.
+- The roadmap page's content lives in `site/src/data/roadmap.ts` — shipping (or re-scoping) a roadmap item flips its entry there in the same PR. No dates on the roadmap, ever.
 - The wording discipline below binds the marketing page and every docs page, not just README/docstrings.
 
 ## Self-documenting rules loop (keep the docs alive)

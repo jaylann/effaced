@@ -1,0 +1,19 @@
+---
+/** Sticky top nav shared by the marketing pages (landing, roadmap). */
+const base = import.meta.env.BASE_URL.replace(/\/$/, '');
+const docs = (path = '') => `${base}/docs/${path}`;
+const github = 'https://github.com/jaylann/effaced';
+---
+
+<nav class="nav" aria-label="Main">
+  <div class="wrap">
+    <a class="nav-brand" href={`${base}/`}>effa<span class="tail">ced</span></a>
+    <div class="nav-links">
+      <a href={docs()}>Docs</a>
+      <a href={`${base}/roadmap/`}>Roadmap</a>
+      <a class="secondary" href={docs('reference/')}>API reference</a>
+      <a class="secondary" href={docs('project/comparison/')}>Comparison</a>
+      <a href={github}>GitHub</a>
+    </div>
+  </div>
+</nav>
