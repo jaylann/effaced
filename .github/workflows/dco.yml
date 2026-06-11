@@ -19,8 +19,10 @@ jobs:
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
         run: |
+          # Bot commits (release-please version bumps, dependabot) cannot carry
+          # a human DCO sign-off; exempt any author whose login ends in [bot].
           missing=$(gh api "repos/${REPO}/pulls/${PR}/commits" --paginate \
-            --jq '.[] | select(.commit.message | test("Signed-off-by: .+ <.+@.+>") | not) | .sha')
+            --jq '.[] | select((.author.login // "") | endswith("[bot]") | not) | select(.commit.message | test("Signed-off-by: .+ <.+@.+>") | not) | .sha')
           if [ -n "$missing" ]; then
             echo "::error::Commits missing DCO sign-off (use git commit -s):"
             echo "$missing"

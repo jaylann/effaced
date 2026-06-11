@@ -32,5 +32,50 @@ jobs:
         id: rp
         with:
           token: ${{ steps.app-token.outputs.token }}
+          # tag releases on main; without this release-please defaults
+          # target-branch to the repo default (stage) and opens release PRs
+          # against the wrong branch.
+          target-branch: main
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+      # release-please bumps the version in each pyproject.toml but never
+      # touches uv.lock, so every CI job that runs `uv sync --locked` on the
+      # release PR fails ("lockfile needs to be updated"). Re-lock on each open
+      # release branch and push the result back so the PR goes green.
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0
+        with:
+          enable-cache: false
+
+      - name: Sync uv.lock on release branches
+        env:
+          TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          # noreply identity for the release-bot app so the signed-off-by
+          # trailer matches the DCO check's `<...@...>` shape.
+          GIT_AUTHOR_NAME: lanfermann-release-bot[bot]
+          GIT_COMMITTER_NAME: lanfermann-release-bot[bot]
+          GIT_AUTHOR_EMAIL: ${{ vars.RP_APP_ID }}+lanfermann-release-bot[bot]@users.noreply.github.com
+          GIT_COMMITTER_EMAIL: ${{ vars.RP_APP_ID }}+lanfermann-release-bot[bot]@users.noreply.github.com
+        run: |
+          # public repo: fetch needs no auth; only the push is tokenized.
+          git fetch origin '+refs/heads/release-please--branches--main--*:refs/remotes/origin/release-please--branches--main--*' || true
+          for ref in $(git for-each-ref --format='%(refname:short)' 'refs/remotes/origin/release-please--branches--main--*'); do
+            branch="${ref#origin/}"
+            echo "::group::re-lock $branch"
+            git checkout -B "$branch" "$ref"
+            uv lock
+            if git diff --quiet -- uv.lock; then
+              echo "uv.lock already in sync"
+            else
+              git add uv.lock
+              git commit -s -m "chore: sync uv.lock for release"
+              git push "https://x-access-token:${TOKEN}@github.com/${REPO}.git" "$branch"
+            fi
+            echo "::endgroup::"
+          done
