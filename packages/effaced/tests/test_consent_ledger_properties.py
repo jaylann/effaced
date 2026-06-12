@@ -62,4 +62,13 @@ def test_status_derives_from_latest_record_per_purpose(
             assert ledger.status(session, "subject", purpose) is expected
         chronological = tuple(sorted(records, key=lambda record: record.recorded_at))
         assert ledger.history(session, "subject") == chronological
+        for purpose in PURPOSES:
+            matching = [record for record in records if record.purpose == purpose]
+            if not matching:
+                continue
+            # As-of the subject's last record, status_as_of must equal status.
+            latest_at = max(record.recorded_at for record in matching)
+            assert ledger.status_as_of(session, "subject", purpose, latest_at) is ledger.status(
+                session, "subject", purpose
+            )
     engine.dispose()

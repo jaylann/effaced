@@ -10,6 +10,8 @@ from effaced.audit.event_type import AuditEventType
 from effaced.consent.record import ConsentRecord
 
 if TYPE_CHECKING:
+    from datetime import datetime
+
     from sqlalchemy import Table
     from sqlalchemy.orm import Session
 
@@ -85,6 +87,43 @@ class ConsentLedger:
         Returns:
             Current consent status.
         """
+        return self._latest_granted(session, subject_id, purpose)
+
+    def status_as_of(self, session: Session, subject_id: str, purpose: str, at: datetime) -> bool:
+        """Whether the subject consented to a purpose as of an instant ``at``.
+
+        The point-in-time read a DPA actually asks for — "prove what this
+        subject consented to at time T" — answered from the same append-only
+        records as :meth:`status`, with no schema change. Considers only
+        records with ``recorded_at <= at`` (the boundary is **inclusive**: a
+        record stamped exactly ``at`` counts), and applies the identical
+        "latest wins, withdrawal breaks ties" rule. ``status_as_of`` at or
+        after the subject's last record equals :meth:`status`.
+
+        Args:
+            session: An open database session.
+            subject_id: Whose consent to check.
+            purpose: The processing purpose.
+            at: The instant to evaluate consent at; compare in the same
+                timezone convention as the stored ``recorded_at`` values.
+
+        Returns:
+            Consent status as of ``at``; ``False`` when no record exists
+            at or before it.
+        """
+        return self._latest_granted(session, subject_id, purpose, at=at)
+
+    def _latest_granted(
+        self, session: Session, subject_id: str, purpose: str, *, at: datetime | None = None
+    ) -> bool:
+        """The latest record's ``granted`` flag for (subject, purpose).
+
+        Shared by :meth:`status` and :meth:`status_as_of`: ``at`` is the
+        optional upper bound on ``recorded_at`` that turns the current read
+        into a point-in-time one. The ordering — newest first, withdrawal
+        before grant on a tie, then highest ``record_id`` — is the single
+        source of truth for both reads.
+        """
         columns = self._consent_records.c
         statement = (
             self._consent_records.select()
@@ -92,6 +131,8 @@ class ConsentLedger:
             .order_by(columns.recorded_at.desc(), columns.granted.asc(), columns.record_id.desc())
             .limit(1)
         )
+        if at is not None:
+            statement = statement.where(columns.recorded_at <= at)
         row = session.execute(statement).mappings().first()
         return False if row is None else bool(row["granted"])
 
