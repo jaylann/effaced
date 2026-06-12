@@ -48,7 +48,7 @@ def _default_client(
     endpoint_url: str,
     access_key_id: str,
     secret_access_key: str,
-    region: str | None,
+    region: str,
 ) -> S3ObjectClient:
     """A boto3 S3 client wired to the Supabase Storage gateway.
 
@@ -140,8 +140,10 @@ class SupabaseStorageResolver:
             access_key_id: The dashboard-issued S3 access-key id. A root
                 credential — server-side only.
             secret_access_key: The S3 secret access key paired with it.
-            region: The gateway region; the gateway accepts any value but
-                SigV4 needs one — pass the project's.
+            region: The gateway region — pass the project's (``local`` for
+                local dev). SigV4 needs one; leaving it to boto3's ambient
+                resolution would sign for whatever region the host happens
+                to be configured with.
             client: Optional client override — custom sessions or the test
                 fake. When given, the four connection params are ignored.
             include_content: Export each object's body (base64) — the
@@ -156,9 +158,9 @@ class SupabaseStorageResolver:
 
         Raises:
             ConfigurationError: No ``client`` was given and one of
-                ``endpoint_url``, ``access_key_id``, ``secret_access_key``
-                is missing — the resolver refuses to degrade into a
-                misdirected or unauthenticated client.
+                ``endpoint_url``, ``access_key_id``, ``secret_access_key``,
+                ``region`` is missing — the resolver refuses to degrade
+                into a misdirected or unauthenticated client.
         """
         self._bucket = bucket
         self._include_content = include_content
@@ -166,11 +168,16 @@ class SupabaseStorageResolver:
         if client is not None:
             self._client = client
             return
-        if endpoint_url is None or access_key_id is None or secret_access_key is None:
+        if (
+            endpoint_url is None
+            or access_key_id is None
+            or secret_access_key is None
+            or region is None
+        ):
             raise ConfigurationError(
-                "SupabaseStorageResolver needs endpoint_url, access_key_id, and "
-                "secret_access_key (or an explicit client) — refusing to build a "
-                "misdirected or unauthenticated client"
+                "SupabaseStorageResolver needs endpoint_url, access_key_id, "
+                "secret_access_key, and region (or an explicit client) — refusing "
+                "to build a misdirected or unauthenticated client"
             )
         self._client = _default_client(
             endpoint_url=endpoint_url,

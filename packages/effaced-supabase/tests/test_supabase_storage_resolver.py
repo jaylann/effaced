@@ -20,6 +20,7 @@ AVATAR_KEY = f"{PREFIX}avatar.png"
 AVATAR_BODY = b"\x89PNG\r\n\x1a\nfake-binary-bytes\x00\xff"
 
 ENDPOINT = "https://proj.storage.supabase.co/storage/v1/s3"
+PLACEHOLDER = "s"  # passed via a variable so S106 (hardcoded-password literal) stays quiet
 
 
 def _ref(prefix: str = PREFIX) -> SubjectRef:
@@ -57,6 +58,10 @@ class TestConstruction:
         with pytest.raises(ConfigurationError):
             SupabaseStorageResolver(
                 bucket="b", endpoint_url=ENDPOINT, access_key_id="k", secret_access_key=None
+            )
+        with pytest.raises(ConfigurationError):
+            SupabaseStorageResolver(
+                bucket="b", endpoint_url=ENDPOINT, access_key_id="k", secret_access_key=PLACEHOLDER
             )
         with pytest.raises(ConfigurationError):
             SupabaseStorageResolver(bucket="b")
