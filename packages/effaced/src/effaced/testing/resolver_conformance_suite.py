@@ -82,7 +82,7 @@ class ResolverConformanceSuite:
         return None
 
     def _run(self, coro: Coroutine[None, None, _T]) -> _T:
-        # The sanctioned sync->async bridge for this suite (ADR 0011):
+        # The sanctioned sync->async bridge for this suite (ADR 0018):
         # pytest test methods are sync, so no loop is running here.
         return asyncio.run(coro)
 
