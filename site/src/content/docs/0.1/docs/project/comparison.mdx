@@ -1,0 +1,64 @@
+---
+title: Comparison
+description: How effaced relates to hand-rolled GDPR code, django-gdpr-assist,
+  DSR platforms, and compliance boilerplates — including what it does not do.
+sidebar:
+  order: 1
+slug: 0.1/docs/project/comparison
+---
+
+Every SaaS eventually has to let a user export their data, delete their
+account, and prove consent was given. The alternatives fall into four
+buckets.
+
+## Why not …
+
+| Alternative | The gap |
+|---|---|
+| **Roll your own** | Misses PII in related tables, logs, and third parties; deletes legally retained invoices (or retains everything); no Art. 5(2) record; breaks mid-flight when an API is down. |
+| **django-gdpr-assist** (closest prior art) | Archived since ~2022, Django-only, local ORM only — no concept of PII in external systems. effaced is the maintained successor for the modern Python stack. |
+| **OneTrust / Transcend / DSR platforms** | Heavy, expensive, DPO-facing SaaS — not a drop-in developer library. |
+| **GDPR boilerplates** | Shallow download/delete buttons in a template, not reusable machinery with an audit trail. |
+
+The recurring failure mode of hand-rolled versions is worth spelling out,
+because effaced's design is a direct response to it:
+
+* **Missed PII** in related tables and third-party systems — effaced's
+  annotations are the data map, and the resolver registry is the explicit
+  list of external systems.
+* **Deleting retained records** (or retaining everything out of fear) —
+  retention is a first-class, audited declaration, and the planner raises
+  rather than guesses.
+* **No defensible record** — every consent change, export, and erasure
+  outcome (including failures and abandonment) lands in an append-only
+  audit trail.
+* **Half-erased state** when an external API is down mid-deletion —
+  erasure is a [saga](../../concepts/saga/): local deletion and the
+  durable enqueue of external work commit in one transaction.
+
+## What effaced is not
+
+Honesty cuts both ways. effaced is:
+
+* **Not legal advice and not a compliance guarantee.** effaced gives you
+  correct machinery to implement Articles 15, 17, 7, and 30 — and an
+  auditable record that you did. Whether your processing is lawful is a
+  legal determination only you (and your counsel) can make. See
+  [stability and guarantees](../stability/) for the full statement.
+* **Not able to find data you never declared.** If a model isn't
+  annotated, its data isn't exported or erased. effaced makes that
+  responsibility visible — the
+  [completeness linter](../../concepts/completeness/) turns every
+  undeclared table and column into a CI failure — instead of pretending
+  to eliminate it.
+* **Not a cookie-consent CMP, not analytics, not a hosted database.** It
+  is a Python library that runs inside your application against your own
+  database and your own third-party accounts.
+
+## When a DSR platform is the right call
+
+If your organisation needs DPO-facing workflow tooling — intake portals,
+ticketing, vendor questionnaires, cross-department orchestration — a DSR
+platform addresses problems effaced does not try to solve. effaced is the
+engineering half: the machinery that actually deletes, exports, and
+records. The two are complementary, not competitors.

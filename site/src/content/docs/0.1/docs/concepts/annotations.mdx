@@ -1,0 +1,121 @@
+---
+title: Annotations
+description: pii() and subject_link() declarations on your existing models are
+  the data map — there is no separate config to drift.
+slug: 0.1/docs/concepts/annotations
+---
+
+effaced never guesses where personal data lives. You declare it, on the
+models you already have, and the declarations are collected into the
+[manifest](../manifest/) that drives export and erasure. If a column isn't
+annotated, effaced doesn't touch it — and doesn't export it.
+
+## `pii()` — one column's full declaration
+
+`pii()` returns an `info` dict fragment for SQLAlchemy's
+`mapped_column(info=...)` / `Column(info=...)`:
+
+```python
+from effaced import ErasureStrategy, LegalBasis, PiiCategory, RetentionPolicy, pii
+
+email: Mapped[str] = mapped_column(info=pii(
+    PiiCategory.CONTACT,
+    erasure=ErasureStrategy.DELETE,        # the default
+    legal_basis=LegalBasis.CONTRACT,       # Art. 15 metadata: why the data is held
+    purpose="account login and notices",   # surfaced verbatim in export bundles
+))
+```
+
+Under the hood this builds a frozen `PiiSpec` — category, erasure strategy,
+optional `RetentionPolicy`, legal basis, purpose, and a free-text
+description for audits. Keeping `pii()` a function (not a bare dict) lets
+the manifest format evolve behind a stable call signature.
+
+### The vocabulary
+
+* **`PiiCategory`** — what kind of personal data the field holds:
+  `CONTACT`, `IDENTITY`, `FINANCIAL`, `BEHAVIORAL`, `TECHNICAL`,
+  `LOCATION`, `COMMUNICATION`, and `SPECIAL` (Art. 9 special categories —
+  handle with care). Categories drive export grouping and appear in the
+  audit trail.
+* **`ErasureStrategy`** — what happens on Art. 17 erasure: `DELETE`
+  (remove outright), `ANONYMIZE` (replace with an irreversible surrogate;
+  the record survives), `RETAIN` (keep untouched under a legal duty).
+* **`LegalBasis`** — the Art. 6(1) lawful basis: `CONSENT`, `CONTRACT`,
+  `LEGAL_OBLIGATION`, `VITAL_INTERESTS`, `PUBLIC_TASK`,
+  `LEGITIMATE_INTERESTS`. Recorded per field so exports can state *why*
+  data is held — required Art. 15(1)(a) metadata.
+
+These enums are part of the manifest format: adding members is MINOR,
+removing or renaming them is MAJOR (it changes what existing manifests
+mean).
+
+## `RetentionPolicy` — retention must name its reason
+
+```python
+billing_address: Mapped[str] = mapped_column(info=pii(
+    PiiCategory.FINANCIAL,
+    erasure=ErasureStrategy.RETAIN,
+    retention=RetentionPolicy(reason="§147 AO invoice retention"),
+))
+```
+
+`RETAIN` **requires** a `RetentionPolicy` — a validator rejects the
+declaration otherwise, because a retention duty must name its legal
+reason. The policy carries the human-readable `reason`, a `basis`
+(defaults to `LegalBasis.LEGAL_OBLIGATION`), and an optional bounded
+`duration`. The reason surfaces in export bundles and the audit trail
+records every retention decision; whether a given duty actually applies to
+your data is a legal question for you and your counsel — effaced records
+the decision, it doesn't make it.
+
+## `subject_link()` — how a table reaches the subject
+
+Every table holding personal data declares how its rows reach the data
+subject, as a dotted relationship path:
+
+```python
+class User(Base):
+    __table_args__ = {"info": subject_link("")}        # "" = this IS the subject
+
+class Order(Base):
+    __table_args__ = {"info": subject_link("user")}    # row → .user → subject
+
+class OrderItem(Base):
+    __table_args__ = {"info": subject_link("order.user")}  # two hops
+```
+
+Exactly one table carries `subject_link("")` — the subject table itself.
+Its `subject_id_column` (default `"id"`) is the identifier callers pass to
+`export_subject` / `erase_subject`. At startup,
+`resolve_subject_graph(data_map, Base.registry)` walks these paths against
+the ORM mappers and flattens them into foreign-key hop chains — see
+[manifest](../manifest/) for how the resulting graph orders deletion
+FK-safely.
+
+## `SubjectRef` — pointing at external systems
+
+Data outside your database isn't annotated — it's reached through
+[resolvers](../resolvers/), addressed by `SubjectRef`:
+
+```python
+from effaced import SubjectRef
+
+stripe_ref = SubjectRef(kind="stripe", value="cus_9xKL...")
+```
+
+A ref's `kind` names the resolver that handles it (`kind ==
+resolver.name`), and its `value` is the identifier in that system's
+namespace. Refs carry identifiers, never the subject's rich PII — the
+library moves references, not data.
+
+## From annotations to the data map
+
+```python
+data_map = collect_data_map(Base.metadata)
+```
+
+`collect_data_map` walks the metadata and assembles one `TableEntry` per
+annotated table, one `ColumnEntry` per `pii()` column. The manifest is
+*derived*, never authored — re-collect after a model change and the map is
+current by construction. Details and versioning: [manifest](../manifest/).

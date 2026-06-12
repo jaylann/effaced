@@ -1,6 +1,7 @@
 // @ts-check
 import starlight from '@astrojs/starlight';
 import { defineConfig } from 'astro/config';
+import starlightVersions from 'starlight-versions';
 
 // Deploy target is env-driven (ADR 0011): GitHub Pages today, effaced.dev later
 // by setting SITE_URL=https://effaced.dev and BASE_PATH=/ in the deploy workflow.
@@ -29,6 +30,16 @@ export default defineConfig({
       social: [{ icon: 'github', label: 'GitHub', href: 'https://github.com/jaylann/effaced' }],
       editLink: { baseUrl: 'https://github.com/jaylann/effaced/edit/stage/site/' },
       lastUpdated: true,
+      plugins: [
+        // Versioned docs (ADR 0016, amends 0011's deferral): stage HEAD is the
+        // current "Latest" docs; '0.1' is the frozen snapshot of the released
+        // effaced 0.1.0 / effaced-stripe 0.1.0 API. Cut a new snapshot per
+        // minor/major release — see .claude/rules/docs.md.
+        starlightVersions({
+          current: { label: 'Latest' },
+          versions: [{ slug: '0.1', label: '0.1' }],
+        }),
+      ],
       sidebar: [
         { label: 'Start here', items: ['docs', 'docs/quickstart'] },
         {

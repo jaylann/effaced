@@ -1,0 +1,155 @@
+---
+title: Quickstart
+description: Annotate your models, wire the three calls, and run the saga runner
+  — a working export/erasure/consent loop in minutes.
+slug: 0.1/docs/quickstart
+---
+
+import { Steps } from '@astrojs/starlight/components';
+
+effaced rides the SQLAlchemy models and migrations you already have. There
+is no separate config file to drift out of sync — the annotations *are* the
+data map.
+
+<Steps>
+  1. **Install.** Not on PyPI yet — until 0.1.0 ships, install both
+     packages straight from the repo:
+
+     ```bash
+     uv add "effaced @ git+https://github.com/jaylann/effaced#subdirectory=packages/effaced" \
+            "effaced-stripe @ git+https://github.com/jaylann/effaced#subdirectory=packages/effaced-stripe"
+     ```
+
+     `effaced` is the core; `effaced-stripe` is the first-party
+     [Stripe resolver](../guides/stripe/) (skip it if you only erase locally).
+
+  2. **Annotate your models.** Mark personal-data columns with `pii()` and
+     tell each table how its rows reach the data subject with
+     `subject_link()`:
+
+     ```python
+     from sqlalchemy import ForeignKey
+     from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+     from effaced import ErasureStrategy, PiiCategory, RetentionPolicy, pii, subject_link
+
+     class Base(DeclarativeBase): ...
+
+     class User(Base):
+         __tablename__ = "users"
+         __table_args__ = {"info": subject_link("")}          # this IS the data subject
+
+         id: Mapped[int] = mapped_column(primary_key=True)
+         email: Mapped[str] = mapped_column(info=pii(PiiCategory.CONTACT))
+
+     class Invoice(Base):
+         __tablename__ = "invoices"
+         __table_args__ = {"info": subject_link("user")}      # reaches the subject via .user
+
+         id: Mapped[int] = mapped_column(primary_key=True)
+         user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+         user: Mapped[User] = relationship()
+         billing_address: Mapped[str] = mapped_column(
+             info=pii(
+                 PiiCategory.FINANCIAL,
+                 erasure=ErasureStrategy.RETAIN,              # legally retained — never deleted,
+                 retention=RetentionPolicy(reason="§147 AO"), # and the audit trail says why
+             )
+         )
+     ```
+
+     The full vocabulary is in [annotations](../concepts/annotations/).
+
+  3. **Collect the data map and mount the effaced tables.**
+
+     ```python
+     from sqlalchemy.orm import sessionmaker
+     from effaced import bind_tables, collect_data_map, resolve_subject_graph
+
+     data_map = collect_data_map(Base.metadata)               # the manifest, derived
+     graph = resolve_subject_graph(data_map, Base.registry)   # FK-safe subject graph
+     tables = bind_tables(Base.metadata)                      # effaced-owned tables
+     session_factory = sessionmaker(engine)
+     ```
+
+     `bind_tables` defines `effaced_audit_events`, `effaced_consent_records`,
+     and `effaced_outbox` on *your* `MetaData`, so they live in your database
+     and ride your migration tooling (Alembic autogenerate picks them up; or
+     `Base.metadata.create_all(engine)` without one).
+
+  4. **Wire the shared components and register resolvers.**
+
+     ```python
+     from effaced import DatabaseAuditSink, Outbox, ResolverRegistry
+     from effaced_stripe import StripeResolver
+
+     audit = DatabaseAuditSink(session_factory, tables.audit_events)
+     outbox = Outbox(session_factory, tables.outbox)
+     registry = ResolverRegistry()
+     registry.register(StripeResolver(api_key="rk_live_..."))  # explicit — the registry doubles
+                                                               # as your "where is my PII" list
+     ```
+
+  5. **The three calls.** Record consent (Art. 7), export a subject
+     (Art. 15), erase a subject (Art. 17):
+
+     ```python
+     from datetime import UTC, datetime
+     from effaced import (
+         ConsentLedger, ConsentRecord, ErasureExecutor, ErasurePlanner,
+         Exporter, SubjectRef,
+     )
+
+     ledger = ConsentLedger(tables.consent_records, audit)
+     exporter = Exporter(data_map, graph, Base.metadata, audit, registry)
+     planner = ErasurePlanner(
+         data_map, graph, registry,
+         executor=ErasureExecutor(Base.metadata),
+         outbox=outbox,
+         audit_sink=audit,
+     )
+
+     stripe_ref = SubjectRef(kind="stripe", value="cus_...")  # kind == resolver name
+
+     with session_factory.begin() as session:
+         ledger.record(session, ConsentRecord(
+             subject_id="42", purpose="newsletter", policy_version="2026-01",
+             granted=True, recorded_at=datetime.now(UTC), source="signup_form",
+         ))
+
+     with session_factory() as session:
+         bundle = exporter.export_subject(session, "42", refs=(stripe_ref,))
+
+     with session_factory.begin() as session:
+         result = planner.erase_subject(session, "42", refs=(stripe_ref,))
+     ```
+
+     Everything else — FK-safe ordering, anonymize-vs-delete, the durable
+     outbox, retries, idempotency, the audit trail — is bookkeeping effaced
+     does between those calls. See [erasure](../concepts/erasure/) and
+     [export](../concepts/export/) for the exact contracts.
+
+  6. **Run the saga runner.** `erase_subject` enqueues external calls
+     durably; a runner you drive fans them out with retries and idempotency:
+
+     ```python
+     from effaced import SagaRunner
+
+     runner = SagaRunner(registry, outbox, audit)
+
+     # in your worker process, cron job, or background thread:
+     await runner.run_once()
+     ```
+
+     Never call `run_once` on a serving event loop — it makes blocking
+     database calls between awaits. [Wiring examples](../guides/saga-runner-wiring/)
+     cover FastAPI, a dedicated worker, and cron; the semantics are in
+     [the saga](../concepts/saga/).
+</Steps>
+
+:::caution[Declared data only]
+effaced cannot find data you never declared. An unannotated model is
+invisible to export and erasure — the responsibility stays yours and
+visible. Nothing on this page (or this site) is legal advice: effaced ships
+mechanisms; whether a given use satisfies the GDPR is a determination for
+you and your counsel.
+:::

@@ -1,0 +1,82 @@
+---
+title: Audit trail
+description: Append-only by construction, PII-free by design — the Art. 5(2)/30
+  record of every consent change, export, and erasure outcome.
+slug: 0.1/docs/concepts/audit
+---
+
+Art. 5(2) makes you accountable for demonstrating how you handled personal
+data; Art. 30 makes you keep records of processing. effaced's answer is an
+audit trail that every mechanism writes to: every consent change, every
+export, every erasure outcome — including failures and abandonment —
+produces an event. Nothing is silently dropped.
+
+## Append-only by construction
+
+The `AuditSink` protocol has exactly two methods: `append` and `read`.
+There is no update method and no delete method, **and there never will
+be** — the surface itself makes tampering unrepresentable, rather than
+relying on discipline. The protocol is public API extended additively only
+(new optional methods with default implementations); existing custom
+sinks must never break on upgrade.
+
+```python
+class AuditSink(Protocol):
+    def append(self, event: AuditEvent) -> None: ...
+    def read(self, subject_ref: str) -> Sequence[AuditEvent]: ...
+```
+
+`append` is sync by design: it runs inside the erasure and consent
+transaction paths (ADR 0006). An async external sink, if ever needed,
+would be an additive separate adapter — never a protocol change.
+
+## Events carry references, never rich PII
+
+An audit trail that hoards personal data would defeat its purpose — it
+must itself survive an erasure. So `AuditEvent` is deliberately narrow:
+
+* `event_id` — unique, assigned at creation, never reused.
+* `event_type` — an `AuditEventType` member: `CONSENT_GRANTED`,
+  `CONSENT_WITHDRAWN`, `EXPORT_REQUESTED`, `EXPORT_COMPLETED`,
+  `ERASURE_REQUESTED`, `ERASURE_STEP_SUCCEEDED`, `ERASURE_STEP_FAILED`,
+  `ERASURE_LOCAL_COMPLETED`, `ERASURE_COMPLETED`, `MANIFEST_SNAPSHOT`.
+* `subject_ref` — an *opaque* subject reference, not an email or a name.
+* `occurred_at` (UTC) and a `payload` of short, loggable scalars: counts,
+  table names, versions. Failure payloads carry exception **class names**
+  only, never messages — database errors embed row values, and the trail
+  stays PII-free.
+
+Adding event types is MINOR; removing or renaming one is MAJOR — old
+trails must stay readable forever.
+
+## `DatabaseAuditSink`: your database, your custody
+
+The default sink writes to the `effaced_audit_events` table mounted by
+`bind_tables` — zero data leaves your system:
+
+```python
+audit = DatabaseAuditSink(session_factory, tables.audit_events)
+```
+
+Its two contracts matter operationally:
+
+* **Each `append` commits in its own short transaction.** An event
+  survives even when the caller's surrounding transaction rolls back —
+  an `ERASURE_REQUESTED` for an erasure that failed and rolled back is
+  evidence, and evidence is never lost to an unrelated failure.
+* **`read` is all-or-nothing.** A trail containing an `event_type` this
+  version of effaced cannot interpret (written by a newer release) raises
+  `AuditIntegrityError` rather than serving a silently incomplete trail —
+  partial evidence presented as complete would be worse than no answer.
+  Upgrading effaced restores readability; nothing is lost.
+
+`read(subject_ref)` returns the subject's full trail, oldest first, with
+deterministic ordering — what a regulator asks for first.
+
+:::note
+The trail demonstrates *what effaced did*. Whether your records of
+processing satisfy Art. 30 for your organisation is a determination for
+you and your counsel.
+:::
+
+Full signatures: [API reference](../../reference/audit/).

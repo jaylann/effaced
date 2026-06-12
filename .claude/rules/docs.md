@@ -16,6 +16,12 @@ paths: ["**/*.md", "**/*.py", "site/**"]
 - The roadmap page's content lives in `site/src/data/roadmap.ts` — shipping (or re-scoping) a roadmap item flips its entry there in the same PR. No dates on the roadmap, ever.
 - The wording discipline below binds the marketing page and every docs page, not just README/docstrings.
 
+## Versioned docs (starlight-versions, ADR 0016)
+- `stage` HEAD is the **current "Latest"** docs. Frozen per-release snapshots live under `site/src/content/docs/<slug>/docs/…` with a sidebar snapshot at `site/src/content/versions/<slug>.json`. Today there is one: `0.1` (the released 0.1.0 line). The version switcher is wired in `astro.config.mjs` via the `starlightVersions` plugin; the `versions` collection is in `site/src/content.config.ts`.
+- **Snapshots are committed, not generated.** Only the *current* reference (`site/src/content/docs/docs/reference/*`) is gitignored; snapshot reference pages under `<slug>/docs/reference/` are tracked. `just site-gen` regenerates only the current reference and never touches a snapshot (`gen_api_docs.py` clears only its own `OUT_DIR`). Never hand-edit a snapshot to track `stage` — it's a release artifact.
+- **Cut a new snapshot per minor/major release** (`0.N.0` / `1.0.0`), reflecting *that tag's* API, not stage HEAD. Procedure: configure the new `{ slug }` in `astro.config.mjs`; check out the release tag in a throwaway worktree and run its `scripts/gen_api_docs.py` (under its own `uv` env) to produce that version's reference; replace the site's current `docs/docs/` with the tag's hand-written pages + that generated reference and set the sidebar to the tag's; run `pnpm build` once so the plugin snapshots into `<slug>/docs/…` and writes `<slug>.json`; then restore stage HEAD's `docs/docs/` and sidebar. The plugin only snapshots a slug whose directory is still absent. Commit the snapshot.
+- Custom domain (`effaced.dev`) is the still-open half of issue #49 — `SITE_URL`/`BASE_PATH` stay env-driven, untouched.
+
 ## Self-documenting rules loop (keep the docs alive)
 - Non-obvious discoveries go into `## Learnings` in CLAUDE.md as you work; the `/commit` skill distills them into the matching `.claude/rules/*.md` and clears the section.
 - **Stale guidance is a bug.** If a rule, CLAUDE.md, or README references a command, path, or API that no longer exists, fix it in the same PR that made it stale — or immediately when discovered.
