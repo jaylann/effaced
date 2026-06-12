@@ -16,6 +16,7 @@ from effaced.adapters.sqlalchemy import (
     EffacedStack,
     EffacedTables,
     ErasureExecutor,
+    ErasureVerifier,
     RectificationExecutor,
     SqlStatusCountsSource,
     SurrogateRegistry,
@@ -31,7 +32,14 @@ from effaced.annotations import Correction, PiiSpec, RetentionPolicy, SubjectLin
 from effaced.audit import AuditEvent, AuditEventType, AuditSink, DatabaseAuditSink
 from effaced.categories import ErasureStrategy, LegalBasis, PiiCategory
 from effaced.consent import ConsentLedger, ConsentRecord
-from effaced.erasure import ErasurePlan, ErasurePlanner, ErasureResult, ErasureStep, StepExecutor
+from effaced.erasure import (
+    ErasurePlan,
+    ErasurePlanner,
+    ErasureResult,
+    ErasureStep,
+    ErasureVerification,
+    StepExecutor,
+)
 from effaced.exceptions import (
     AnonymizationError,
     AuditIntegrityError,
@@ -63,6 +71,9 @@ from effaced.rectification import (
 )
 from effaced.replay import Replayer, ReplayPlan, ReplayPlanEntry, ReplaySource
 from effaced.resolvers import (
+    AttestingResolver,
+    CoveredField,
+    CoveredSurface,
     RectifyingResolver,
     RegistryBuild,
     Resolver,
@@ -74,6 +85,7 @@ from effaced.resolvers import (
     ResolverSpec,
     RetentionOnlyResolver,
     SpecOutcome,
+    SurfaceExclusion,
     registry_from_settings,
 )
 from effaced.restriction import RestrictionLedger, RestrictionRecord
@@ -100,6 +112,7 @@ __all__ = [
     "AbandonedHook",
     "AbandonedSignal",
     "AnonymizationError",
+    "AttestingResolver",
     "AuditEvent",
     "AuditEventType",
     "AuditIntegrityError",
@@ -112,6 +125,8 @@ __all__ = [
     "ConsentLedger",
     "ConsentRecord",
     "Correction",
+    "CoveredField",
+    "CoveredSurface",
     "DataMap",
     "DatabaseAuditSink",
     "EffacedError",
@@ -123,6 +138,8 @@ __all__ = [
     "ErasureResult",
     "ErasureStep",
     "ErasureStrategy",
+    "ErasureVerification",
+    "ErasureVerifier",
     "ExportBundle",
     "ExportRecord",
     "Exporter",
@@ -171,6 +188,7 @@ __all__ = [
     "SubjectLink",
     "SubjectRef",
     "SubjectResolutionError",
+    "SurfaceExclusion",
     "SurrogateRegistry",
     "TableAccessPlan",
     "TableEntry",

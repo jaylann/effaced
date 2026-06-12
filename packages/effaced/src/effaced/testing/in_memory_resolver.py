@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from effaced.resolvers.covered_field import CoveredField
+from effaced.resolvers.covered_surface import CoveredSurface
 from effaced.resolvers.erasure import ResolverErasure
 from effaced.resolvers.export import ResolverExport
 from effaced.resolvers.rectification import ResolverRectification
@@ -55,6 +57,27 @@ class InMemoryResolver:
     def name(self) -> str:
         """Stable resolver name recorded in audits."""
         return self._name
+
+    @property
+    def covered_surface(self) -> CoveredSurface:
+        """The surface derived from every seeded record's field and category.
+
+        The fake attests (:class:`~effaced.AttestingResolver`) by
+        reflecting its seed: each distinct ``(field, category)`` pair across
+        all seeded subjects becomes one literal :class:`~effaced.CoveredField`
+        glob. Every export therefore stays within the surface by
+        construction — the reference behaviour the conformance suite's
+        covered-surface section is verified against.
+        """
+        pairs = {
+            (record.field, record.category)
+            for records in self._records.values()
+            for record in records
+        }
+        fields = tuple(
+            CoveredField(field=field, category=category) for field, category in sorted(pairs)
+        )
+        return CoveredSurface(resolver=self._name, fields=fields)
 
     async def export_subject(self, ref: SubjectRef) -> ResolverExport:
         """Return the seeded records for the subject; empty when unknown.

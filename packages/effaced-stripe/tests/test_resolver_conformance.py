@@ -21,10 +21,54 @@ ABSENT = "cus_absent"
 
 CUSTOMER = {"email": "subject@example.com", "name": "Ada Lovelace"}
 
+# A maximal customer + payment method that populates every covered field
+# of STRIPE_COVERED_SURFACE (customer profile + address + shipping +
+# shipping address + payment-method type/card/billing-details + billing
+# address), so the suite's enumeration test exercises the whole surface.
+_ADDRESS = {
+    "line1": "1 Analytical Engine Way",
+    "line2": "Suite 1842",
+    "city": "London",
+    "postal_code": "EC1A 1BB",
+    "state": "London",
+    "country": "GB",
+}
+
+FULL_CUSTOMER = {
+    "email": "subject@example.com",
+    "name": "Ada Lovelace",
+    "phone": "+442079460000",
+    "address": dict(_ADDRESS),
+    "shipping": {
+        "name": "Ada Lovelace",
+        "phone": "+442079460001",
+        "address": dict(_ADDRESS),
+    },
+}
+
+FULL_PAYMENT_METHOD = {
+    "id": "pm_full",
+    "type": "card",
+    "card": {"brand": "visa", "last4": "4242", "exp_month": 12, "exp_year": 2030},
+    "billing_details": {
+        "name": "Ada Lovelace",
+        "email": "billing@example.com",
+        "phone": "+442079460002",
+        "address": dict(_ADDRESS),
+    },
+}
+
 
 class TestStripeResolverConformance(ResolverConformanceSuite):
     def make_resolver(self) -> StripeResolver:
         fake = FakeStripeHTTPClient(customers={PRESENT: CUSTOMER})
+        return StripeResolver(api_key="rk_test_x", http_client=fake)
+
+    def make_fully_populated_resolver(self) -> StripeResolver:
+        fake = FakeStripeHTTPClient(
+            customers={PRESENT: FULL_CUSTOMER},
+            payment_methods={PRESENT: [FULL_PAYMENT_METHOD]},
+        )
         return StripeResolver(api_key="rk_test_x", http_client=fake)
 
     def make_present_ref(self) -> SubjectRef:

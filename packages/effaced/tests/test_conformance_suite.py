@@ -43,6 +43,9 @@ class TestInMemoryResolverConformance(ResolverConformanceSuite):
     def make_corrections(self) -> tuple[Correction, ...]:
         return CORRECTIONS
 
+    def make_fully_populated_resolver(self) -> InMemoryResolver:
+        return InMemoryResolver(records={PRESENT: RECORDS})
+
 
 class _HooklessSuite(ResolverConformanceSuite):
     """Implements only the required hooks; fault hooks stay None."""
@@ -119,6 +122,45 @@ def test_required_hooks_default_to_not_implemented():
     for hook in (suite.make_resolver, suite.make_present_ref, suite.make_absent_ref):
         with pytest.raises(NotImplementedError):
             hook()
+
+
+# --- covered-surface attestation (issue #123) ----------------------------------
+
+ATTESTING_TESTS = (
+    "test_covered_surface_names_the_resolver",
+    "test_export_stays_within_the_declared_surface",
+    "test_declared_exclusions_never_appear_in_exports",
+    "test_fully_populated_export_enumerates_the_declared_surface",
+)
+
+
+class _AttestingSuite(_HooklessSuite):
+    """The InMemoryResolver attests, so the covered-surface section runs."""
+
+    def make_fully_populated_resolver(self) -> InMemoryResolver:
+        return InMemoryResolver(records={PRESENT: RECORDS})
+
+
+@pytest.mark.parametrize("test_name", ATTESTING_TESTS)
+def test_attesting_tests_skip_for_a_non_attesting_resolver(test_name: str):
+    """Capability absence is an honest answer — the suite skips, never fails."""
+    with pytest.raises(pytest.skip.Exception):
+        getattr(_NonRectifyingSuite(), test_name)()
+
+
+def test_enumeration_test_skips_without_a_fully_populated_hook():
+    """The enumeration direction skips while no maximal fixture is provided."""
+    with pytest.raises(pytest.skip.Exception):
+        _HooklessSuite().test_fully_populated_export_enumerates_the_declared_surface()
+
+
+def test_attesting_suite_asserts_subset_exclusions_and_enumeration():
+    """An attesting fake passes all three directions on real records."""
+    suite = _AttestingSuite()
+    suite.test_covered_surface_names_the_resolver()
+    suite.test_export_stays_within_the_declared_surface()
+    suite.test_declared_exclusions_never_appear_in_exports()
+    suite.test_fully_populated_export_enumerates_the_declared_surface()
 
 
 # --- retention-only reference fake (ADR 0018) ----------------------------------

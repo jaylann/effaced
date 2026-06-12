@@ -34,6 +34,8 @@ _SHIPPING_FIELDS = (
     ("phone", PiiCategory.CONTACT),
 )
 
+_PAYMENT_METHOD_FIELDS = (("type", PiiCategory.FINANCIAL),)
+
 _CARD_FIELDS = (
     ("brand", PiiCategory.FINANCIAL),
     ("last4", PiiCategory.FINANCIAL),
@@ -117,7 +119,7 @@ def payment_method_records(
     prefix = f"payment_method.{_scalar(method, 'id') or fallback_id}"
     billing = _mapping(method, "billing_details")
     return tuple(
-        _records(method, prefix, (("type", PiiCategory.FINANCIAL),))
+        _records(method, prefix, _PAYMENT_METHOD_FIELDS)
         + _records(_mapping(method, "card"), f"{prefix}.card", _CARD_FIELDS)
         + _records(billing, f"{prefix}.billing_details", _BILLING_DETAILS_FIELDS)
         + _address_records(f"{prefix}.billing_details.address", _mapping(billing, "address"))

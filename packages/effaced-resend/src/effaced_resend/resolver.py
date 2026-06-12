@@ -9,10 +9,12 @@ from urllib.parse import quote
 import httpx
 
 from effaced.resolvers import ResolverErasure, ResolverExport
+from effaced_resend.covered_surface import RESEND_COVERED_SURFACE
 from effaced_resend.errors import raise_for_taxonomy
 from effaced_resend.export_records import contact_records
 
 if TYPE_CHECKING:
+    from effaced import CoveredSurface
     from effaced.annotations import SubjectRef
 
 _NOT_FOUND = 404
@@ -76,6 +78,16 @@ class ResendResolver:
     def name(self) -> str:
         """Stable resolver name recorded in manifests and audits."""
         return "resend"
+
+    @property
+    def covered_surface(self) -> CoveredSurface:
+        """The Resend contact PII this resolver claims to reach (:class:`~effaced.AttestingResolver`).
+
+        Returns:
+            :data:`~effaced_resend.covered_surface.RESEND_COVERED_SURFACE`,
+            built from the exporter's field tuple so it cannot drift.
+        """
+        return RESEND_COVERED_SURFACE
 
     async def export_subject(self, ref: SubjectRef) -> ResolverExport:
         """Collect the contact's Resend-held fields (Art. 15).

@@ -26,9 +26,23 @@ OBJECTS: dict[str, bytes | list[bytes]] = {
 }
 
 
+FULL_KEY = f"{PRESENT_PREFIX}report.pdf"
+
+
 class TestS3ResolverConformance(ResolverConformanceSuite):
     def make_resolver(self) -> S3Resolver:
         fake = FakeS3Client(objects=dict(OBJECTS))
+        return S3Resolver(bucket="user-content", client=fake)
+
+    def make_fully_populated_resolver(self) -> S3Resolver:
+        # One object with body, content type, last-modified, and user
+        # metadata — populating every covered field including the
+        # open-ended object.*.metadata.* glob.
+        fake = FakeS3Client(
+            objects={FULL_KEY: b"a full report"},
+            content_types={FULL_KEY: "application/pdf"},
+            metadata={FULL_KEY: {"subject": "42", "uploaded-by": "ada"}},
+        )
         return S3Resolver(bucket="user-content", client=fake)
 
     def make_present_ref(self) -> SubjectRef:

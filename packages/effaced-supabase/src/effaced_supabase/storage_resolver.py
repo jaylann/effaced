@@ -36,10 +36,12 @@ except ImportError as exc:  # pragma: no cover - exercised only without the extr
 from effaced.exceptions import ConfigurationError, ResolverError
 from effaced.resolvers import ResolverErasure, ResolverExport
 from effaced_supabase.partial_storage_erase_error import PartialStorageEraseError
+from effaced_supabase.storage_covered_surface import STORAGE_COVERED_SURFACE
 
 if TYPE_CHECKING:
     from types_boto3_s3.type_defs import ObjectIdentifierTypeDef
 
+    from effaced import CoveredSurface
     from effaced.annotations import SubjectRef
 
 
@@ -190,6 +192,16 @@ class SupabaseStorageResolver:
     def name(self) -> str:
         """Stable resolver name recorded in manifests and audits."""
         return "supabase_storage"
+
+    @property
+    def covered_surface(self) -> CoveredSurface:
+        """The Storage PII this resolver claims to reach (:class:`~effaced.AttestingResolver`).
+
+        Returns:
+            :data:`~effaced_supabase.storage_covered_surface.STORAGE_COVERED_SURFACE`,
+            built from effaced-s3's object-field tuple so it cannot drift.
+        """
+        return STORAGE_COVERED_SURFACE
 
     async def export_subject(self, ref: SubjectRef) -> ResolverExport:
         """Collect the objects held under the subject's prefix (Art. 15).

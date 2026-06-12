@@ -11,6 +11,7 @@ from botocore.exceptions import ClientError
 
 from effaced.exceptions import ResolverError
 from effaced.resolvers import ResolverErasure, ResolverExport
+from effaced_s3.covered_surface import S3_COVERED_SURFACE
 from effaced_s3.deletion import delete_in_batches
 from effaced_s3.errors import (
     NONRETRYABLE_CODES,
@@ -23,6 +24,7 @@ from effaced_s3.partial_erase_error import PartialEraseError
 from effaced_s3.prefix_guard import checked_prefix
 
 if TYPE_CHECKING:
+    from effaced import CoveredSurface
     from effaced.annotations import SubjectRef
     from effaced_s3.object_client import S3ObjectClient
 
@@ -116,6 +118,16 @@ class S3Resolver:
     def name(self) -> str:
         """Stable resolver name recorded in manifests and audits."""
         return "s3"
+
+    @property
+    def covered_surface(self) -> CoveredSurface:
+        """The S3 object PII this resolver claims to reach (:class:`~effaced.AttestingResolver`).
+
+        Returns:
+            :data:`~effaced_s3.covered_surface.S3_COVERED_SURFACE`, built
+            from the exporter's object-field tuple so it cannot drift.
+        """
+        return S3_COVERED_SURFACE
 
     async def export_subject(self, ref: SubjectRef) -> ResolverExport:
         """Collect the objects held under the subject's prefix (Art. 15).

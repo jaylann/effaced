@@ -35,6 +35,12 @@ class TestResendResolverConformance(ResolverConformanceSuite):
         fake = FakeResendTransport(contacts={PRESENT: CONTACT})
         return ResendResolver(KEY, transport=fake)
 
+    def make_fully_populated_resolver(self) -> ResendResolver:
+        # CONTACT populates every covered field: email, first_name,
+        # last_name, and the unsubscribed boolean.
+        fake = FakeResendTransport(contacts={PRESENT: CONTACT})
+        return ResendResolver(KEY, transport=fake)
+
     def make_present_ref(self) -> SubjectRef:
         return SubjectRef(kind="resend", value=PRESENT)
 

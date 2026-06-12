@@ -25,9 +25,23 @@ OBJECTS: dict[str, bytes] = {
 }
 
 
+FULL_KEY = f"{PRESENT_PREFIX}report.pdf"
+
+
 class TestSupabaseStorageConformance(ResolverConformanceSuite):
     def make_resolver(self) -> SupabaseStorageResolver:
         fake = FakeSupabaseStorageClient(objects=dict(OBJECTS))
+        return SupabaseStorageResolver(bucket="user-content", client=fake)
+
+    def make_fully_populated_resolver(self) -> SupabaseStorageResolver:
+        # One object with body, content type, last-modified, and user
+        # metadata — populating every covered field including the
+        # open-ended object.*.metadata.* glob.
+        fake = FakeSupabaseStorageClient(
+            objects={FULL_KEY: b"a full report"},
+            content_types={FULL_KEY: "application/pdf"},
+            metadata={FULL_KEY: {"subject": "42", "uploaded-by": "ada"}},
+        )
         return SupabaseStorageResolver(bucket="user-content", client=fake)
 
     def make_present_ref(self) -> SubjectRef:

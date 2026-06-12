@@ -80,6 +80,19 @@ Exports cover **current** object versions; erasure destroys **all**
 versions. Changing the exported field set is behaviour under effaced's
 widened SemVer: additions are MINOR, removals MAJOR.
 
+## Covered surface
+
+`S3Resolver.covered_surface` (the `AttestingResolver` capability)
+declares the per-object fields this resolver claims to reach as globs
+over the dynamic object key (`object.*.key`, `object.*.metadata.*`, …),
+built from the same field tuple the exporter emits so the two cannot
+drift. Its `notes` record the deliberate versions asymmetry: export
+covers the current object versions, erasure removes all versions and
+delete markers. The shared conformance suite proves every export stays
+within the declared surface. It declares *claimed* reach; it cannot
+prove the bucket holds no personal data the resolver does not reach, and
+is not a compliance determination.
+
 ## Idempotency & error semantics
 
 - Erasing a prefix S3 no longer holds anything under is **success**

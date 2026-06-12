@@ -5,7 +5,8 @@ is the thin layer that knows SQLAlchemy: authoring helpers that ride the
 ``info`` dict, a collector that derives the manifest from metadata, a
 resolver that turns subject-link paths into a subject graph, the
 anonymizer surrogate registry, the erasure executor that runs local steps,
-the completeness linter that flags what the manifest does not cover, the
+the erasure verifier that reads the annotated surface back afterwards, the
+completeness linter that flags what the manifest does not cover, the
 effaced-owned storage tables mounted via :func:`bind_tables`, and the
 :class:`EffacedStack` facade that wires every engine from one base.
 """
@@ -15,6 +16,7 @@ from effaced.adapters.sqlalchemy.collector import collect_data_map
 from effaced.adapters.sqlalchemy.completeness_linter import lint_completeness
 from effaced.adapters.sqlalchemy.effaced_stack import EffacedStack
 from effaced.adapters.sqlalchemy.erasure_executor import ErasureExecutor
+from effaced.adapters.sqlalchemy.erasure_verifier import ErasureVerifier
 from effaced.adapters.sqlalchemy.info import INFO_KEY, pii, subject_link
 from effaced.adapters.sqlalchemy.rectification_executor import RectificationExecutor
 from effaced.adapters.sqlalchemy.resolution import resolve_subject_graph
@@ -26,6 +28,7 @@ __all__ = [
     "EffacedStack",
     "EffacedTables",
     "ErasureExecutor",
+    "ErasureVerifier",
     "RectificationExecutor",
     "SqlStatusCountsSource",
     "SurrogateRegistry",

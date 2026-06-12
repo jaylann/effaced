@@ -56,6 +56,17 @@ Never exported:
 Changing the exported field set is behaviour under effaced's widened
 SemVer: additions are MINOR, removals MAJOR.
 
+## Covered surface
+
+`StripeResolver.covered_surface` (the `AttestingResolver` capability)
+declares the Stripe fields this resolver claims to reach — built from the
+same field tuples the exporter uses, so the two cannot drift — plus the
+explicit exclusions (`customer.metadata.*`, Stripe-retained event
+payloads, full card numbers). The shared conformance suite proves every
+export stays within the declared surface and never touches an exclusion.
+It declares *claimed* reach; it cannot prove Stripe holds no personal
+data elsewhere, and is not a compliance determination.
+
 ## Idempotency & error semantics
 
 - Erasing a customer Stripe no longer knows is **success**
