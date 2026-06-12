@@ -42,18 +42,25 @@ class RecordingSink:
 
 
 class FailingSink:
-    """An audit sink whose append always raises — the sink is "down"."""
+    """An audit sink that raises on the ``fail_on``-th append (1-based).
 
-    def __init__(self) -> None:
-        self.attempts = 0
+    ``fail_on=1`` is a fully "down" sink; a larger value lets the first
+    appends succeed and fails partway through a batch — the case that
+    proves requeue is all-or-nothing, not per-entry.
+    """
+
+    def __init__(self, *, fail_on: int = 1) -> None:
+        self._fail_on = fail_on
+        self.events: list[AuditEvent] = []
 
     def append(self, event: AuditEvent) -> None:
-        self.attempts += 1
-        msg = "sink is down"
-        raise RuntimeError(msg)
+        if len(self.events) + 1 == self._fail_on:
+            msg = "sink is down"
+            raise RuntimeError(msg)
+        self.events.append(event)
 
     def read(self, subject_ref: str) -> Sequence[AuditEvent]:
-        return ()
+        return [event for event in self.events if event.subject_ref == subject_ref]
 
 
 class RequeueHarness(NamedTuple):
@@ -222,6 +229,27 @@ def test_requeue_append_first_no_flip_when_sink_is_down(harness: RequeueHarness)
     assert stored_row(harness, UUID(int=1))["status"] == OutboxStatus.ABANDONED.value
 
 
+def test_requeue_is_all_or_nothing_when_the_sink_dies_mid_batch(
+    harness: RequeueHarness,
+) -> None:
+    """A sink failing on the 2nd of N appends flips NO row — append-first is per batch.
+
+    Pins the MAJOR-protected all-or-nothing property: a refactor that
+    moved the flip inside the per-entry loop would leave the first entry
+    PENDING here and pass every single-entry test.
+    """
+    seed(harness, [entry(1), entry(2), entry(3)])
+    for claimed in harness.outbox.claim_batch(limit=200):
+        harness.outbox.mark_abandoned(claimed, error="ResolverError")
+    sink = FailingSink(fail_on=2)
+    failing = Outbox(harness.session_factory, harness.tables.outbox, audit_sink=sink)
+    with pytest.raises(RuntimeError):
+        failing.requeue([UUID(int=1), UUID(int=2), UUID(int=3)])
+    # The first append succeeded, the second raised — but no row flipped.
+    for number in (1, 2, 3):
+        assert stored_row(harness, UUID(int=number))["status"] == OutboxStatus.ABANDONED.value
+
+
 def test_requeue_without_an_audit_sink_raises_clearly(harness: RequeueHarness) -> None:
     """An outbox constructed without a sink refuses to requeue."""
     no_sink = Outbox(harness.session_factory, harness.tables.outbox)
@@ -252,6 +280,7 @@ def test_requeue_resets_the_lease_gate_for_a_failed_then_abandoned_entry(
     )
     reclaimed = next(c for c in harness.outbox.claim_batch() if c.entry_id == UUID(int=1))
     harness.outbox.mark_abandoned(reclaimed, error="ResolverError")
-    (requeued,) = harness.outbox.requeue([UUID(int=1)])
-    assert requeued.next_attempt_at is None
-    assert requeued.attempts == 0
+    requeued = harness.outbox.requeue([UUID(int=1)])
+    assert len(requeued) == 1
+    assert requeued[0].next_attempt_at is None
+    assert requeued[0].attempts == 0

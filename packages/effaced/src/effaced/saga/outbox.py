@@ -308,7 +308,12 @@ class Outbox:
         append precedes the status change under ADR 0010's ordering rule:
         if the sink is down, the append raises and nothing transitions; a
         crash between the sink commit and the outbox commit can duplicate
-        an event but never lose one.
+        an event but never lose one. With the default
+        :class:`~effaced.DatabaseAuditSink` each append opens a *second*
+        pooled connection while this transaction still holds the ``FOR
+        UPDATE`` locks — the same connection-budget footgun as
+        :meth:`mark_succeeded`; size the pool for two connections per
+        caller, or an exhausted pool deadlocks the requeue against itself.
 
         **Idempotent and skip-tolerant.** Ids that are missing, or whose
         entry is no longer ``ABANDONED`` (a colleague requeued first, a
@@ -494,19 +499,25 @@ def _requeued_event(row: RowMapping) -> AuditEvent:
     The event type follows the entry's ``operation``; the payload carries
     the prior struggle (``prior_attempts``/``prior_error`` — the exception
     *class name* only) so the row's columns can reset to a fresh budget.
+    ``prior_error`` is omitted entirely when the row carried none, rather
+    than emitted as an empty string — an abandoned row always has one, so
+    this is defensive, but the payload shape is MAJOR-protected and an
+    absent error is "no error", never the empty-string error class.
     """
     operation = OutboxOperation(row["operation"])
+    payload: dict[str, str | int | bool] = {
+        "entry_id": str(row["entry_id"]),
+        "resolver": row["resolver"],
+        "prior_attempts": row["attempts"],
+    }
+    if row["last_error"] is not None:
+        payload["prior_error"] = row["last_error"]
     return AuditEvent(
         event_id=uuid4(),
         event_type=_REQUEUED_EVENT[operation],
         subject_ref=row["subject_id"],
         occurred_at=datetime.now(UTC),
-        payload={
-            "entry_id": str(row["entry_id"]),
-            "resolver": row["resolver"],
-            "prior_attempts": row["attempts"],
-            "prior_error": row["last_error"] if row["last_error"] is not None else "",
-        },
+        payload=payload,
     )
 
 

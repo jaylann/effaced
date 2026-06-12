@@ -282,10 +282,11 @@ def test_requeue_returns_an_abandoned_entry_to_pending_on_postgres(
     enqueue(harness, [item])
     abandon_one(harness, item, error="StripeError")
 
-    (requeued,) = requeue_outbox(harness).requeue([item.entry_id])
-    assert requeued.status is OutboxStatus.PENDING
-    assert requeued.attempts == 0
-    assert requeued.next_attempt_at is None
+    requeued = requeue_outbox(harness).requeue([item.entry_id])
+    assert len(requeued) == 1
+    assert requeued[0].status is OutboxStatus.PENDING
+    assert requeued[0].attempts == 0
+    assert requeued[0].next_attempt_at is None
 
     (reclaimed,) = harness.outbox.claim_batch()
     assert reclaimed.entry_id == item.entry_id
