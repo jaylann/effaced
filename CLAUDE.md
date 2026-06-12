@@ -68,3 +68,6 @@ Append non-obvious discoveries to `## Learnings` below as you work. `/commit` di
 ## Learnings
 
 <!-- Append discoveries here; /commit migrates them into rules. -->
+
+- Adding ANY plain (unannotated) column to a shared-conftest table ripples into exact-shape tests: the completeness-linter complement (`test_completeness_linter.py` flags it), the table's `fully_pii_owned` classification (`test_resolution.py` — and it can silently flip a table from row-delete to anonymize if all other columns were PK/FK/annotated), and full-row dict assertions (`test_erase_subject.py`, `test_erasure_executor.py`, `test_end_to_end_fault_injection.py`). Audit those four before extending the schema.
+- `Select.with_only_columns()` recalculates the FROM list from the new columns plus later `.where()` criteria — selecting a hop-chain alias's subject-id column off `table.select()` yields the implicit join the retention sweeper needs, no `select()` import in core.

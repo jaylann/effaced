@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Iterator, Sequence
+from datetime import datetime, timedelta
 from typing import Any, ClassVar
 
 import pytest
@@ -135,9 +136,15 @@ class Invoice(Base):
         info=pii(
             PiiCategory.FINANCIAL,
             erasure=ErasureStrategy.RETAIN,
-            retention=RetentionPolicy(reason="§147 AO invoice retention"),
+            retention=RetentionPolicy(
+                reason="§147 AO invoice retention",
+                duration=timedelta(days=3650),
+                anchor="closed_at",
+            ),
         )
     )
+    closed_at: Mapped[datetime | None]
+    """Retention anchor — deliberately unannotated (anchors are clocks, not PII)."""
 
     user: Mapped[User] = relationship()
 

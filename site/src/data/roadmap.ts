@@ -155,8 +155,9 @@ export const tiers: RoadmapTier[] = [
         name: 'Retention-expiry sweep',
         scope:
           'Surface records whose declared retention window has lapsed — report-only and audited, per ADR 0012.',
-        status: 'planned',
+        status: 'shipped',
         ref: { kind: 'issue', number: 48 },
+        docsPath: 'concepts/retention/',
       },
       {
         name: 'Settings-driven resolver registration',

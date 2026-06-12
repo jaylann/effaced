@@ -24,3 +24,4 @@ class AuditEventType(StrEnum):
     MANIFEST_SNAPSHOT = "manifest_snapshot"
     RESTRICTION_PLACED = "restriction_placed"
     RESTRICTION_LIFTED = "restriction_lifted"
+    RETENTION_EXPIRED = "retention_expired"

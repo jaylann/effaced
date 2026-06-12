@@ -54,6 +54,7 @@ from effaced.manifest import (
 )
 from effaced.resolvers import Resolver, ResolverErasure, ResolverExport, ResolverRegistry
 from effaced.restriction import RestrictionLedger, RestrictionRecord
+from effaced.retention import RetentionReport, RetentionReportEntry, RetentionSweeper
 from effaced.saga import BackoffPolicy, Outbox, OutboxEntry, OutboxStatus, SagaRunner
 
 try:
@@ -104,6 +105,9 @@ __all__ = [
     "RestrictionLedger",
     "RestrictionRecord",
     "RetentionPolicy",
+    "RetentionReport",
+    "RetentionReportEntry",
+    "RetentionSweeper",
     "RetentionViolationError",
     "SagaRunner",
     "StepExecutor",

@@ -52,6 +52,23 @@ def test_unknown_table_raises(metadata: MetaData) -> None:
         data_map.table("ghosts")
 
 
+def test_v1_payload_migrates_forward_to_anchorless_retention(metadata: MetaData) -> None:
+    """A v1 manifest (no ``anchor`` key) loads as v2 with ``anchor=None``."""
+    payload = collect_data_map(metadata).to_payload()
+    payload["schema_version"] = 1
+    for table in payload["tables"]:
+        for column in table["columns"]:
+            retention = column["spec"]["retention"]
+            if retention is not None:
+                del retention["anchor"]
+    restored = DataMap.from_payload(payload)
+    assert restored.schema_version == MANIFEST_SCHEMA_VERSION
+    (billing,) = restored.table("invoices").columns
+    assert billing.spec.retention is not None
+    assert billing.spec.retention.anchor is None
+    assert billing.spec.retention.duration is not None  # v1 fields survive the lift
+
+
 def test_future_schema_version_is_rejected_loudly(metadata: MetaData) -> None:
     payload = collect_data_map(metadata).to_payload()
     payload["schema_version"] = MANIFEST_SCHEMA_VERSION + 1

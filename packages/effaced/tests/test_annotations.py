@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 import pytest
 from pydantic import ValidationError
 
@@ -37,6 +39,16 @@ def test_retain_with_policy_is_accepted() -> None:
     )
     assert spec.retention is not None
     assert spec.retention.reason == "§147 AO"
+
+
+def test_retention_anchor_defaults_to_none() -> None:
+    assert RetentionPolicy(reason="§147 AO").anchor is None
+
+
+def test_retention_anchor_round_trips() -> None:
+    policy = RetentionPolicy(reason="§147 AO", duration=timedelta(days=3650), anchor="closed_at")
+    assert RetentionPolicy.model_validate(policy.model_dump()) == policy
+    assert policy.anchor == "closed_at"
 
 
 def test_specs_are_immutable() -> None:

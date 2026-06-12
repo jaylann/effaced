@@ -11,9 +11,11 @@ from typing import Any
 
 from effaced.exceptions import ManifestError
 
-MANIFEST_SCHEMA_VERSION = 1
+MANIFEST_SCHEMA_VERSION = 2
 """Current manifest schema version. Bump on ANY format change, with a
-matching upgrade branch in :func:`migrate` — this is a MAJOR release."""
+matching upgrade branch in :func:`migrate`. Adding a field behind a forward
+migration is MINOR; removing or renaming serialized fields is MAJOR (old
+manifests must keep loading forever)."""
 
 
 def migrate(data: dict[str, Any]) -> dict[str, Any]:
@@ -39,5 +41,13 @@ def migrate(data: dict[str, Any]) -> dict[str, Any]:
             f"release understands ({MANIFEST_SCHEMA_VERSION}); upgrade effaced"
         )
         raise ManifestError(msg)
-    # version 1 is current — future versions add upgrade branches above this line
+    if version == 1:
+        # v2 added RetentionPolicy.anchor (ADR 0012): old policies have no clock.
+        for table in data.get("tables", ()):
+            for column in table.get("columns", ()):
+                retention = column.get("spec", {}).get("retention")
+                if retention is not None:
+                    retention.setdefault("anchor", None)
+        data["schema_version"] = 2
+    # version 2 is current — future versions add upgrade branches above this line
     return data

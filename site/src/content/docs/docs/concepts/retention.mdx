@@ -1,0 +1,101 @@
+---
+title: Retention
+description: Art. 5(1)(e) as a report-only sweep — anchored durations evaluated honestly, lapsed windows reported per subject, nothing deleted.
+---
+
+A `RetentionPolicy` names a legal duty and, when the duty is bounded, a
+`duration`. But a duration is meaningless without a clock — ten years
+since *what?* The answer is the policy's `anchor`: a datetime column on
+the same table holding the instant the retention clock starts.
+
+```python
+billing_address: Mapped[str] = mapped_column(
+    info=pii(
+        PiiCategory.FINANCIAL,
+        erasure=ErasureStrategy.RETAIN,
+        retention=RetentionPolicy(
+            reason="§147 AO invoice retention",
+            duration=timedelta(days=3650),
+            anchor="closed_at",          # the column the clock starts from
+        ),
+    )
+)
+closed_at: Mapped[datetime | None]       # plain column — anchors are clocks, not PII
+```
+
+Cross-table anchors are out of scope. The SQLAlchemy adapter validates the
+anchor at `collect_data_map()` time — it must exist on the table and be
+datetime-typed, or collection fails loudly before any sweep runs.
+
+## The sweep reports; it never deletes
+
+`RetentionSweeper.sweep(session, now=...)` evaluates every bounded duty in
+the manifest against one instant and returns a `RetentionReport`: per
+(table, column), the policy's reason, the subjects whose declared window
+has lapsed with row counts, and what could not be evaluated. The sweep
+builds nothing but SELECTTs — only subject ids leave the database, never
+values — and writes no rows.
+
+```python
+sweeper = RetentionSweeper(data_map, graph, Base.metadata, audit)
+
+with session_factory() as session:
+    report = sweeper.sweep(session)
+
+for entry in report.entries:
+    entry.reason               # "§147 AO invoice retention"
+    entry.expired              # {"42": 3} — subject id → lapsed row count
+    entry.indeterminate_rows   # rows the sweep refused to guess about
+```
+
+A delete mode does not exist — deliberately. A sweep that deletes changes
+*what gets deleted* and is a MAJOR change under widened SemVer; if it ever
+ships, it will be a separate ADR. The erasure planner stays time-free
+either way: `plan()` never consults `duration` or `anchor`, so a plan is a
+pure function of the manifest, not of the wall clock.
+
+## Indeterminate, honestly
+
+A policy is *sweepable* only when it has both a `duration` and an
+`anchor`. Everything else is counted, never guessed:
+
+- **Duration without an anchor** — the whole column is indeterminate:
+  `expired` stays empty and `indeterminate_rows` counts every row. Every
+  pre-anchor manifest stays valid; the report saying "this duty has a
+  declared duration effaced cannot evaluate" is itself useful output.
+- **Anchor value is NULL** — that row joins `indeterminate_rows`; the
+  rest of the column sweeps normally.
+- **Anchor without a duration** — an unbounded duty has no expiry to
+  evaluate; the column does not appear in the report at all.
+
+Eligibility ignores the erasure strategy: `RETAIN` columns participate
+like any other, because nothing is deleted — inclusive is safe.
+
+## Audit: names and counts, never values
+
+Each sweep appends one `RETENTION_EXPIRED` event per subject with expired
+rows, per column: the payload carries the table name, column name, and
+row count — never cell values, never anchor timestamps. Repeated sweeps
+re-emit for still-expired data; each run is evidence, the same direction
+as erasure re-runs. There is no "the sweep ran and found nothing" event:
+the trail records facts about data subjects, and scheduler liveness
+belongs to your own monitoring.
+
+## Acting on the report
+
+The report names subjects; the natural follow-up is
+`erase_subject(subject_id)`. One honest caveat: erasure *retains*
+`RETAIN` columns by construction, so a lapsed duty on a `RETAIN` column
+is not erased by re-running erasure. Acting on it means changing the
+annotation first — flip the strategy or drop the policy, redeploy, then
+erase — or acting in your application directly. The sweep is the
+mechanism that notices.
+
+:::note
+Whether a lapsed legal duty means the data may — or must — now be erased
+is a determination for you and your counsel. effaced ships the mechanism
+that notices the lapse and the audited record that it was noticed, never
+the determination.
+:::
+
+Full signatures: [API reference](../../reference/retention/).

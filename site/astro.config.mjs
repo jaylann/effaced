@@ -40,6 +40,7 @@ export default defineConfig({
             'docs/concepts/export',
             'docs/concepts/consent',
             'docs/concepts/restriction',
+            'docs/concepts/retention',
             'docs/concepts/audit',
             'docs/concepts/resolvers',
             'docs/concepts/manifest',

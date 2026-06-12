@@ -13,6 +13,7 @@ paths: ["packages/effaced/src/**", "packages/effaced-stripe/src/**"]
 ## Manifest format
 - Any serialized-format change bumps `MANIFEST_SCHEMA_VERSION` (in `effaced/manifest/migration.py`) and adds an explicit forward-migration branch.
 - Old manifests are migrated forward, **never rejected**. Newer-than-known manifests fail loudly with upgrade guidance.
+- Adding a field behind a forward migration is MINOR (ADR 0012 precedent: `RetentionPolicy.anchor`); removing or renaming serialized fields is MAJOR.
 - Removing/renaming enum members (`PiiCategory`, `LegalBasis`, `ErasureStrategy`, `AuditEventType`) is a format change → MAJOR.
 
 ## Retention is sacred
