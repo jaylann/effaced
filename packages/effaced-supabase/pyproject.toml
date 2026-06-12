@@ -29,6 +29,14 @@ dependencies = [
     "httpx>=0.27",
 ]
 
+# The storage resolver rides effaced-s3's S3-compatible machinery (ADR 0016).
+# Auth-only installs stay httpx-only; opt in with effaced-supabase[storage].
+[project.optional-dependencies]
+storage = [
+    "effaced-s3",
+    "boto3>=1.35",
+]
+
 [project.urls]
 Homepage = "https://effaced.dev"
 Repository = "https://github.com/jaylann/effaced"
@@ -37,6 +45,7 @@ Changelog = "https://github.com/jaylann/effaced/blob/main/packages/effaced-supab
 
 [tool.uv.sources]
 effaced = { workspace = true }
+effaced-s3 = { workspace = true }
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/effaced_supabase"]

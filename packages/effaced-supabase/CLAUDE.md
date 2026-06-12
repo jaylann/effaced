@@ -1,6 +1,10 @@
 # effaced-supabase
 
-First-party Supabase resolvers. Depends on `effaced` (workspace source) + `httpx`. Hosts `SupabaseAuthResolver` today; storage (#57) and postgrest (#70) resolvers land here later — `errors.py` is deliberately resolver-agnostic for that.
+First-party Supabase resolvers. Base depends on `effaced` (workspace source) + `httpx`. Hosts `SupabaseAuthResolver` and `SupabaseStorageResolver`; postgrest (#70) lands here later — `errors.py` is deliberately resolver-agnostic for that.
+
+- `SupabaseStorageResolver` (`storage_resolver.py`, #57/ADR 0016) rides `effaced-s3`'s S3-compatible machinery via the **optional `storage` extra** (`effaced-s3` + `boto3`); auth-only installs stay httpx-only. It is **not** re-exported from `__init__` (so auth installs import cleanly) — the public import is the deep `from effaced_supabase.storage_resolver import SupabaseStorageResolver`. Module top re-raises `ImportError` pointing at `pip install "effaced-supabase[storage]"` when the extra is absent.
+- Keep `name == "supabase_storage"` stable forever (refs: `kind="supabase_storage"`, `value=<key prefix>` e.g. `users/42/`). Construction guard: missing endpoint/key/secret (and no explicit `client=`) → `ConfigurationError`, never a degraded client. SDK retries off, path-style addressing required, fresh boto3 client per call (never cached — ADR 0006).
+- **No-versioning erasure:** the gateway has no `ListObjectVersions`; erasure lists current objects (`iter_current_objects`) and `delete_in_batches` them — current-object deletion IS complete erasure. Never call `list_object_versions`. Empty listing → `already_absent=True`; mixed transient per-key failures keep deleting then raise `PartialStorageEraseError` (retryable); all-non-retryable → `ResolverError`. Tests fake at the `S3ObjectClient` boundary (`tests/fake_supabase_storage_client.py`), whose `list_object_versions` raises `NotImplemented` to prove the resolver never touches it.
 
 - `SupabaseAuthResolver` implements the `Resolver` protocol (structural; `test_supabase_auth_conformance.py` runs the shared `effaced.testing.ResolverConformanceSuite`). Keep `name == "supabase_auth"` stable forever — it's recorded in audits and outbox entries.
 - Refs: `kind="supabase_auth"`, `value=<gotrue user id>`. Never accept or log emails/phones.

@@ -11,23 +11,19 @@ from botocore.exceptions import ClientError
 
 from effaced.exceptions import ResolverError
 from effaced.resolvers import ResolverErasure, ResolverExport
+from effaced_s3.deletion import delete_in_batches
 from effaced_s3.errors import (
     NONRETRYABLE_CODES,
     error_code,
-    is_absent_object,
     is_nonretryable,
 )
-from effaced_s3.export_records import object_records
-from effaced_s3.listing import (
-    DELETE_BATCH_SIZE,
-    collect_version_identifiers,
-    iter_current_objects,
-)
+from effaced_s3.export_collection import collect_object_records
+from effaced_s3.listing import collect_version_identifiers
 from effaced_s3.partial_erase_error import PartialEraseError
+from effaced_s3.prefix_guard import checked_prefix
 
 if TYPE_CHECKING:
     from effaced.annotations import SubjectRef
-    from effaced.export import ExportRecord
     from effaced_s3.object_client import S3ObjectClient
 
 
@@ -37,77 +33,6 @@ def _default_client(region_name: str | None) -> S3ObjectClient:
     return boto3.client("s3", region_name=region_name, config=config)
 
 
-def _checked_prefix(ref: SubjectRef) -> str:
-    """The ref's key prefix, validated before any S3 call.
-
-    S3 prefixes are literal substring matches, so a prefix that is not
-    delimiter-terminated also matches sibling subjects (``users/4``
-    matches ``users/42/avatar.png``) — that is cross-subject bleed, the
-    one thing a resolver must never do. Both guards run before any call.
-    """
-    if not ref.value.strip():
-        raise ResolverError("subject ref prefix is blank — refusing to touch the whole bucket")
-    if not ref.value.endswith("/"):
-        raise ResolverError(
-            "subject ref prefix must end with '/' — an unterminated prefix also "
-            "matches sibling subjects ('users/4' matches 'users/42/...')"
-        )
-    return ref.value
-
-
-def _fetch_records(
-    client: S3ObjectClient, bucket: str, key: str, *, include_content: bool
-) -> tuple[ExportRecord, ...]:
-    """One object's records, via GET (with body) or HEAD (metadata only)."""
-    if include_content:
-        fetched = client.get_object(Bucket=bucket, Key=key)
-        return object_records(
-            key,
-            size=fetched.get("ContentLength", 0),
-            content_type=fetched.get("ContentType"),
-            last_modified=fetched.get("LastModified"),
-            metadata=fetched.get("Metadata", {}),
-            content=fetched["Body"].read(),
-        )
-    head = client.head_object(Bucket=bucket, Key=key)
-    return object_records(
-        key,
-        size=head.get("ContentLength", 0),
-        content_type=head.get("ContentType"),
-        last_modified=head.get("LastModified"),
-        metadata=head.get("Metadata", {}),
-        content=None,
-    )
-
-
-def _collect_records(
-    client: S3ObjectClient,
-    bucket: str,
-    prefix: str,
-    *,
-    include_content: bool,
-    max_object_bytes: int | None,
-) -> tuple[ExportRecord, ...]:
-    """Map every current object under the prefix; the size cap fails loudly."""
-    records: list[ExportRecord] = []
-    for entry in iter_current_objects(client, bucket, prefix):
-        size = entry.get("Size", 0)
-        if max_object_bytes is not None and size > max_object_bytes:
-            raise ResolverError(
-                "an object under the prefix exceeds max_object_bytes "
-                f"(size={size}, cap={max_object_bytes})"
-            )
-        try:
-            records.extend(
-                _fetch_records(client, bucket, entry["Key"], include_content=include_content)
-            )
-        except ClientError as error:
-            # Vanished between list and fetch: the system no longer holds it.
-            if not is_absent_object(error):
-                raise
-    return tuple(records)
-
-
 def _delete_versions(client: S3ObjectClient, bucket: str, prefix: str) -> tuple[int, list[str]]:
     """Delete every version under the prefix; collect per-key error codes.
 
@@ -115,11 +40,7 @@ def _delete_versions(client: S3ObjectClient, bucket: str, prefix: str) -> tuple[
     monotonic progress — retries then converge on the survivors.
     """
     identifiers = collect_version_identifiers(client, bucket, prefix)
-    codes: list[str] = []
-    for start in range(0, len(identifiers), DELETE_BATCH_SIZE):
-        batch = identifiers[start : start + DELETE_BATCH_SIZE]
-        response = client.delete_objects(Bucket=bucket, Delete={"Objects": batch, "Quiet": True})
-        codes.extend(item.get("Code", "") for item in response.get("Errors", []))
+    codes = delete_in_batches(client, bucket, identifiers)
     return len(identifiers), codes
 
 
@@ -213,13 +134,14 @@ class S3Resolver:
                 blank or not ``"/"``-terminated, or an object exceeds
                 ``max_object_bytes`` — retrying cannot succeed.
         """
-        prefix = _checked_prefix(ref)
+        prefix = checked_prefix(ref)
         try:
             records = await asyncio.to_thread(
-                _collect_records,
+                collect_object_records,
                 self._client,
                 self._bucket,
                 prefix,
+                source=self.name,
                 include_content=self._include_content,
                 max_object_bytes=self._max_object_bytes,
             )
@@ -250,7 +172,7 @@ class S3Resolver:
             PartialEraseError: Some versions failed transiently this
                 attempt; propagates so the saga retries to convergence.
         """
-        prefix = _checked_prefix(ref)
+        prefix = checked_prefix(ref)
         try:
             total, codes = await asyncio.to_thread(
                 _delete_versions, self._client, self._bucket, prefix
