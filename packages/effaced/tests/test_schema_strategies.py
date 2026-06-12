@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
-from schema_strategies import GeneratedSchema, annotated_schemas, scaled_examples
+from hypothesis import find, given, settings
+from schema_strategies import (
+    _SELF_FK_ROW_MAX,
+    GeneratedSchema,
+    annotated_schemas,
+    scaled_examples,
+)
 
 from effaced import ErasurePlanner, ErasureStrategy
 
@@ -47,3 +52,34 @@ def test_planner_row_deletion_matches_generator_expectation(schema: GeneratedSch
     plan = ErasurePlanner(schema.data_map, schema.graph).plan("1")
     deleted = {step.target for step in plan.local_steps if step.strategy is ErasureStrategy.DELETE}
     assert deleted == schema.row_deleted_tables
+
+
+def test_widened_space_actually_draws_a_composite_hop_with_a_child() -> None:
+    """The widened draw really produces a composite FK hop on a subject path.
+
+    The shared invariant proofs only evidence composite ``JoinHop`` pairs if
+    the strategy draws a composite parent *with* a child. ``find`` searches
+    for exactly that shape (no co-occurrence with other shapes inside one
+    small sample) and raises ``NoSuchExample`` if a future change silently
+    narrows the space back.
+    """
+    find(
+        annotated_schemas(),
+        lambda schema: any(parent in schema.composite_tables for parent in schema.parents.values()),
+    )
+
+
+def test_widened_space_actually_draws_a_depth_4_self_chain() -> None:
+    """The widened draw really produces a depth-4 self-referential chain.
+
+    Five seeded rows (indices 0..4) chained through ``self_id`` are four
+    hops — the depth the module docstring, PROOFS.md, and testing.md
+    advertise. ``find`` raises ``NoSuchExample`` if the space narrows back.
+    """
+    find(
+        annotated_schemas(),
+        lambda schema: any(
+            schema.rows[name] >= _SELF_FK_ROW_MAX and "self_id" in schema.metadata.tables[name].c
+            for name in schema.rows
+        ),
+    )
