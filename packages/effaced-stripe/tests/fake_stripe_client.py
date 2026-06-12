@@ -83,6 +83,8 @@ class FakeStripeHTTPClient(HTTPClient):
                 return self._retrieve_customer(parts[2])
             if method == "delete":
                 return self._delete_customer(parts[2])
+            if method == "post":
+                return self._modify_customer(parts[2], post_data)
         if (
             parts[:2] == ["v1", "customers"]
             and len(parts) == 4
@@ -110,6 +112,16 @@ class FakeStripeHTTPClient(HTTPClient):
         del self.customers[customer_id]
         self.deleted.add(customer_id)
         return self._deleted_stub(customer_id)
+
+    def _modify_customer(
+        self, customer_id: str, post_data: Any
+    ) -> tuple[str, int, Mapping[str, str]]:
+        if customer_id not in self.customers or customer_id in self.deleted:
+            return self._missing(customer_id)
+        updates = {key: values[-1] for key, values in parse_qs(post_data or "").items()}
+        self.customers[customer_id].update(updates)
+        body = {"id": customer_id, "object": "customer", **self.customers[customer_id]}
+        return json.dumps(body), 200, {}
 
     def _list_payment_methods(
         self, customer_id: str, query: Mapping[str, str]
