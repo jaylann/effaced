@@ -23,6 +23,7 @@ class AuditEventType(StrEnum):
     ERASURE_STEP_FAILED = "erasure_step_failed"
     ERASURE_COMPLETED = "erasure_completed"
     ERASURE_REQUEUED = "erasure_requeued"
+    ERASURE_REPLAYED = "erasure_replayed"
     MANIFEST_SNAPSHOT = "manifest_snapshot"
     RECTIFICATION_REQUESTED = "rectification_requested"
     RECTIFICATION_LOCAL_COMPLETED = "rectification_local_completed"

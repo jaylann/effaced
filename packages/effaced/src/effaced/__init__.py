@@ -60,6 +60,7 @@ from effaced.rectification import (
     RectificationStepExecutor,
     Rectifier,
 )
+from effaced.replay import Replayer, ReplayPlan, ReplayPlanEntry, ReplaySource
 from effaced.resolvers import (
     RectifyingResolver,
     RegistryBuild,
@@ -135,6 +136,10 @@ __all__ = [
     "Rectifier",
     "RectifyingResolver",
     "RegistryBuild",
+    "ReplayPlan",
+    "ReplayPlanEntry",
+    "ReplaySource",
+    "Replayer",
     "Resolver",
     "ResolverErasure",
     "ResolverError",

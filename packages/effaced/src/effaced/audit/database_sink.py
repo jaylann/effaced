@@ -6,10 +6,11 @@ from typing import TYPE_CHECKING
 
 from effaced.audit.event import AuditEvent
 from effaced.audit.event_type import AuditEventType
-from effaced.exceptions import AuditIntegrityError
+from effaced.exceptions import AuditIntegrityError, ConfigurationError
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+    from datetime import datetime
 
     from sqlalchemy import RowMapping, Table
     from sqlalchemy.orm import sessionmaker
@@ -88,6 +89,49 @@ class DatabaseAuditSink:
         statement = (
             self._audit_events.select()
             .where(columns.subject_ref == subject_ref)
+            .order_by(columns.occurred_at.asc(), columns.event_id.asc())
+        )
+        with self._session_factory() as session:
+            rows = session.execute(statement).mappings().all()
+        return tuple(self._to_event(row) for row in rows)
+
+    def read_since(self, since: datetime) -> Sequence[AuditEvent]:
+        """Read every subject's events from ``since`` onward, oldest first.
+
+        The :class:`~effaced.ReplaySource` capability (ADR 0018): the
+        window a backup-replay derivation consumes. The boundary is
+        inclusive (``occurred_at >= since``) — matching the replay rule
+        that an erasure at exactly the backup instant is replayed — and
+        ordering ties in ``occurred_at`` resolve by ``event_id``, exactly
+        as :meth:`read` does.
+
+        Args:
+            since: The instant to read from, inclusive. Must be
+                timezone-aware — the trail's timestamps are UTC, and a
+                naive comparison could silently shift the window boundary
+                by the session offset, dropping events from the read.
+
+        Returns:
+            All events at or after ``since``, across all subjects.
+
+        Raises:
+            ConfigurationError: If ``since`` is timezone-naive — the same
+                guard :meth:`ReplayPlan.derive <effaced.ReplayPlan.derive>`
+                applies to its cutoff, for the same reason.
+            AuditIntegrityError: If the window contains an ``event_type``
+                this version of effaced cannot interpret — all-or-nothing,
+                as in :meth:`read`.
+        """
+        if since.tzinfo is None or since.tzinfo.utcoffset(since) is None:
+            msg = (
+                "since must be timezone-aware; the audit trail's timestamps "
+                "are UTC and a naive bound can silently shift the window"
+            )
+            raise ConfigurationError(msg)
+        columns = self._audit_events.c
+        statement = (
+            self._audit_events.select()
+            .where(columns.occurred_at >= since)
             .order_by(columns.occurred_at.asc(), columns.event_id.asc())
         )
         with self._session_factory() as session:
