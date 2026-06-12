@@ -16,6 +16,8 @@ if TYPE_CHECKING:
     from sqlalchemy import RowMapping, Table
     from sqlalchemy.orm import Session, sessionmaker
 
+    from effaced.saga.status_counts_source import StatusCountsSource
+
 
 _DEFAULT_LEASE = timedelta(minutes=5)
 
@@ -40,6 +42,8 @@ class Outbox:
         self,
         session_factory: sessionmaker,  # type: ignore[type-arg]  # sessionmaker generic unbound here
         outbox: Table,
+        *,
+        status_counts_source: StatusCountsSource | None = None,
     ) -> None:
         """Wire the outbox to the application's session factory and table.
 
@@ -49,9 +53,15 @@ class Outbox:
                 the ``mark_*`` bookkeeping methods.
             outbox: The ``effaced_outbox`` table handle from
                 :func:`effaced.bind_tables`.
+            status_counts_source: Optional SQL-side aggregator for
+                :meth:`status_counts`. When omitted, counting materializes
+                every row in Python; inject
+                :class:`~effaced.SqlStatusCountsSource` to push the
+                aggregation into the database for large outboxes.
         """
         self._session_factory = session_factory
         self._outbox = outbox
+        self._status_counts_source = status_counts_source
 
     def enqueue(self, session: Session, entries: Sequence[OutboxEntry]) -> None:
         """Persist entries inside the caller's open transaction.
@@ -263,9 +273,17 @@ class Outbox:
         zeros rather than missing keys. A growing ``ABANDONED`` count is the
         operator signal that erasures need out-of-band attention.
 
+        Counting materializes every row in Python by default, since core
+        does not import SQLAlchemy at runtime. For large outboxes, inject a
+        :class:`~effaced.SqlStatusCountsSource` at construction to push the
+        aggregation into a single ``GROUP BY`` query — the result is
+        identical either way.
+
         Returns:
             A mapping with one entry per status.
         """
+        if self._status_counts_source is not None:
+            return self._status_counts_source.status_counts(self._outbox, self._session_factory)
         statuses = self._outbox.select().with_only_columns(self._outbox.c.status)
         counts = dict.fromkeys(OutboxStatus, 0)
         with self._session_factory() as session:
