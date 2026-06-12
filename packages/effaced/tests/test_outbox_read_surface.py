@@ -1,4 +1,4 @@
-"""The outbox's read-only operator surface: abandoned listing and counts."""
+"""The outbox's read-only operator surface: abandoned/scheduled listings, counts."""
 
 from __future__ import annotations
 
@@ -88,6 +88,10 @@ def abandon(harness: ReadHarness, item: OutboxEntry, *, error: str = "ResolverEr
     harness.outbox.mark_abandoned(item, error=error)
 
 
+def schedule(harness: ReadHarness, item: OutboxEntry, *, resume_at: datetime) -> None:
+    harness.outbox.mark_scheduled(item, resume_at=resume_at)
+
+
 def test_list_abandoned_returns_only_abandoned_entries(harness: ReadHarness) -> None:
     seed(harness, [entry(1), entry(2), entry(3)])
     abandon(harness, entry(2))
@@ -144,6 +148,67 @@ def test_list_abandoned_round_trips_the_full_entry(harness: ReadHarness) -> None
     assert listed.last_attempt_at.replace(tzinfo=UTC) == original.last_attempt_at
     assert listed.next_attempt_at is None
     assert listed.last_error == "StripeError"
+
+
+def test_list_scheduled_returns_only_scheduled_entries(harness: ReadHarness) -> None:
+    seed(harness, [entry(1), entry(2), entry(3)])
+    abandon(harness, entry(1))
+    schedule(harness, entry(2), resume_at=ENQUEUED_AT + timedelta(days=30))
+    listed = harness.outbox.list_scheduled()
+    assert [item.entry_id for item in listed] == [UUID(int=2)]
+    assert listed[0].status is OutboxStatus.SCHEDULED
+
+
+def test_list_scheduled_orders_by_horizon_and_respects_limit(harness: ReadHarness) -> None:
+    """Nearest horizon first — ``next_attempt_at``, not enqueue order.
+
+    The deliberate divergence from :meth:`list_abandoned`: entry 1 enqueued
+    first but expires last, so it surfaces last.
+    """
+    seed(harness, [entry(1), entry(2), entry(3)])
+    schedule(harness, entry(1), resume_at=ENQUEUED_AT + timedelta(days=30))
+    schedule(harness, entry(2), resume_at=ENQUEUED_AT + timedelta(days=10))
+    schedule(harness, entry(3), resume_at=ENQUEUED_AT + timedelta(days=20))
+    assert [item.entry_id for item in harness.outbox.list_scheduled()] == [
+        UUID(int=2),
+        UUID(int=3),
+        UUID(int=1),
+    ]
+    assert [item.entry_id for item in harness.outbox.list_scheduled(limit=2)] == [
+        UUID(int=2),
+        UUID(int=3),
+    ]
+
+
+def test_list_scheduled_round_trips_the_full_entry(harness: ReadHarness) -> None:
+    """A parked entry comes back carrying its horizon and a reset budget.
+
+    ``mark_scheduled`` resets ``attempts``/``last_error`` and stamps
+    ``next_attempt_at`` with the horizon (ADR 0018); the read surface must
+    surface exactly that, plus the untouched identity fields.
+    """
+    original = OutboxEntry(
+        entry_id=UUID(int=7),
+        subject_id="42",
+        resolver="stripe",
+        ref=SubjectRef(kind="stripe_customer", value="cus_7", extra={"account": "acct_9"}),
+        enqueued_at=ENQUEUED_AT,
+    )
+    horizon = ENQUEUED_AT + timedelta(days=90)
+    seed(harness, [original])
+    schedule(harness, original, resume_at=horizon)
+    (listed,) = harness.outbox.list_scheduled()
+    assert listed.entry_id == original.entry_id
+    assert listed.subject_id == "42"
+    assert listed.resolver == "stripe"
+    assert listed.ref == original.ref
+    assert listed.status is OutboxStatus.SCHEDULED
+    assert listed.attempts == 0
+    assert listed.last_error is None
+    # SQLite hands timestamps back naive; they are stored as UTC
+    assert listed.enqueued_at.replace(tzinfo=UTC) == original.enqueued_at
+    assert listed.next_attempt_at is not None
+    assert listed.next_attempt_at.replace(tzinfo=UTC) == horizon
 
 
 def test_status_counts_are_zero_filled(counting_outbox: Outbox) -> None:
