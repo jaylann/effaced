@@ -153,6 +153,82 @@ def test_status_tie_resolves_to_withdrawn(harness: LedgerHarness, grant_record_i
     assert second is first
 
 
+def test_status_as_of_false_when_no_record_at_or_before(harness: LedgerHarness) -> None:
+    with harness.session_factory() as session:
+        harness.ledger.record(session, consent("alice", "newsletter", granted=True, at=T2))
+        session.commit()
+        assert harness.ledger.status_as_of(session, "alice", "newsletter", T1) is False
+
+
+def test_status_as_of_reads_the_record_in_effect_at_the_instant(harness: LedgerHarness) -> None:
+    """Grant at T1, withdraw at T3: as-of T2 sees the grant, as-of T3 the withdrawal."""
+    with harness.session_factory() as session:
+        harness.ledger.record(session, consent("alice", "newsletter", granted=True, at=T1))
+        harness.ledger.record(session, consent("alice", "newsletter", granted=False, at=T3))
+        session.commit()
+        assert harness.ledger.status_as_of(session, "alice", "newsletter", T2) is True
+        assert harness.ledger.status_as_of(session, "alice", "newsletter", T3) is False
+
+
+def test_status_as_of_boundary_is_inclusive(harness: LedgerHarness) -> None:
+    """A record stamped exactly ``at`` counts."""
+    with harness.session_factory() as session:
+        harness.ledger.record(session, consent("alice", "newsletter", granted=True, at=T2))
+        session.commit()
+        assert harness.ledger.status_as_of(session, "alice", "newsletter", T2) is True
+
+
+def test_status_as_of_ignores_later_records(harness: LedgerHarness) -> None:
+    """A withdrawal after ``at`` does not affect the as-of read."""
+    with harness.session_factory() as session:
+        harness.ledger.record(session, consent("alice", "newsletter", granted=True, at=T1))
+        harness.ledger.record(session, consent("alice", "newsletter", granted=False, at=T2))
+        session.commit()
+        assert harness.ledger.status_as_of(session, "alice", "newsletter", T1) is True
+
+
+def test_status_as_of_matches_status_at_the_latest_record(harness: LedgerHarness) -> None:
+    with harness.session_factory() as session:
+        harness.ledger.record(session, consent("alice", "newsletter", granted=False, at=T1))
+        harness.ledger.record(session, consent("alice", "newsletter", granted=True, at=T2))
+        session.commit()
+        assert harness.ledger.status_as_of(
+            session, "alice", "newsletter", T2
+        ) == harness.ledger.status(session, "alice", "newsletter")
+
+
+def test_status_as_of_tie_resolves_to_withdrawn(harness: LedgerHarness) -> None:
+    """Equal ``recorded_at`` at the as-of instant resolves to the withdrawal."""
+    common = {
+        "subject_id": "alice",
+        "purpose": "newsletter",
+        "policy_version": "2026-01",
+        "recorded_at": T2,
+        "source": None,
+    }
+    with harness.session_factory() as session:
+        session.execute(
+            harness.tables.consent_records.insert(),
+            [
+                {"record_id": UUID(int=1), "granted": True, **common},
+                {"record_id": UUID(int=2), "granted": False, **common},
+            ],
+        )
+        session.commit()
+        assert harness.ledger.status_as_of(session, "alice", "newsletter", T2) is False
+
+
+def test_status_as_of_isolated_per_subject_and_purpose(harness: LedgerHarness) -> None:
+    with harness.session_factory() as session:
+        harness.ledger.record(session, consent("alice", "newsletter", granted=True, at=T1))
+        harness.ledger.record(session, consent("alice", "analytics", granted=False, at=T1))
+        harness.ledger.record(session, consent("bob", "newsletter", granted=False, at=T1))
+        session.commit()
+        assert harness.ledger.status_as_of(session, "alice", "newsletter", T2) is True
+        assert harness.ledger.status_as_of(session, "alice", "analytics", T2) is False
+        assert harness.ledger.status_as_of(session, "bob", "newsletter", T2) is False
+
+
 def test_history_empty_returns_empty_tuple(harness: LedgerHarness) -> None:
     with harness.session_factory() as session:
         assert harness.ledger.history(session, "alice") == ()
