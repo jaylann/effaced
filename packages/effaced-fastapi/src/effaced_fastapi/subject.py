@@ -9,6 +9,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from effaced import SubjectRef
 
+__all__ = ["Subject", "SubjectProvider"]
+
 
 class Subject(BaseModel):
     """Who the request is about — resolved by your auth, never by effaced.
