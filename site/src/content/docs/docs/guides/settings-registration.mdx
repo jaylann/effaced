@@ -39,16 +39,16 @@ specs = (
         settings_keys=("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "S3_BUCKET"),
         optional_keys=("AWS_REGION",),
         build=lambda s: S3Resolver(
-            bucket=s["S3_BUCKET"],
-            region=s.get("AWS_REGION"),
+            s["S3_BUCKET"],
+            region_name=s.get("AWS_REGION"),
         ),
     ),
     ResolverSpec(
-        name="supabase",
+        name="supabase_auth",
         settings_keys=("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"),
         build=lambda s: SupabaseAuthResolver(
-            url=s["SUPABASE_URL"],
-            service_role_key=s["SUPABASE_SERVICE_ROLE_KEY"],
+            s["SUPABASE_URL"],
+            s["SUPABASE_SERVICE_ROLE_KEY"],
         ),
     ),
 )
