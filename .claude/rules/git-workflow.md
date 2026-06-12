@@ -15,6 +15,7 @@ paths: ["**"]
 - **No Claude attribution**: `includeCoAuthoredBy` is false in settings — never add `Co-Authored-By: Claude` trailers manually either.
 - The `typos` pre-commit hook auto-"fixes" prose it misreads — a SQL keyword pluralized with a bare lowercase s (SELECT/UPDATE + "s") gets a letter doubled, and a word spliced across an f-string brace gets "completed" into a typo — and the retry then commits the corruption silently. Write `SELECT statements` / `UPDATE statements`, never split a word across an f-string brace, and re-diff any file the hook reports as "modified" before re-committing.
 - Squash-merge only; the PR title becomes the commit on stage, so PR titles follow the same convention (CI-enforced).
+- The `typos` pre-commit hook auto-"fixes" prose it misreads — a SQL keyword pluralized with a bare lowercase s (SELECT/UPDATE + "s") gets a letter doubled, and a word spliced across an f-string brace gets "corrected" into a typo — and the retry then commits the corruption silently. Write `SELECT statements` / `UPDATE statements`, never split a word across an f-string brace, and re-diff any file the hook reports as "modified" before re-committing.
 
 ## Don't destroy work
 - `git reset --hard`, `git clean -f`, `git checkout -- .`, bare `git restore <path>` are blocked by the git-guard hook — that block is correct, not an obstacle. Inspect with `git show <ref>:<file>` / `git diff <ref>`; park work with `git stash`. Only append `# yes-destroy` when the user asked for the discard in their current message.

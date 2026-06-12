@@ -1,4 +1,4 @@
-# 0011. effaced.testing: a shipped resolver conformance suite
+# 0018. effaced.testing: a shipped resolver conformance suite
 
 - **Status:** accepted
 - **Date:** 2026-06-11

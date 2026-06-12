@@ -31,6 +31,7 @@ Storage-agnostic core. **No module outside `adapters/` may import SQLAlchemy or 
 - Every outcome (success, failure, retention skip, abandonment) emits an audit event.
 - FK-safe ordering comes from metadata, never from user-supplied order.
 - Add bleed/retention/idempotency property tests alongside (see `.claude/rules/testing.md`).
+- `Select.with_only_columns()` recalculates the FROM list from the new columns plus later `.where()` criteria — selecting a hop-chain alias's subject-id column off `table.select()` yields the implicit join the retention sweeper needs, no `select()` import in core.
 
 ## Erasure-executor invariants (ADR 0007/0008 — learned the hard way)
 
