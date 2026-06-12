@@ -32,6 +32,7 @@ paths: ["**/*.py"]
 - `async def` is permitted ONLY on `Resolver` protocol methods and `SagaRunner.run_once`. Adding async anywhere else needs an ADR.
 - Bridging: the sync core drives async resolvers exclusively through `asyncio.run` in one internal helper; never call `asyncio.run` where a loop may already be running. Async web frameworks consume the engines via `run_in_threadpool` (or plain `def` routes); `AsyncSession` apps may use `session.run_sync(...)` for DB-only operations.
 - Resolvers must not cache loop-bound async clients in `__init__` — create them inside the call.
+- FastAPI route closures (effaced-fastapi): under `from __future__ import annotations`, `Annotated[X, Depends(local_var)]` silently degrades to a required query param — string annotations are eval'd against module globals only, so FastAPI never sees the closure-local `Depends`. Build routes with `param: X = Depends(local_var)` defaults (eagerly evaluated; `fastapi.Depends` is B008-exempt via `extend-immutable-calls` in root pyproject), and keep every type appearing in a route or dependency signature a runtime import in the defining module, never `TYPE_CHECKING`-only.
 - When `asyncio.run` refuses to start (already on a loop thread) it leaves the passed coroutine unconsumed — `close()` it before re-raising or pytest reports a `RuntimeWarning: coroutine ... was never awaited`.
 
 ## Misc

@@ -11,6 +11,7 @@ resolution-markers = [
 [manifest]
 members = [
     "effaced",
+    "effaced-fastapi",
     "effaced-s3",
     "effaced-stripe",
     "effaced-supabase",
@@ -411,6 +412,25 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "pydantic", specifier = ">=2.7" },
+    { name = "sqlalchemy", specifier = ">=2.0" },
+]
+
+[[package]]
+name = "effaced-fastapi"
+version = "0.0.0"
+source = { editable = "packages/effaced-fastapi" }
+dependencies = [
+    { name = "effaced" },
+    { name = "fastapi" },
+    { name = "pydantic" },
+    { name = "sqlalchemy" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "effaced", editable = "packages/effaced" },
+    { name = "fastapi", specifier = ">=0.116" },
     { name = "pydantic", specifier = ">=2.7" },
     { name = "sqlalchemy", specifier = ">=2.0" },
 ]

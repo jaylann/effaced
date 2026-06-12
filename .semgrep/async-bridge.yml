@@ -2,20 +2,24 @@
 # internal helper. Scattered asyncio.run calls break under already-running
 # loops; new bridge sites need an ADR, not a quiet call.
 # ADR 0018 sanctions a second site: effaced/testing/ drives resolver
-# coroutines from sync pytest test methods.
+# coroutines from sync pytest test methods. ADR 0020 sanctions a third:
+# effaced_fastapi's SagaWorker runs its drain loop on a dedicated thread.
 rules:
   - id: no-asyncio-run-outside-bridge
     languages: [python]
     severity: ERROR
     message: >
       asyncio.run is allowed only in the designated sync→async bridge helpers
-      (export/exporter.py per ADR 0006; effaced/testing/ per ADR 0018). Reuse
-      those bridges; adding another asyncio.run site needs an ADR.
+      (export/exporter.py per ADR 0006; effaced/testing/ per ADR 0018;
+      effaced_fastapi/saga_worker.py per ADR 0020). Reuse those bridges;
+      adding another asyncio.run site needs an ADR.
     paths:
       include:
         - packages/effaced/src/
         - packages/effaced-stripe/src/
+        - packages/effaced-fastapi/src/
       exclude:
         - packages/effaced/src/effaced/export/exporter.py
         - packages/effaced/src/effaced/testing/
+        - packages/effaced-fastapi/src/effaced_fastapi/saga_worker.py
     pattern: asyncio.run(...)

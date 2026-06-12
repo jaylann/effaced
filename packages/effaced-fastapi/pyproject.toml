@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "effaced-fastapi"
+version = "0.0.0"
+description = "FastAPI integration for effaced — mount data-subject endpoints (export, erasure, consent) as one router."
+readme = "README.md"
+requires-python = ">=3.11"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "Justin Lanfermann", email = "Justin@Lanfermann.dev" }]
+keywords = ["gdpr", "fastapi", "privacy", "data-erasure", "effaced"]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Security",
+    "Typing :: Typed",
+]
+dependencies = [
+    "effaced",
+    "fastapi>=0.116",
+    "pydantic>=2.7",
+    "sqlalchemy>=2.0",
+]
+
+[project.urls]
+Homepage = "https://effaced.dev"
+Repository = "https://github.com/jaylann/effaced"
+Issues = "https://github.com/jaylann/effaced/issues"
+Changelog = "https://github.com/jaylann/effaced/blob/main/packages/effaced-fastapi/CHANGELOG.md"
+
+[tool.uv.sources]
+effaced = { workspace = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/effaced_fastapi"]

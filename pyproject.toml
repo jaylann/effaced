@@ -39,6 +39,7 @@ src = [
     "packages/effaced-stripe/src",
     "packages/effaced-supabase/src",
     "packages/effaced-s3/src",
+    "packages/effaced-fastapi/src",
 ]
 
 [tool.ruff.lint]
@@ -78,6 +79,12 @@ max-public-methods = 10
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI dependency markers are designed to be call-defaults; route closures
+# referencing locally-scoped providers cannot use the Annotated form under
+# `from __future__ import annotations` (string annotations resolve only globals)
+extend-immutable-calls = ["fastapi.Depends"]
 
 [tool.ruff.lint.pydocstyle]
 convention = "google"
@@ -126,6 +133,7 @@ files = [
     "packages/effaced-stripe/src",
     "packages/effaced-supabase/src",
     "packages/effaced-s3/src",
+    "packages/effaced-fastapi/src",
     "scripts",
     "examples/fastapi-quickstart/app.py",
     "examples/fastapi-quickstart/models.py",
@@ -149,6 +157,7 @@ testpaths = [
     "packages/effaced-stripe/tests",
     "packages/effaced-supabase/tests",
     "packages/effaced-s3/tests",
+    "packages/effaced-fastapi/tests",
     "examples/fastapi-quickstart",
 ]
 addopts = "-ra --strict-markers"
@@ -158,7 +167,7 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["effaced", "effaced_stripe", "effaced_supabase", "effaced_s3"]
+source = ["effaced", "effaced_stripe", "effaced_supabase", "effaced_s3", "effaced_fastapi"]
 branch = true
 
 [tool.coverage.report]

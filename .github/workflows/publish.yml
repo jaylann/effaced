@@ -40,8 +40,9 @@ jobs:
             effaced-stripe-v*)   echo "package=effaced-stripe"   >> "$GITHUB_OUTPUT" ;;
             effaced-supabase-v*) echo "package=effaced-supabase" >> "$GITHUB_OUTPUT" ;;
             effaced-s3-v*)       echo "package=effaced-s3"       >> "$GITHUB_OUTPUT" ;;
+            effaced-fastapi-v*)  echo "package=effaced-fastapi"  >> "$GITHUB_OUTPUT" ;;
             effaced-v*)          echo "package=effaced"          >> "$GITHUB_OUTPUT" ;;
-            *) echo "::error::Unrecognised tag '$TAG' — expected effaced-vX.Y.Z, effaced-stripe-vX.Y.Z, effaced-supabase-vX.Y.Z, or effaced-s3-vX.Y.Z"; exit 1 ;;
+            *) echo "::error::Unrecognised tag '$TAG' — expected effaced-vX.Y.Z, effaced-stripe-vX.Y.Z, effaced-supabase-vX.Y.Z, effaced-s3-vX.Y.Z, or effaced-fastapi-vX.Y.Z"; exit 1 ;;
           esac
 
       - uses: astral-sh/setup-uv@fac544c07dec837d0ccb6301d7b5580bf5edae39 # v8.2.0

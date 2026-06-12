@@ -39,6 +39,12 @@
       "package-name": "effaced-s3",
       "component": "effaced-s3",
       "changelog-path": "CHANGELOG.md"
+    },
+    "packages/effaced-fastapi": {
+      "release-type": "python",
+      "package-name": "effaced-fastapi",
+      "component": "effaced-fastapi",
+      "changelog-path": "CHANGELOG.md"
     }
   }
 }
