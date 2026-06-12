@@ -109,9 +109,10 @@ class SupabaseStorageResolver:
     permission, and missing-bucket failures raise
     :class:`~effaced.exceptions.ResolverError`; throttling, connection
     faults, gateway-side errors, and unknown codes propagate so the saga
-    runner retries. SDK-internal retries are disabled and a fresh client
-    is built per call — nothing loop- or connection-bound is cached on the
-    instance (ADR 0006).
+    runner retries. SDK-internal retries are disabled; the sync boto3
+    client is driven via ``asyncio.to_thread`` and is not loop-bound, so
+    holding it on the instance is safe (ADR 0006, mirroring
+    :class:`~effaced_s3.S3Resolver`).
 
     Messages and details carry counts and error codes only — never keys,
     prefixes, or bucket names, which are user content.
