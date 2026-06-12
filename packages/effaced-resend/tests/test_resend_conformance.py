@@ -21,6 +21,7 @@ ABSENT = "ghost@example.com"
 
 CONTACT = {
     "id": "e169aa45-1ecf-4183-9955-b1499d5701d3",
+    "email": PRESENT,
     "first_name": "Ada",
     "last_name": "Lovelace",
     "unsubscribed": False,

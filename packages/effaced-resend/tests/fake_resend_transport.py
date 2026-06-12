@@ -22,8 +22,9 @@ class FakeResendTransport(httpx.MockTransport):
 
     Args:
         contacts: Seed contacts keyed by email; values are the JSON
-            bodies ``GET /contacts/{email}`` should answer with (the
-            ``email`` key is filled in from the key).
+            bodies ``GET /contacts/{email}`` should answer with — they
+            carry their own ``email`` key (or deliberately omit it),
+            so tests prove the resolver reads the body, not the ref.
         error_status: When set, every request answers with this status.
         connection_error: When True, every request raises
             ``httpx.ConnectError`` instead of answering.
@@ -67,7 +68,7 @@ class FakeResendTransport(httpx.MockTransport):
         contact = self.contacts.get(email)
         if contact is None:
             return _json_response(404, _NOT_FOUND_BODY)
-        return _json_response(200, {"object": "contact", "email": email, **contact})
+        return _json_response(200, {"object": "contact", **contact})
 
     def _delete_contact(self, email: str) -> httpx.Response:
         contact = self.contacts.pop(email, None)

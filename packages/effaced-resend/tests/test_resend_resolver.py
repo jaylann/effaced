@@ -35,6 +35,7 @@ def test_export_maps_every_held_field_to_its_category() -> None:
         contacts={
             EMAIL: {
                 "id": "c-1",
+                "email": EMAIL,
                 "first_name": "Ada",
                 "last_name": "Lovelace",
                 "unsubscribed": True,
@@ -62,16 +63,24 @@ def test_export_maps_every_held_field_to_its_category() -> None:
 
 def test_empty_and_absent_name_fields_are_dropped() -> None:
     fake = FakeResendTransport(
-        contacts={EMAIL: {"first_name": "", "unsubscribed": False}},
+        contacts={EMAIL: {"email": EMAIL, "first_name": "", "unsubscribed": False}},
     )
     export = asyncio.run(_resolver(fake).export_subject(_ref()))
     fields = {record.field for record in export.records}
     assert fields == {"contact.email", "contact.unsubscribed"}
 
 
+def test_email_is_read_from_the_response_body_not_the_ref() -> None:
+    fake = FakeResendTransport(contacts={EMAIL: {"email": "stored@example.com"}})
+    export = asyncio.run(_resolver(fake).export_subject(_ref()))
+    assert [record.value for record in export.records] == ["stored@example.com"]
+
+
 def test_properties_are_never_exported() -> None:
     fake = FakeResendTransport(
-        contacts={EMAIL: {"properties": {"plan": "pro", "phone": "+4915112345678"}}},
+        contacts={
+            EMAIL: {"email": EMAIL, "properties": {"plan": "pro", "phone": "+4915112345678"}}
+        },
     )
     export = asyncio.run(_resolver(fake).export_subject(_ref()))
     assert {record.field for record in export.records} == {"contact.email"}
@@ -91,7 +100,7 @@ def test_requests_carry_the_bearer_key() -> None:
 
 def test_ref_value_is_encoded_into_a_single_path_segment() -> None:
     hostile = "a/../b@example.com"
-    fake = FakeResendTransport(contacts={hostile: {}})
+    fake = FakeResendTransport(contacts={hostile: {"email": hostile}})
     export = asyncio.run(_resolver(fake).export_subject(_ref(hostile)))
     assert len(export.records) == 1
     raw_path = fake.requests[0].url.raw_path.decode("ascii")
@@ -100,7 +109,7 @@ def test_ref_value_is_encoded_into_a_single_path_segment() -> None:
 
 def test_dot_only_ref_values_do_not_collapse_into_another_endpoint() -> None:
     for hostile in (".", ".."):
-        fake = FakeResendTransport(contacts={hostile: {}})
+        fake = FakeResendTransport(contacts={hostile: {"email": hostile}})
         export = asyncio.run(_resolver(fake).export_subject(_ref(hostile)))
         assert len(export.records) == 1
         raw_path = fake.requests[0].url.raw_path.decode("ascii")
@@ -120,7 +129,7 @@ def test_erase_reports_deletion_and_then_absence() -> None:
 
 
 def test_base_url_tolerates_a_trailing_slash() -> None:
-    fake = FakeResendTransport(contacts={EMAIL: {}})
+    fake = FakeResendTransport(contacts={EMAIL: {"email": EMAIL}})
     resolver = ResendResolver(KEY, base_url="https://api.resend.com/", transport=fake)
     export = asyncio.run(resolver.export_subject(_ref()))
     assert len(export.records) == 1

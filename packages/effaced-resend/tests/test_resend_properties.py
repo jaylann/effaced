@@ -28,7 +28,9 @@ _emails = st.text(alphabet=_EMAIL_CHARS, min_size=1, max_size=20)
 @given(emails=st.lists(_emails, min_size=2, max_size=6, unique=True), data=st.data())
 def test_erase_touches_exactly_the_target_contact(emails: list[str], data: st.DataObject) -> None:
     target = data.draw(st.sampled_from(emails), label="target")
-    fake = FakeResendTransport(contacts={email: {"first_name": "Ada"} for email in emails})
+    fake = FakeResendTransport(
+        contacts={email: {"email": email, "first_name": "Ada"} for email in emails}
+    )
     resolver = ResendResolver(KEY, transport=fake)
 
     erasure = asyncio.run(resolver.erase_subject(SubjectRef(kind="resend", value=target)))
