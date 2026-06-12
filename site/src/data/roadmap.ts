@@ -175,8 +175,8 @@ export const tiers: RoadmapTier[] = [
       },
       {
         name: 'Versioned docs + custom domain',
-        scope: 'Docs that match the release you actually run, at effaced.dev.',
-        status: 'planned',
+        scope: 'Docs that match the release you actually run; custom domain still ahead.',
+        status: 'in-progress',
         ref: { kind: 'issue', number: 49 },
       },
     ],
