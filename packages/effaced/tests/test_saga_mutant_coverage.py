@@ -779,9 +779,8 @@ def test_runner_run_once_forwards_backoff_lease_to_claim_batch(
     nat_aware = stored_nat.replace(tzinfo=UTC) if stored_nat.tzinfo is None else stored_nat
     # With 2h lease: next_attempt_at > before + 1h.  With 5-min default: < before + 1h.
     min_expected = before + timedelta(hours=1)
-    assert (
-        nat_aware >= min_expected
-    ), f"next_attempt_at {nat_aware} should be >= {min_expected} (2h lease)"
+    lease_msg = f"next_attempt_at {nat_aware} should be >= {min_expected} (2h lease)"
+    assert nat_aware >= min_expected, lease_msg
 
 
 # ---------------------------------------------------------------------------
@@ -843,7 +842,6 @@ def test_runner_audit_events_have_utc_aware_occurred_at(harness: MutantHarness) 
     asyncio.run(SagaRunner(registry, harness.outbox, harness.sink).run_once())
     assert harness.sink.events, "at least one event must be emitted"
     for event in harness.sink.events:
-        assert (
-            event.occurred_at.tzinfo is not None
-        ), f"event {event.event_type} must have timezone-aware occurred_at"
+        naive_msg = f"event {event.event_type} must have timezone-aware occurred_at"
+        assert event.occurred_at.tzinfo is not None, naive_msg
         assert event.occurred_at.tzinfo == UTC
