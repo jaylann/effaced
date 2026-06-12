@@ -48,7 +48,7 @@ site/dist/
 .astro/
 # generated API reference for the CURRENT docs (scripts/gen_api_docs.py) — keep
 # the dir via .gitkeep. Scoped to docs/docs/ on purpose: versioned snapshots
-# under docs/<slug>/docs/reference/ (starlight-versions, ADR 0016) are frozen at
+# under docs/<slug>/docs/reference/ (starlight-versions, ADR 0017) are frozen at
 # release and committed, so they must NOT be ignored.
 site/src/content/docs/docs/reference/*
 !site/src/content/docs/docs/reference/.gitkeep

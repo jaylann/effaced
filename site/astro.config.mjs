@@ -31,7 +31,7 @@ export default defineConfig({
       editLink: { baseUrl: 'https://github.com/jaylann/effaced/edit/stage/site/' },
       lastUpdated: true,
       plugins: [
-        // Versioned docs (ADR 0016, amends 0011's deferral): stage HEAD is the
+        // Versioned docs (ADR 0017, amends 0011's deferral): stage HEAD is the
         // current "Latest" docs; '0.1' is the frozen snapshot of the released
         // effaced 0.1.0 / effaced-stripe 0.1.0 API. Cut a new snapshot per
         // minor/major release — see .claude/rules/docs.md.

@@ -1,4 +1,4 @@
-# 0016. Versioned docs via starlight-versions, snapshot at 0.1
+# 0017. Versioned docs via starlight-versions, snapshot at 0.1
 
 - **Status:** accepted (amends 0011)
 - **Date:** 2026-06-12
