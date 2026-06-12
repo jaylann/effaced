@@ -81,10 +81,60 @@ def test_second_identical_call_is_already_consistent():
     assert len(posts) == 1
 
 
+def test_contact_writes_only_email_never_phone_or_address():
+    """The curated CONTACT→email boundary (MAJOR if it ever widens).
+
+    Stripe also files phone and address.* under CONTACT, but a single
+    coarse scalar must never fan across them — that would manufacture
+    inaccuracy. A CONTACT correction touches ``email`` and nothing else.
+    """
+    fake = FakeStripeHTTPClient(
+        customers={
+            CUSTOMER_ID: {
+                "email": "ada@example.com",
+                "phone": "+1 555 0100",
+                "address": {"line1": "1 Analytical Way"},
+            }
+        }
+    )
+    rectify(make_resolver(fake), (CONTACT_FIX,))
+    customer = fake.customers[CUSTOMER_ID]
+    assert customer["email"] == "grace@example.com"
+    assert customer["phone"] == "+1 555 0100"
+    assert customer["address"] == {"line1": "1 Analytical Way"}
+
+
+def test_non_string_correction_value_converges():
+    """An int/float/bool scalar is coerced so drift detection terminates.
+
+    Without coercion ``"7" != 7`` would drift forever and the saga would
+    abandon a perfectly applicable correction.
+    """
+    fake = FakeStripeHTTPClient(customers={CUSTOMER_ID: {"name": "Ada Lovelace"}})
+    resolver = make_resolver(fake)
+    numeric = (Correction(category=PiiCategory.IDENTITY, value=7),)
+    first = rectify(resolver, numeric)
+    second = rectify(resolver, numeric)
+    assert first.already_consistent is False
+    assert second.already_consistent is True
+    assert fake.customers[CUSTOMER_ID]["name"] == "7"
+
+
 def test_absent_customer_is_consistent_success():
     outcome = rectify(make_resolver(FakeStripeHTTPClient()), (IDENTITY_FIX,))
     assert outcome.already_consistent is True
     assert outcome.detail == "customer absent in stripe"
+
+
+def test_soft_deleted_customer_is_consistent_success():
+    """A deleted-stub (HTTP 200, ``deleted: true``) short-circuits, no write."""
+    fake = FakeStripeHTTPClient(customers={CUSTOMER_ID: dict(CUSTOMER)})
+    resolver = make_resolver(fake)
+    asyncio.run(resolver.erase_subject(SubjectRef(kind="stripe", value=CUSTOMER_ID)))
+    outcome = rectify(resolver, (IDENTITY_FIX,))
+    assert outcome.already_consistent is True
+    assert outcome.detail == "customer absent in stripe"
+    assert not any(method == "post" for method, _ in fake.requests)
 
 
 def test_bad_key_on_modify_raises_resolver_error():

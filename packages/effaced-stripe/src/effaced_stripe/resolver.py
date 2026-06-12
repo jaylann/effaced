@@ -189,8 +189,13 @@ class StripeResolver:
             ResolverError: The key is invalid, lacks a permission, or the
                 request was malformed — retrying cannot succeed.
         """
+        # ``name`` and ``email`` are free-text Stripe string fields; coerce
+        # the correction scalar so the drift check and the written value
+        # are both strings (Stripe stores everything as text). Without
+        # this, an int-valued correction would compare ``"42" != 42``
+        # forever and the saga would never converge.
         targets = {
-            field: correction.value
+            field: str(correction.value)
             for correction in corrections
             if (field := _CATEGORY_TO_FIELD.get(correction.category)) is not None
         }
@@ -202,6 +207,12 @@ class StripeResolver:
             )
         try:
             customer = await asyncio.to_thread(self._retrieve_customer, ref.value)
+            if customer.get("deleted"):
+                return ResolverRectification(
+                    resolver=self.name,
+                    already_consistent=True,
+                    detail="customer absent in stripe",
+                )
             drift = {
                 field: value for field, value in targets.items() if customer.get(field) != value
             }
