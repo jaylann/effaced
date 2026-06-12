@@ -39,6 +39,7 @@ export default defineConfig({
             'docs/concepts/saga',
             'docs/concepts/export',
             'docs/concepts/consent',
+            'docs/concepts/restriction',
             'docs/concepts/audit',
             'docs/concepts/resolvers',
             'docs/concepts/manifest',

@@ -1,12 +1,13 @@
 """effaced — GDPR data-subject mechanisms for your own stack.
 
-Export (Art. 15), erasure (Art. 17), consent (Art. 7), and an append-only
-audit trail (Art. 5(2)/30) across your own database *and* the external
-systems you actually use. We ship the mechanisms. You own the compliance.
+Export (Art. 15), erasure (Art. 17), consent (Art. 7), restriction of
+processing (Art. 18), and an append-only audit trail (Art. 5(2)/30) across
+your own database *and* the external systems you actually use. We ship the
+mechanisms. You own the compliance.
 
-The integration surface is three calls: record consent, export a subject,
-erase a subject. Everything else is bookkeeping the library does between
-those calls.
+The integration surface is four calls: record consent, record a
+restriction, export a subject, erase a subject. Everything else is
+bookkeeping the library does between those calls.
 """
 
 from importlib.metadata import PackageNotFoundError, version
@@ -52,6 +53,7 @@ from effaced.manifest import (
     fk_safe_deletion_order,
 )
 from effaced.resolvers import Resolver, ResolverErasure, ResolverExport, ResolverRegistry
+from effaced.restriction import RestrictionLedger, RestrictionRecord
 from effaced.saga import BackoffPolicy, Outbox, OutboxEntry, OutboxStatus, SagaRunner
 
 try:
@@ -99,6 +101,8 @@ __all__ = [
     "ResolverError",
     "ResolverExport",
     "ResolverRegistry",
+    "RestrictionLedger",
+    "RestrictionRecord",
     "RetentionPolicy",
     "RetentionViolationError",
     "SagaRunner",

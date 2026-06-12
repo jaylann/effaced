@@ -1,0 +1,103 @@
+---
+title: Restriction
+description: Art. 18 as an append-only flag ledger — restriction placed, lifted, and queried; the indication, never the suppression.
+---
+
+Art. 18(1) lets a data subject restrict processing — typically while an
+accuracy dispute or an objection is open. Restricted data is *kept but not
+used*. Recital 67 names the methods, and the first is exactly what a
+library can ship: the fact that processing is restricted should be
+"clearly indicated in the system". That flag — and its audited history —
+is what effaced provides:
+
+```python
+ledger = RestrictionLedger(tables.restriction_records, audit)
+
+ledger.record(session, RestrictionRecord(
+    subject_id="42",
+    purpose="ads",                     # None = restrict all processing
+    restricted=True,                   # False = lift — same call, same cost
+    reason="accuracy disputed (Art. 18(1)(a))",
+    recorded_at=datetime.now(UTC),
+    source="dsar_portal",
+))
+```
+
+## Events, not state
+
+Restriction rows are never updated or deleted. Current status is
+*derived* — and there is no transition validation: lifting a restriction
+that was never placed simply appends. The records are evidence, not a
+state machine.
+
+```python
+ledger.status(session, "42", "ads")   # bool, derived — never stored
+ledger.status(session, "42")          # the all-processing question
+ledger.history(session, "42")         # the full, unredacted event sequence
+```
+
+The derivation rule, pinned (changing it is a breaking change under
+widened SemVer):
+
+- The answer for (subject, purpose) considers two events: the latest
+  **global** record (`purpose=None`) and the latest record for that
+  purpose. The subject is restricted if **either** restricts.
+- A purpose-level lift therefore cannot undo a global restriction — lift
+  globally instead.
+- `status()` without a purpose consults *only* the global records: a
+  purpose-scoped restriction does not answer the all-processing question.
+- Exact timestamp ties resolve to the **restricting** record: when the
+  order of a placement and a lift is unknowable, effaced assumes the
+  subject is restricted — the same protective direction as consent's
+  withdrawn-wins tie-break.
+- No records means unrestricted.
+
+`history()` returns the full records, `reason` and `source` included —
+together with the `RESTRICTION_LIFTED` audit event it is the mechanical
+substrate for the Art. 18(3) duty to inform the subject before a
+restriction is lifted. The informing itself stays your process.
+
+## Audit mirroring: scope only, never free text
+
+Every `record()` mirrors a `RESTRICTION_PLACED` / `RESTRICTION_LIFTED`
+event into the audit trail. The payload carries only the scope —
+`purpose` for a purpose-scoped record, `scope: "all"` for a global one —
+never `reason` or `source`: free-text fields are PII-bearing by nature.
+The transactional shape is the consent ledger's, verbatim: the row writes
+through your session, the event through the sink, and a failing sink
+raises out of `record()` before you can commit, so no restriction change
+persists unaudited.
+
+## What restriction does *not* do
+
+effaced ships the indication, not the suppression. No effaced engine
+consults the ledger and nothing intercepts your queries — the flag is
+only as good as your application's discipline in checking `status()`
+before processing. Recital 67's other methods (moving the data, locking
+it away) are not covered. And the interplay with the other mechanisms is
+deliberate, in both directions:
+
+- **Export still runs** for a restricted subject. Art. 15 access reads
+  storage, which Art. 18(2) permits — and the subject asked.
+- **Erasure still runs.** Restriction is commonly what a subject chose
+  *instead of* erasure (Art. 18(1)(b)); whether an erasure request
+  overrides a standing restriction is a determination only you can make,
+  and effaced refusing — or warning — would be making it for you. Both
+  states sit side by side in the audit trail.
+
+:::caution
+Purpose strings are your application's vocabulary, exactly as in consent.
+effaced does not validate them against a registry, so a typo'd purpose
+silently scopes its own restriction — `"ads"` and `"adds"` are two
+different scopes. The completeness linter does not cover this.
+:::
+
+:::note
+The ledger gives you a defensible *record* of restriction. Which
+processing must stop, and whether a given operation falls under an
+Art. 18(2) exception (consent, legal claims, protection of others'
+rights, important public interest), is a determination for you and your
+counsel, not something a library can decide.
+:::
+
+Full signatures: [API reference](../../reference/restriction/).

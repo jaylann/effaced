@@ -22,3 +22,5 @@ class AuditEventType(StrEnum):
     ERASURE_STEP_FAILED = "erasure_step_failed"
     ERASURE_COMPLETED = "erasure_completed"
     MANIFEST_SNAPSHOT = "manifest_snapshot"
+    RESTRICTION_PLACED = "restriction_placed"
+    RESTRICTION_LIFTED = "restriction_lifted"

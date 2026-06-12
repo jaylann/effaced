@@ -146,9 +146,10 @@ export const tiers: RoadmapTier[] = [
       {
         name: 'Restriction of processing',
         scope: 'Mark a subject restricted and make that state queryable and auditable.',
-        status: 'planned',
+        status: 'shipped',
         art: 'ART. 18',
         ref: { kind: 'issue', number: 47 },
+        docsPath: 'concepts/restriction/',
       },
       {
         name: 'Retention-expiry sweep',
