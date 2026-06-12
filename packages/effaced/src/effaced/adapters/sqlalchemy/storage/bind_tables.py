@@ -43,7 +43,10 @@ def bind_tables(metadata: MetaData) -> EffacedTables:
     With Alembic, call this where your ``env.py``'s ``target_metadata`` is
     defined; ``alembic revision --autogenerate`` then picks the tables up
     like your own. New effaced releases may add tables, columns or indexes
-    in MINOR versions — re-run autogenerate after upgrading. Without a
+    in MINOR versions — re-run autogenerate after upgrading. Owned-table
+    changes are additive-only, and additive columns backfill populated
+    tables via server defaults — the caller-owned migration contract is
+    ADR 0018 (see the Alembic guide on the docs site). Without a
     migration tool, ``metadata.create_all(engine)`` creates them directly.
 
     Example:

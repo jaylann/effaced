@@ -37,4 +37,4 @@ paths: ["**/*.py"]
 ## Misc
 - Docstrings: Google convention on every public module/class/function (ruff `D`). They are the future generated docs site — write them as documentation.
 - Core (`effaced/*` except `adapters/`) must not import SQLAlchemy or any storage library (semgrep-gated); storage-specific code lives in `effaced/adapters/<stack>/`. Core can still issue SQL by building statements off the bound `Table` handle (`table.select()`, `.update()`, `c.col.in_(...)`, `.with_for_update(skip_locked=True)`) — no runtime import needed.
-- The PostToolUse hook auto-formats edited files — but it also auto-removes imports that are momentarily unused; when adding an import for code you haven't written yet, write the usage in the same edit.
+- The PostToolUse hook auto-formats edited files — but it also auto-removes imports that are momentarily unused, and it fires even on edits to a *different region* of the file (imports added in one Edit are lost if their usages land in a later Edit). Add usages first or in the same edit; fix imports last.

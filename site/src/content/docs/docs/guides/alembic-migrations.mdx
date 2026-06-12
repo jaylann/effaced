@@ -1,0 +1,117 @@
+---
+title: Database migrations with Alembic
+description: How the effaced-owned tables ride your existing Alembic setup — you own the migrations, effaced owns an additive-only contract.
+sidebar:
+  order: 2
+---
+
+effaced mounts four tables onto your `MetaData` — `effaced_audit_events`,
+`effaced_consent_records`, `effaced_outbox`, `effaced_restriction_records`
+— and from there **you own the migrations** (ADR 0018). effaced never ships
+Alembic revision scripts, never depends on Alembic at runtime, and never
+touches your `alembic_version` table. In exchange, the library commits to a
+contract that keeps caller-owned migrations safe: owned-table DDL only ever
+changes additively in MINOR releases, and every additive column backfills
+populated tables in place.
+
+## Wiring `env.py`
+
+Call `bind_tables()` wherever your `target_metadata` is defined — typically
+the module that holds your declarative `Base`, or directly in `env.py`:
+
+```python
+# migrations/env.py
+from alembic import context
+from effaced import bind_tables
+
+from myapp.models import Base
+
+bind_tables(Base.metadata)  # idempotent — safe even if models.py already calls it
+target_metadata = Base.metadata
+```
+
+That is the entire integration. `alembic revision --autogenerate` now
+discovers the effaced tables exactly like your own models.
+
+## The first migration
+
+After wiring, generate and review a revision:
+
+```bash
+alembic revision --autogenerate -m "mount effaced tables"
+```
+
+Expect four `op.create_table()` calls and five `op.create_index()` calls,
+nothing else. One detail worth noticing in review: `effaced_outbox.operation`
+carries `server_default="erase"` — that is deliberate (see below). Apply it
+like any of your revisions:
+
+```bash
+alembic upgrade head
+```
+
+## Upgrading effaced
+
+When a release changes the owned tables (the changelog will say so), the
+recipe is the same loop you already run for your own models:
+
+```bash
+pip install --upgrade effaced
+alembic revision --autogenerate -m "effaced owned-table changes"
+# review: only additive ops (add_table / add_column / create_index)
+alembic upgrade head
+```
+
+What makes this safe to run against a live database:
+
+- **Additive only.** In MINOR releases the owned tables gain columns,
+  indexes, or new tables — nothing is dropped, renamed, or retyped.
+  Anything destructive would be a MAJOR release with a documented path.
+- **Populated tables backfill themselves.** A new column is either nullable
+  or carries a `server_default`, so the additive `ALTER TABLE` works on
+  tables that already hold rows. The precedent: when `effaced_outbox` gained
+  its `operation` column, the `"erase"` server default backfilled every
+  pre-existing entry — the only operation that existed before the column did.
+- **No perpetual diffs.** After applying, re-running autogenerate yields an
+  empty revision — even with `compare_type` and `compare_server_default`
+  enabled. An integration test pins this for every release, so the owned
+  tables never become a source of noise in your migration reviews.
+
+## Manifest schema version is not your database schema
+
+`MANIFEST_SCHEMA_VERSION` versions the *serialized manifest format* — the
+JSON your application may persist after `collect_data_map()`. Manifests are
+never rows in the owned tables, and old manifests are migrated forward in
+memory, never rejected. A manifest version bump alone therefore never
+requires a database migration. If one release happens to bump both the
+manifest version and the owned tables, the upgrade recipe above already
+covers it; the changelog calls out each separately.
+
+## Without Alembic
+
+No migration tool? `metadata.create_all(engine)` creates the owned tables
+directly — `bind_tables()` only defines them, it never executes DDL.
+
+## Opting out
+
+If you manage the `effaced_*` DDL out-of-band (a separate migration chain,
+a DBA-owned process), exclude the tables from autogenerate instead:
+
+```python
+# migrations/env.py
+def include_object(obj, name, type_, reflected, compare_to):
+    return not (type_ == "table" and name.startswith("effaced_"))
+
+context.configure(
+    # ...
+    include_object=include_object,
+)
+```
+
+You then own keeping the tables in sync with each release's changelog.
+
+## Going further
+
+The audit table can be made append-only at the database layer too — a
+Postgres trigger that rides your migrations like any other DDL. See
+[Hardening the audit trail](../audit-hardening/).
