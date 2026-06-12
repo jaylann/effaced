@@ -21,6 +21,8 @@ class AuditEventType(StrEnum):
     ERASURE_EXPIRY_SCHEDULED = "erasure_expiry_scheduled"
     ERASURE_STEP_SUCCEEDED = "erasure_step_succeeded"
     ERASURE_STEP_FAILED = "erasure_step_failed"
+    ERASURE_VERIFIED = "erasure_verified"
+    ERASURE_VERIFICATION_FAILED = "erasure_verification_failed"
     ERASURE_COMPLETED = "erasure_completed"
     ERASURE_REQUEUED = "erasure_requeued"
     ERASURE_REPLAYED = "erasure_replayed"

@@ -94,6 +94,35 @@ Validation failures (missing wiring, plan conflicts, unmatched ref kinds)
 raise *before* any event — a malformed call never became a data-subject
 request, so it deliberately leaves no audit trace.
 
+## Verifying execution
+
+After an erasure commits, `ErasureVerifier.verify_subject_erased(session,
+subject_id)` reads the annotated surface back and records a verdict.
+It re-derives the plan's table classification, counts the subject's
+surviving rows per table with `SELECT COUNT` statements only — it is
+strictly read-only, writing no row — and appends one PII-free audit event
+(`ERASURE_VERIFIED`, or `ERASURE_VERIFICATION_FAILED` when a row-deleted
+table still holds rows). `verified` is true exactly when every row-deleted
+table is empty for the subject; the surviving anonymize/retain counts are
+reported for the record and never flip the verdict.
+
+This proves **execution fidelity** — that a caller trigger, an FK cascade,
+an ORM event, or a partial commit did not resurrect rows the plan deleted.
+It is strictly narrower than "everything is gone", and three boundaries are
+deliberately out of scope:
+
+1. It re-reads the **same annotated surface** the plan was built from, so
+   PII that was never annotated is invisible by construction — this is not
+   a discovery-completeness check.
+2. A row **orphaned off the subject's path** (reachable by no hop chain to
+   the subject) is unreachable by the scoping predicate, so it is invisible
+   here too.
+3. **Anonymized cell values are not verified.** Surrogates are random,
+   never `NULL`, so without a before-state a reader cannot distinguish a
+   surrogate from an original; confirming a value was rewritten needs a
+   before-state and is out of scope. The verifier never determines that a
+   subject is fully erased, or that anyone is compliant.
+
 ## Re-running is a no-op success
 
 Erasure is idempotent by contract: re-running for an already-erased
