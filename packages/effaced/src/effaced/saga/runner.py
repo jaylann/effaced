@@ -11,8 +11,9 @@ from effaced.audit.event import AuditEvent
 from effaced.audit.event_type import AuditEventType
 from effaced.categories import ErasureStrategy
 from effaced.exceptions import ResolverError
-from effaced.resolvers import ResolverErasure
+from effaced.resolvers import RectifyingResolver, ResolverErasure, ResolverRectification
 from effaced.saga.backoff_policy import BackoffPolicy
+from effaced.saga.outbox_operation import OutboxOperation
 
 if TYPE_CHECKING:
     from effaced.audit import AuditSink
@@ -28,12 +29,17 @@ class SagaRunner:
     background task, a worker process, a cron job. One call to
     :meth:`run_once` processes one batch; the runner owns no event loop.
 
+    Entries are dispatched by their ``operation``: erase entries call
+    ``Resolver.erase_subject``, rectify entries call
+    ``RectifyingResolver.rectify_subject`` with the entry's corrections.
+
     Failure taxonomy (ADR 0010): :class:`~effaced.ResolverError` — raised
-    by a resolver for a non-retryable failure, or by the registry for an
-    unknown resolver name — abandons the entry immediately; any other
-    exception is treated as transient and retried with exponential backoff
-    until ``max_attempts``, then abandoned. Every terminal outcome is
-    audited; an abandonment is never silent.
+    by a resolver for a non-retryable failure, by the registry for an
+    unknown resolver name, or here for a rectify entry whose resolver does
+    not implement ``rectify_subject`` — abandons the entry immediately; any
+    other exception is treated as transient and retried with exponential
+    backoff until ``max_attempts``, then abandoned. Every terminal outcome
+    is audited; an abandonment is never silent.
     """
 
     def __init__(
@@ -74,14 +80,17 @@ class SagaRunner:
         safe — the entry stays ``IN_FLIGHT``, its claim lease expires, and
         the retry converges on the same outcome.
 
-        Per entry: success appends ``ERASURE_STEP_SUCCEEDED`` and — when
-        the subject's last entry lands — ``ERASURE_COMPLETED``; a terminal
-        failure appends ``ERASURE_STEP_FAILED`` before the entry is marked
+        Per entry: success appends ``ERASURE_STEP_SUCCEEDED`` (erase) or
+        ``RECTIFICATION_STEP_SUCCEEDED`` (rectify) and — when the subject's
+        last entry *of that operation* lands — ``ERASURE_COMPLETED`` /
+        ``RECTIFICATION_COMPLETED``; a terminal failure appends the
+        matching step-failed event before the entry is marked
         ``ABANDONED``. The audit append always precedes the status change,
         so no recorded outcome lacks its audit record; if the sink is down
         the entry stays claimed and the lease heals it. Transient failures
         are not audited — the row's ``last_error`` carries the exception
-        class name and the entry retries on the backoff schedule.
+        class name and the entry retries on the backoff schedule (a failed
+        rectify row keeps its corrections payload; terminal rows never do).
 
         Awaits resolver calls concurrently but makes blocking database
         calls (claiming, audit appends) between awaits — run it in a
@@ -101,14 +110,28 @@ class SagaRunner:
             self._settle(entry, outcome)
         return len(entries)
 
-    async def _execute(self, entry: OutboxEntry) -> ResolverErasure:
-        """One resolver call; exceptions are captured by the gather."""
+    async def _execute(self, entry: OutboxEntry) -> ResolverErasure | ResolverRectification:
+        """One resolver call, dispatched by operation; the gather captures raises.
+
+        A rectify entry routed to a resolver without ``rectify_subject``
+        raises :class:`~effaced.ResolverError`: the enqueuer never creates
+        such an entry, but registries can change between enqueue and run,
+        and a loud immediate abandonment is the same taxonomy as an
+        unknown resolver name.
+        """
         resolver = self._registry.get(entry.resolver)
+        if entry.operation is OutboxOperation.RECTIFY:
+            if not isinstance(resolver, RectifyingResolver):
+                msg = f"resolver {entry.resolver!r} does not implement rectify_subject"
+                raise ResolverError(msg)
+            return await resolver.rectify_subject(entry.ref, entry.corrections)
         return await resolver.erase_subject(entry.ref)
 
-    def _settle(self, entry: OutboxEntry, outcome: ResolverErasure | BaseException) -> None:
+    def _settle(
+        self, entry: OutboxEntry, outcome: ResolverErasure | ResolverRectification | BaseException
+    ) -> None:
         """Book one entry's outcome: succeed, retry with backoff, or abandon."""
-        if isinstance(outcome, ResolverErasure):
+        if isinstance(outcome, ResolverErasure | ResolverRectification):
             self._succeed(entry, outcome)
         elif isinstance(outcome, ResolverError):
             self._abandon(entry, outcome)
@@ -122,44 +145,59 @@ class SagaRunner:
             # the entry stays IN_FLIGHT and the lease heals it.
             raise outcome
 
-    def _succeed(self, entry: OutboxEntry, erasure: ResolverErasure) -> None:
-        """Audit the success, then mark it; completion fires on the last entry."""
-        self._audit.append(
-            _event(
-                AuditEventType.ERASURE_STEP_SUCCEEDED,
-                entry.subject_id,
-                {
-                    "target": entry.resolver,
-                    "strategy": ErasureStrategy.DELETE.value,
-                    "external": True,
-                    "already_absent": erasure.already_absent,
-                    "attempts": entry.attempts,
-                },
-            )
-        )
+    def _succeed(
+        self, entry: OutboxEntry, outcome: ResolverErasure | ResolverRectification
+    ) -> None:
+        """Audit the success, then mark it; completion fires on the operation's last entry."""
+        if isinstance(outcome, ResolverRectification):
+            step_payload: dict[str, str | int | bool] = {
+                "target": entry.resolver,
+                "external": True,
+                "already_consistent": outcome.already_consistent,
+                "attempts": entry.attempts,
+            }
+            step_type = AuditEventType.RECTIFICATION_STEP_SUCCEEDED
+            completed_type = AuditEventType.RECTIFICATION_COMPLETED
+        else:
+            step_payload = {
+                "target": entry.resolver,
+                "strategy": ErasureStrategy.DELETE.value,
+                "external": True,
+                "already_absent": outcome.already_absent,
+                "attempts": entry.attempts,
+            }
+            step_type = AuditEventType.ERASURE_STEP_SUCCEEDED
+            completed_type = AuditEventType.ERASURE_COMPLETED
+        self._audit.append(_event(step_type, entry.subject_id, step_payload))
         self._outbox.mark_succeeded(
             entry,
             on_subject_complete=lambda: self._audit.append(
-                _event(AuditEventType.ERASURE_COMPLETED, entry.subject_id, {})
+                _event(completed_type, entry.subject_id, {})
             ),
         )
 
     def _abandon(self, entry: OutboxEntry, exc: BaseException) -> None:
         """Audit the abandonment loudly, then mark the entry terminal."""
-        self._audit.append(
-            _event(
-                AuditEventType.ERASURE_STEP_FAILED,
-                entry.subject_id,
-                {
-                    "target": entry.resolver,
-                    "strategy": ErasureStrategy.DELETE.value,
-                    "external": True,
-                    "error": type(exc).__name__,
-                    "attempts": entry.attempts,
-                    "abandoned": True,
-                },
-            )
-        )
+        if entry.operation is OutboxOperation.RECTIFY:
+            payload: dict[str, str | int | bool] = {
+                "target": entry.resolver,
+                "external": True,
+                "error": type(exc).__name__,
+                "attempts": entry.attempts,
+                "abandoned": True,
+            }
+            event_type = AuditEventType.RECTIFICATION_STEP_FAILED
+        else:
+            payload = {
+                "target": entry.resolver,
+                "strategy": ErasureStrategy.DELETE.value,
+                "external": True,
+                "error": type(exc).__name__,
+                "attempts": entry.attempts,
+                "abandoned": True,
+            }
+            event_type = AuditEventType.ERASURE_STEP_FAILED
+        self._audit.append(_event(event_type, entry.subject_id, payload))
         self._outbox.mark_abandoned(entry, error=type(exc).__name__)
 
     def _retry(self, entry: OutboxEntry, exc: BaseException) -> None:
@@ -179,7 +217,8 @@ def _event(
     """One audit event for this saga step, stamped now (UTC).
 
     Payloads carry exception class names only, never messages — provider
-    errors embed identifiers, and the trail must stay PII-free.
+    errors embed identifiers, and the trail must stay PII-free. Corrected
+    values never appear in any event.
     """
     return AuditEvent(
         event_id=uuid4(),

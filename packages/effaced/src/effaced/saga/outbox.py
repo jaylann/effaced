@@ -5,8 +5,9 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
-from effaced.annotations import SubjectRef
+from effaced.annotations import Correction, SubjectRef
 from effaced.saga.outbox_entry import OutboxEntry
+from effaced.saga.outbox_operation import OutboxOperation
 from effaced.saga.outbox_status import OutboxStatus
 
 if TYPE_CHECKING:
@@ -129,18 +130,23 @@ class Outbox:
     def mark_succeeded(
         self, entry: OutboxEntry, *, on_subject_complete: Callable[[], None]
     ) -> None:
-        """Record a successful external call; detect subject completion.
+        """Record a successful external call; detect per-operation completion.
 
-        Runs in one transaction that first locks *all* of the subject's
-        entries ``FOR UPDATE`` ordered by ``entry_id`` — two runners
-        finishing the same subject's last two entries serialize on the same
-        lock order instead of deadlocking, so exactly one of them observes
-        the all-succeeded transition. If, after this update, every entry
-        for the subject is ``SUCCEEDED`` (an ``ABANDONED`` sibling blocks
-        completion permanently), ``on_subject_complete`` is invoked inside
-        the open transaction; if it raises, the update rolls back and the
-        entry stays ``IN_FLIGHT`` for the lease to heal — a success is
-        never recorded without its completion check.
+        Runs in one transaction that first locks all of the subject's
+        entries *of the entry's operation* ``FOR UPDATE`` ordered by
+        ``entry_id`` — two runners finishing the same subject's last two
+        entries serialize on the same lock order instead of deadlocking,
+        so exactly one of them observes the all-succeeded transition. If,
+        after this update, every same-operation entry for the subject is
+        ``SUCCEEDED`` (an ``ABANDONED`` sibling blocks completion
+        permanently; entries of the *other* operation are invisible here —
+        ADR 0013), ``on_subject_complete`` is invoked inside the open
+        transaction; if it raises, the update rolls back and the entry
+        stays ``IN_FLIGHT`` for the lease to heal — a success is never
+        recorded without its completion check.
+
+        The update also clears the row's ``payload``: a terminal entry
+        never retains corrected values.
 
         With the default :class:`~effaced.DatabaseAuditSink` the callback
         opens a *second* pooled connection while this transaction still
@@ -151,13 +157,17 @@ class Outbox:
         Args:
             entry: The claimed entry whose resolver call succeeded.
             on_subject_complete: Invoked at most once, while the subject's
-                rows are still locked, when its last entry lands.
+                same-operation rows are still locked, when its last entry
+                of that operation lands.
         """
         columns = self._outbox.c
         siblings = (
             self._outbox.select()
             .with_only_columns(columns.entry_id, columns.status)
-            .where(columns.subject_id == entry.subject_id)
+            .where(
+                columns.subject_id == entry.subject_id,
+                columns.operation == entry.operation.value,
+            )
             .order_by(columns.entry_id)
             .with_for_update()
         )
@@ -170,6 +180,7 @@ class Outbox:
                     status=OutboxStatus.SUCCEEDED.value,
                     next_attempt_at=None,
                     last_error=None,
+                    payload=None,
                 )
             )
             statuses[entry.entry_id] = OutboxStatus.SUCCEEDED.value
@@ -178,6 +189,9 @@ class Outbox:
 
     def mark_failed(self, entry: OutboxEntry, *, error: str, next_attempt_at: datetime) -> None:
         """Record a retryable failure and schedule the next attempt.
+
+        The row's ``payload`` survives a retryable failure on purpose: the
+        retry needs the corrected values.
 
         Args:
             entry: The claimed entry whose resolver call failed.
@@ -191,21 +205,29 @@ class Outbox:
             status=OutboxStatus.FAILED,
             error=error,
             next_attempt_at=next_attempt_at,
+            clear_payload=False,
         )
 
     def mark_abandoned(self, entry: OutboxEntry, *, error: str) -> None:
         """Record a terminal failure; the entry is never retried.
 
-        Abandonment is loud by contract: the runner appends the
-        ``ERASURE_STEP_FAILED`` audit event *before* calling this, so an
-        abandoned entry always has its audit record.
+        Abandonment is loud by contract: the runner appends the step-failed
+        audit event *before* calling this, so an abandoned entry always has
+        its audit record. The row's ``payload`` is cleared — a terminal
+        entry never retains corrected values (ADR 0013).
 
         Args:
             entry: The claimed entry whose retries are exhausted or whose
                 failure is non-retryable.
             error: The exception class name — never its message.
         """
-        self._mark(entry, status=OutboxStatus.ABANDONED, error=error, next_attempt_at=None)
+        self._mark(
+            entry,
+            status=OutboxStatus.ABANDONED,
+            error=error,
+            next_attempt_at=None,
+            clear_payload=True,
+        )
 
     def list_abandoned(self, *, limit: int = 100) -> Sequence[OutboxEntry]:
         """Return abandoned entries for operator inspection, oldest first.
@@ -258,17 +280,21 @@ class Outbox:
         status: OutboxStatus,
         error: str,
         next_attempt_at: datetime | None,
+        clear_payload: bool,
     ) -> None:
         """Move one entry to ``status`` in a short own transaction."""
+        values: dict[str, object] = {
+            "status": status.value,
+            "last_error": error,
+            "next_attempt_at": next_attempt_at,
+        }
+        if clear_payload:
+            values["payload"] = None
         with self._session_factory() as session, session.begin():
             session.execute(
                 self._outbox.update()
                 .where(self._outbox.c.entry_id == entry.entry_id)
-                .values(
-                    status=status.value,
-                    last_error=error,
-                    next_attempt_at=next_attempt_at,
-                )
+                .values(**values)
             )
 
 
@@ -281,6 +307,12 @@ def _row(entry: OutboxEntry) -> dict[str, object]:
         "ref_kind": entry.ref.kind,
         "ref_value": entry.ref.value,
         "ref_extra": dict(entry.ref.extra),
+        "operation": entry.operation.value,
+        "payload": (
+            {"corrections": [c.model_dump(mode="json") for c in entry.corrections]}
+            if entry.corrections
+            else None
+        ),
         "status": entry.status.value,
         "attempts": entry.attempts,
         "enqueued_at": entry.enqueued_at,
@@ -290,6 +322,13 @@ def _row(entry: OutboxEntry) -> dict[str, object]:
     }
 
 
+def _corrections(payload: object) -> tuple[Correction, ...]:
+    """Reconstruct a row's corrections; an absent or empty payload is ``()``."""
+    if not isinstance(payload, dict):
+        return ()
+    return tuple(Correction.model_validate(item) for item in payload.get("corrections", ()))
+
+
 def _claimed(row: RowMapping, *, now: datetime, lease: timedelta) -> OutboxEntry:
     """One claimed entry in its post-claim state (mirror of :func:`_row`)."""
     return OutboxEntry(
@@ -297,6 +336,8 @@ def _claimed(row: RowMapping, *, now: datetime, lease: timedelta) -> OutboxEntry
         subject_id=row["subject_id"],
         resolver=row["resolver"],
         ref=SubjectRef(kind=row["ref_kind"], value=row["ref_value"], extra=row["ref_extra"]),
+        operation=OutboxOperation(row["operation"]),
+        corrections=_corrections(row["payload"]),
         status=OutboxStatus.IN_FLIGHT,
         attempts=row["attempts"] + 1,
         enqueued_at=row["enqueued_at"],
@@ -313,6 +354,8 @@ def _entry(row: RowMapping) -> OutboxEntry:
         subject_id=row["subject_id"],
         resolver=row["resolver"],
         ref=SubjectRef(kind=row["ref_kind"], value=row["ref_value"], extra=row["ref_extra"]),
+        operation=OutboxOperation(row["operation"]),
+        corrections=_corrections(row["payload"]),
         status=OutboxStatus(row["status"]),
         attempts=row["attempts"],
         enqueued_at=row["enqueued_at"],

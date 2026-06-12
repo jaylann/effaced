@@ -17,23 +17,28 @@ from effaced.adapters.sqlalchemy.storage.outbox_table import (
     OUTBOX_TABLE_NAME,
     build_outbox_table,
 )
+from effaced.adapters.sqlalchemy.storage.restriction_records_table import (
+    RESTRICTION_RECORDS_TABLE_NAME,
+    build_restriction_records_table,
+)
 
 _ALL_TABLE_NAMES = (
     AUDIT_EVENTS_TABLE_NAME,
     CONSENT_RECORDS_TABLE_NAME,
     OUTBOX_TABLE_NAME,
+    RESTRICTION_RECORDS_TABLE_NAME,
 )
 
 
 def bind_tables(metadata: MetaData) -> EffacedTables:
     """Mount the effaced-owned tables on the application's ``MetaData``.
 
-    Defines ``effaced_audit_events``, ``effaced_consent_records`` and
-    ``effaced_outbox`` so they live in *your* database and ride *your*
-    migration tooling — no migration tool is assumed and no DDL is executed
-    here. Calling it again on the same ``MetaData`` is a no-op returning the
-    already-mounted tables, so module-level and app-factory setup styles
-    both work.
+    Defines ``effaced_audit_events``, ``effaced_consent_records``,
+    ``effaced_outbox`` and ``effaced_restriction_records`` so they live in
+    *your* database and ride *your* migration tooling — no migration tool is
+    assumed and no DDL is executed here. Calling it again on the same
+    ``MetaData`` is a no-op returning the already-mounted tables, so
+    module-level and app-factory setup styles both work.
 
     With Alembic, call this where your ``env.py``'s ``target_metadata`` is
     defined; ``alembic revision --autogenerate`` then picks the tables up
@@ -52,7 +57,7 @@ def bind_tables(metadata: MetaData) -> EffacedTables:
             (typically ``Base.metadata``).
 
     Returns:
-        Handles to the three mounted tables.
+        Handles to the four mounted tables.
 
     Raises:
         ValueError: If only some of the table names already exist on
@@ -65,6 +70,7 @@ def bind_tables(metadata: MetaData) -> EffacedTables:
             audit_events=metadata.tables[AUDIT_EVENTS_TABLE_NAME],
             consent_records=metadata.tables[CONSENT_RECORDS_TABLE_NAME],
             outbox=metadata.tables[OUTBOX_TABLE_NAME],
+            restriction_records=metadata.tables[RESTRICTION_RECORDS_TABLE_NAME],
         )
     if present:
         joined = ", ".join(present)
@@ -77,4 +83,5 @@ def bind_tables(metadata: MetaData) -> EffacedTables:
         audit_events=build_audit_events_table(metadata),
         consent_records=build_consent_records_table(metadata),
         outbox=build_outbox_table(metadata),
+        restriction_records=build_restriction_records_table(metadata),
     )

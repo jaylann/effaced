@@ -80,9 +80,12 @@ operating the saga.
 
 ## `ERASURE_COMPLETED`
 
-When an entry succeeds and **all** of the subject's outbox entries are now
-`SUCCEEDED`, the runner emits `ERASURE_COMPLETED` — the audit trail's
-statement that the erasure finished everywhere, local and external. The
+When an entry succeeds and **all** of the subject's outbox entries *of the
+same operation* are now `SUCCEEDED`, the runner emits the operation's
+completion event — `ERASURE_COMPLETED` for erase entries,
+`RECTIFICATION_COMPLETED` for [rectify entries](../rectification/) — the
+audit trail's statement that the request finished everywhere, local and
+external. The
 check runs under lock so exactly one runner observes the transition; a
 crash at the wrong instant can duplicate the event but never lose it.
 Runner audit events are generally at-least-once: assert on state, not

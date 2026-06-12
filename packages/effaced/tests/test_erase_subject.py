@@ -161,7 +161,8 @@ def test_happy_path_counts_and_retained_invoice(harness: Harness) -> None:
         assert alice["theme"] == "dark"
         assert bob["email"] == "bob@example.com"
         invoices = table_rows(session, "invoices")
-        assert {"id": 1, "user_id": 1, "billing_address": "1 Alice Street"} in invoices
+        retained = {"id": 1, "user_id": 1, "billing_address": "1 Alice Street", "closed_at": None}
+        assert retained in invoices
 
 
 def test_no_cross_subject_bleed(harness: Harness) -> None:

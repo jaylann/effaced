@@ -139,23 +139,26 @@ export const tiers: RoadmapTier[] = [
       {
         name: 'Rectification mechanism',
         scope: 'Correct a subject’s data across the mapped schema, auditably.',
-        status: 'planned',
+        status: 'shipped',
         art: 'ART. 16',
         ref: { kind: 'issue', number: 46 },
+        docsPath: 'concepts/rectification/',
       },
       {
         name: 'Restriction of processing',
         scope: 'Mark a subject restricted and make that state queryable and auditable.',
-        status: 'planned',
+        status: 'shipped',
         art: 'ART. 18',
         ref: { kind: 'issue', number: 47 },
+        docsPath: 'concepts/restriction/',
       },
       {
         name: 'Retention-expiry sweep',
         scope:
           'Surface records whose declared retention window has lapsed — report-only and audited, per ADR 0012.',
-        status: 'planned',
+        status: 'shipped',
         ref: { kind: 'issue', number: 48 },
+        docsPath: 'concepts/retention/',
       },
       {
         name: 'Settings-driven resolver registration',

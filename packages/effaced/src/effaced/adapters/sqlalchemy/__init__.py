@@ -14,6 +14,7 @@ from effaced.adapters.sqlalchemy.collector import collect_data_map
 from effaced.adapters.sqlalchemy.completeness_linter import lint_completeness
 from effaced.adapters.sqlalchemy.erasure_executor import ErasureExecutor
 from effaced.adapters.sqlalchemy.info import INFO_KEY, pii, subject_link
+from effaced.adapters.sqlalchemy.rectification_executor import RectificationExecutor
 from effaced.adapters.sqlalchemy.resolution import resolve_subject_graph
 from effaced.adapters.sqlalchemy.storage import EffacedTables, bind_tables
 
@@ -21,6 +22,7 @@ __all__ = [
     "INFO_KEY",
     "EffacedTables",
     "ErasureExecutor",
+    "RectificationExecutor",
     "SurrogateRegistry",
     "bind_tables",
     "collect_data_map",

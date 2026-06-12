@@ -12,7 +12,17 @@ from sqlalchemy import MetaData, create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from effaced import EffacedTables, Outbox, OutboxEntry, OutboxStatus, SubjectRef, bind_tables
+from effaced import (
+    Correction,
+    EffacedTables,
+    Outbox,
+    OutboxEntry,
+    OutboxOperation,
+    OutboxStatus,
+    PiiCategory,
+    SubjectRef,
+    bind_tables,
+)
 
 
 class OutboxHarness(NamedTuple):
@@ -147,3 +157,106 @@ def test_claim_batch_default_limit_is_fifty(harness: OutboxHarness) -> None:
 
     assert len(claimed) == 50
     assert {e.entry_id for e in claimed} == {UUID(int=n) for n in range(50)}
+
+
+# --- operation & corrections payload (ADR 0013) ------------------------------
+
+CORRECTIONS = (
+    Correction(category=PiiCategory.CONTACT, value="new@example.com"),
+    Correction(category=PiiCategory.IDENTITY, value="New Name"),
+)
+
+
+def rectify_entry(entry_id: UUID, *, subject_id: str = "1") -> OutboxEntry:
+    return OutboxEntry(
+        entry_id=entry_id,
+        subject_id=subject_id,
+        resolver="stripe",
+        ref=SubjectRef(kind="stripe", value="cus_123"),
+        operation=OutboxOperation.RECTIFY,
+        corrections=CORRECTIONS,
+        enqueued_at=ENQUEUED_AT,
+    )
+
+
+def test_operation_defaults_to_erase_and_round_trips(harness: OutboxHarness) -> None:
+    with harness.session_factory() as session:
+        harness.outbox.enqueue(session, [entry(UUID(int=1))])
+        session.commit()
+    (row,) = stored_rows(harness)
+    assert row["operation"] == "erase"
+    assert row["payload"] is None
+    (claimed,) = harness.outbox.claim_batch()
+    assert claimed.operation is OutboxOperation.ERASE
+    assert claimed.corrections == ()
+
+
+def test_corrections_round_trip_through_storage_and_claim(harness: OutboxHarness) -> None:
+    with harness.session_factory() as session:
+        harness.outbox.enqueue(session, [rectify_entry(UUID(int=1))])
+        session.commit()
+    (row,) = stored_rows(harness)
+    assert row["operation"] == "rectify"
+    assert row["payload"] == {
+        "corrections": [
+            {"category": "contact", "value": "new@example.com"},
+            {"category": "identity", "value": "New Name"},
+        ]
+    }
+    (claimed,) = harness.outbox.claim_batch()
+    assert claimed.operation is OutboxOperation.RECTIFY
+    assert claimed.corrections == CORRECTIONS
+
+
+def test_succeeded_clears_the_payload(harness: OutboxHarness) -> None:
+    """A terminal row never retains corrected values (ADR 0013)."""
+    with harness.session_factory() as session:
+        harness.outbox.enqueue(session, [rectify_entry(UUID(int=1))])
+        session.commit()
+    (claimed,) = harness.outbox.claim_batch()
+    harness.outbox.mark_succeeded(claimed, on_subject_complete=lambda: None)
+    (row,) = stored_rows(harness)
+    assert row["status"] == OutboxStatus.SUCCEEDED.value
+    assert row["payload"] is None
+
+
+def test_abandoned_clears_the_payload(harness: OutboxHarness) -> None:
+    with harness.session_factory() as session:
+        harness.outbox.enqueue(session, [rectify_entry(UUID(int=1))])
+        session.commit()
+    (claimed,) = harness.outbox.claim_batch()
+    harness.outbox.mark_abandoned(claimed, error="ResolverError")
+    (row,) = stored_rows(harness)
+    assert row["status"] == OutboxStatus.ABANDONED.value
+    assert row["payload"] is None
+
+
+def test_failed_keeps_the_payload_for_the_retry(harness: OutboxHarness) -> None:
+    with harness.session_factory() as session:
+        harness.outbox.enqueue(session, [rectify_entry(UUID(int=1))])
+        session.commit()
+    (claimed,) = harness.outbox.claim_batch()
+    harness.outbox.mark_failed(claimed, error="TimeoutError", next_attempt_at=ENQUEUED_AT)
+    (row,) = stored_rows(harness)
+    assert row["status"] == OutboxStatus.FAILED.value
+    assert row["payload"] is not None
+    (reclaimed,) = harness.outbox.claim_batch()
+    assert reclaimed.corrections == CORRECTIONS
+
+
+def test_completion_is_scoped_per_subject_and_operation(harness: OutboxHarness) -> None:
+    """An open erase entry does not block rectify completion, and vice versa."""
+    with harness.session_factory() as session:
+        harness.outbox.enqueue(session, [entry(UUID(int=1)), rectify_entry(UUID(int=2))])
+        session.commit()
+    completions: list[str] = []
+    rectify_done = rectify_entry(UUID(int=2))
+    harness.outbox.mark_succeeded(
+        rectify_done, on_subject_complete=lambda: completions.append("rectify")
+    )
+    assert completions == ["rectify"]  # the pending erase sibling is invisible here
+    erase_done = entry(UUID(int=1))
+    harness.outbox.mark_succeeded(
+        erase_done, on_subject_complete=lambda: completions.append("erase")
+    )
+    assert completions == ["rectify", "erase"]

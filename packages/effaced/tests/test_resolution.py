@@ -175,7 +175,8 @@ def test_fully_pii_owned_defaults_to_false() -> None:
 
 def test_fully_pii_owned_per_shared_schema_table(graph: SubjectGraph) -> None:
     assert graph.access("users").fully_pii_owned is False  # `theme` is unannotated
-    for table in ("invoices", "orders", "order_items", "comments"):
+    assert graph.access("invoices").fully_pii_owned is False  # `closed_at` is unannotated
+    for table in ("orders", "order_items", "comments"):
         assert graph.access(table).fully_pii_owned is True
 
 

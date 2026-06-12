@@ -79,6 +79,8 @@ def test_create_all_round_trips_all_three_tables(pg_engine: Engine) -> None:
             assert entry.subject_id == "subject-1"
             assert entry.ref_extra == {"account": "acct_1"}
             assert entry.status == OutboxStatus.PENDING.value  # python-side default fired
+            assert entry.operation == "erase"  # additive-migration default fired
+            assert entry.payload is None
             assert entry.attempts == 0
             assert entry.last_attempt_at is None
             assert entry.next_attempt_at is None
@@ -105,6 +107,7 @@ def test_postgres_schema_has_expected_indexes_and_jsonb(pg_engine: Engine) -> No
         for table_name, column_name in (
             ("effaced_audit_events", "payload"),
             ("effaced_outbox", "ref_extra"),
+            ("effaced_outbox", "payload"),
         ):
             columns = {c["name"]: c for c in inspector.get_columns(table_name)}
             assert isinstance(columns[column_name]["type"], JSONB)

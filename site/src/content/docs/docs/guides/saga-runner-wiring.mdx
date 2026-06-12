@@ -122,16 +122,38 @@ if __name__ == "__main__":
 Overlapping cron invocations are safe — concurrent runners skip each
 other's locked rows and never double-claim.
 
+## Rectification entries
+
+The outbox carries Art. 16 fan-out too: rectify entries
+(`operation = 'rectify'`) hold the corrected values in the row's
+`payload` column. **In-flight and retrying rows therefore contain
+personal data** — treat outbox inspection output accordingly. The payload
+is cleared the moment an entry reaches a terminal status (`succeeded` and
+`abandoned` alike); only the retry path keeps it, because the retry needs
+the values.
+
+Deployments whose `effaced_outbox` predates rectification need the
+additive columns (new `metadata.create_all` deployments get them
+automatically):
+
+```sql
+ALTER TABLE effaced_outbox
+  ADD COLUMN operation VARCHAR(32) NOT NULL DEFAULT 'erase';
+ALTER TABLE effaced_outbox ADD COLUMN payload JSONB;
+```
+
 ## Monitoring abandonment
 
 An entry whose retries are exhausted (or whose resolver raised the
 non-retryable `ResolverError`) becomes `ABANDONED`: it is never retried, it
-blocks `ERASURE_COMPLETED` for its subject permanently, and it is always
-audited (`ERASURE_STEP_FAILED` with `abandoned: true`). Abandonment means a
+blocks the completion event for its subject and operation permanently
+(`ERASURE_COMPLETED` for erase entries, `RECTIFICATION_COMPLETED` for
+rectify entries), and it is always audited (`ERASURE_STEP_FAILED` /
+`RECTIFICATION_STEP_FAILED` with `abandoned: true`). Abandonment means a
 data-subject request is **not finished** — alert on it:
 
 ```sql
-SELECT subject_id, resolver, last_error, attempts
+SELECT subject_id, resolver, operation, last_error, attempts
 FROM effaced_outbox WHERE status = 'abandoned';
 ```
 

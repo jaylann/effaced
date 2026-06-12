@@ -105,8 +105,8 @@ def test_retain_counts_rows_without_touching_them(harness: ExecutorHarness) -> N
     assert affected == 1
     invoices = rows(harness.session, Base.metadata.tables["invoices"])
     assert invoices == [
-        {"id": 1, "user_id": 1, "billing_address": "1 Alice Street"},
-        {"id": 2, "user_id": 2, "billing_address": "2 Bob Street"},
+        {"id": 1, "user_id": 1, "billing_address": "1 Alice Street", "closed_at": None},
+        {"id": 2, "user_id": 2, "billing_address": "2 Bob Street", "closed_at": None},
     ]
 
 

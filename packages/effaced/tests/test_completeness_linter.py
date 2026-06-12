@@ -42,7 +42,7 @@ def test_unannotated_plain_columns_in_annotated_tables_are_flagged(metadata: Met
     flagged_columns = {
         (finding.table, finding.column) for finding in findings if finding.column is not None
     }
-    assert flagged_columns == {("users", "theme")}
+    assert flagged_columns == {("users", "theme"), ("invoices", "closed_at")}
 
 
 def test_primary_and_foreign_key_columns_are_never_flagged(metadata: MetaData) -> None:
@@ -84,7 +84,7 @@ def test_assert_data_map_complete_honours_exemptions(metadata: MetaData) -> None
     assert_data_map_complete(
         metadata,
         exempt_tables=("tags", "user_tags", "app_settings"),
-        exempt_columns=("users.theme",),
+        exempt_columns=("users.theme", "invoices.closed_at"),
     )
 
 

@@ -15,12 +15,18 @@ from typing import TYPE_CHECKING, TypeVar
 import pytest
 
 from effaced.exceptions import ResolverError
-from effaced.resolvers import Resolver, ResolverErasure, ResolverExport
+from effaced.resolvers import (
+    RectifyingResolver,
+    Resolver,
+    ResolverErasure,
+    ResolverExport,
+    ResolverRectification,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Coroutine
 
-    from effaced.annotations import SubjectRef
+    from effaced.annotations import Correction, SubjectRef
 
 _T = TypeVar("_T")
 
@@ -38,6 +44,11 @@ class ResolverConformanceSuite:
     Override :meth:`make_nonretryable_resolver` and
     :meth:`make_transient_resolver` to also prove the error taxonomy;
     the corresponding tests skip while those hooks return ``None``.
+    Resolvers implementing the optional
+    :class:`~effaced.RectifyingResolver` capability override
+    :meth:`make_corrections` to also prove the rectification contract —
+    the rectify tests skip while the hook returns ``None`` or the
+    resolver lacks ``rectify_subject``.
     """
 
     def make_resolver(self) -> Resolver:
@@ -58,6 +69,16 @@ class ResolverConformanceSuite:
 
     def make_transient_resolver(self) -> tuple[Resolver, type[Exception]] | None:
         """Resolver wired to fail transiently, plus the expected type."""
+        return None
+
+    def make_corrections(self) -> tuple[Correction, ...] | None:
+        """Corrections for the rectification tests.
+
+        The corrected values must differ from the state
+        :meth:`make_resolver` seeds for the present subject — the suite
+        proves the first application reports a change
+        (``already_consistent=False``) and the second does not.
+        """
         return None
 
     def _run(self, coro: Coroutine[None, None, _T]) -> _T:
@@ -146,3 +167,36 @@ class ResolverConformanceSuite:
             self._run(resolver.erase_subject(ref))
         assert not isinstance(export_error.value, ResolverError)
         assert not isinstance(erase_error.value, ResolverError)
+
+    def _rectification_hook(self) -> tuple[RectifyingResolver, tuple[Correction, ...]]:
+        """The rectify tests' resolver and corrections, or a skip."""
+        corrections = self.make_corrections()
+        if corrections is None:
+            pytest.skip("resolver package provides no corrections hook")
+        resolver = self.make_resolver()
+        if not isinstance(resolver, RectifyingResolver):
+            pytest.skip("resolver does not implement rectify_subject")
+        return resolver, corrections
+
+    def test_rectify_of_present_subject_succeeds(self) -> None:
+        """Rectifying a held subject succeeds and reports a change."""
+        resolver, corrections = self._rectification_hook()
+        outcome = self._run(resolver.rectify_subject(self.make_present_ref(), corrections))
+        assert isinstance(outcome, ResolverRectification)
+        assert outcome.resolver == resolver.name
+        assert outcome.already_consistent is False
+
+    def test_rectify_is_idempotent(self) -> None:
+        """Convergence: the second identical call is already consistent."""
+        resolver, corrections = self._rectification_hook()
+        ref = self.make_present_ref()
+        first = self._run(resolver.rectify_subject(ref, corrections))
+        second = self._run(resolver.rectify_subject(ref, corrections))
+        assert first.already_consistent is False
+        assert second.already_consistent is True
+
+    def test_rectify_of_absent_subject_is_consistent_success(self) -> None:
+        """Rectifying a never-held subject is success — never an error."""
+        resolver, corrections = self._rectification_hook()
+        outcome = self._run(resolver.rectify_subject(self.make_absent_ref(), corrections))
+        assert outcome.already_consistent is True

@@ -16,12 +16,14 @@ from effaced.adapters.sqlalchemy.storage.bind_tables import (
     AUDIT_EVENTS_TABLE_NAME,
     CONSENT_RECORDS_TABLE_NAME,
     OUTBOX_TABLE_NAME,
+    RESTRICTION_RECORDS_TABLE_NAME,
 )
 
 ALL_TABLE_NAMES = (
     AUDIT_EVENTS_TABLE_NAME,
     CONSENT_RECORDS_TABLE_NAME,
     OUTBOX_TABLE_NAME,
+    RESTRICTION_RECORDS_TABLE_NAME,
 )
 
 EXPECTED_INDEX_NAMES = {
@@ -31,16 +33,17 @@ EXPECTED_INDEX_NAMES = {
         "ix_effaced_outbox_status_enqueued_at",
         "ix_effaced_outbox_subject_id",
     },
+    RESTRICTION_RECORDS_TABLE_NAME: {"ix_effaced_restriction_records_subject_purpose_recorded_at"},
 }
 
 
-def test_bind_tables_mounts_all_three_tables() -> None:
+def test_bind_tables_mounts_all_four_tables() -> None:
     metadata = MetaData()
     bind_tables(metadata)
     for name in ALL_TABLE_NAMES:
         assert name in metadata.tables
         assert name.startswith("effaced_")
-    assert len([n for n in metadata.tables if n.startswith("effaced_")]) == 3
+    assert len([n for n in metadata.tables if n.startswith("effaced_")]) == 4
 
 
 def test_bind_tables_returns_table_handles() -> None:
@@ -50,6 +53,7 @@ def test_bind_tables_returns_table_handles() -> None:
     assert tables.audit_events is metadata.tables[AUDIT_EVENTS_TABLE_NAME]
     assert tables.consent_records is metadata.tables[CONSENT_RECORDS_TABLE_NAME]
     assert tables.outbox is metadata.tables[OUTBOX_TABLE_NAME]
+    assert tables.restriction_records is metadata.tables[RESTRICTION_RECORDS_TABLE_NAME]
 
 
 def test_bind_tables_is_idempotent() -> None:
@@ -59,6 +63,7 @@ def test_bind_tables_is_idempotent() -> None:
     assert second.audit_events is first.audit_events
     assert second.consent_records is first.consent_records
     assert second.outbox is first.outbox
+    assert second.restriction_records is first.restriction_records
 
 
 def test_bind_tables_rejects_partial_collision() -> None:
@@ -91,6 +96,17 @@ def test_consent_records_has_surrogate_uuid_pk_and_no_unique_constraint() -> Non
     assert not any(index.unique for index in table.indexes)
 
 
+def test_restriction_records_has_surrogate_uuid_pk_and_nullable_scope_fields() -> None:
+    table = bind_tables(MetaData()).restriction_records
+    assert [c.name for c in table.primary_key.columns] == ["record_id"]
+    assert table.columns["record_id"].default is not None
+    assert table.columns["purpose"].nullable is True
+    assert table.columns["reason"].nullable is True
+    assert table.columns["source"].nullable is True
+    assert table.columns["restricted"].nullable is False
+    assert not any(index.unique for index in table.indexes)
+
+
 def test_outbox_flattens_subject_ref() -> None:
     table = bind_tables(MetaData()).outbox
     assert {"ref_kind", "ref_value", "ref_extra"} <= {c.name for c in table.columns}
@@ -108,7 +124,13 @@ def test_postgresql_ddl_uses_jsonb_uuid_timestamptz() -> None:
     metadata = MetaData()
     tables = bind_tables(metadata)
     dialect = postgresql.dialect()
-    for table in (tables.audit_events, tables.consent_records, tables.outbox):
+    all_tables = (
+        tables.audit_events,
+        tables.consent_records,
+        tables.outbox,
+        tables.restriction_records,
+    )
+    for table in all_tables:
         ddl = str(CreateTable(table).compile(dialect=dialect))
         assert "UUID" in ddl
         assert "TIMESTAMP WITH TIME ZONE" in ddl
@@ -127,16 +149,33 @@ def test_index_names_are_stable_and_within_pg_limit() -> None:
     convention = {"ix": "ix_%(column_0_label)s"}
     for metadata in (MetaData(), MetaData(naming_convention=convention)):
         tables = bind_tables(metadata)
-        for table in (tables.audit_events, tables.consent_records, tables.outbox):
+        all_tables = (
+            tables.audit_events,
+            tables.consent_records,
+            tables.outbox,
+            tables.restriction_records,
+        )
+        for table in all_tables:
             names = {index.name for index in table.indexes}
             assert names == EXPECTED_INDEX_NAMES[table.name]
             assert all(len(name) <= 63 for name in names if name)
 
 
-def test_no_server_defaults() -> None:
+def test_no_server_defaults_except_the_outbox_operation_migration_aid() -> None:
+    """Defaults stay python-side — except ``operation``, whose server default
+    is what makes the additive ALTER backfill populated outboxes (ADR 0013)."""
     tables = bind_tables(MetaData())
-    for table in (tables.audit_events, tables.consent_records, tables.outbox):
+    all_tables = (
+        tables.audit_events,
+        tables.consent_records,
+        tables.outbox,
+        tables.restriction_records,
+    )
+    for table in all_tables:
         for column in table.columns:
+            if (table.name, column.name) == (OUTBOX_TABLE_NAME, "operation"):
+                assert column.server_default is not None
+                continue
             assert column.server_default is None, f"{table.name}.{column.name}"
 
 

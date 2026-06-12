@@ -257,7 +257,8 @@ def test_terminal_external_failure_after_commit_keeps_local_erasure() -> None:
     assert rows["users"][0]["email"] != "alice@example.com"
     assert all(row["user_id"] != 1 for row in rows["orders"])
     assert all(row["user_id"] != 1 for row in rows["comments"])
-    assert {"id": 1, "user_id": 1, "billing_address": "1 Alice Street"} in rows["invoices"]
+    retained = {"id": 1, "user_id": 1, "billing_address": "1 Alice Street", "closed_at": None}
+    assert retained in rows["invoices"]
 
 
 def test_sink_outage_during_settle_keeps_entry_in_flight_and_heals() -> None:

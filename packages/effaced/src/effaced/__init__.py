@@ -1,12 +1,13 @@
 """effaced — GDPR data-subject mechanisms for your own stack.
 
-Export (Art. 15), erasure (Art. 17), consent (Art. 7), and an append-only
-audit trail (Art. 5(2)/30) across your own database *and* the external
-systems you actually use. We ship the mechanisms. You own the compliance.
+Export (Art. 15), erasure (Art. 17), rectification (Art. 16), consent
+(Art. 7), restriction of processing (Art. 18), and an append-only audit
+trail (Art. 5(2)/30) across your own database *and* the external systems
+you actually use. We ship the mechanisms. You own the compliance.
 
-The integration surface is three calls: record consent, export a subject,
-erase a subject. Everything else is bookkeeping the library does between
-those calls.
+The integration surface is a handful of calls: record consent, record a
+restriction, export a subject, erase a subject, rectify a subject.
+Everything else is bookkeeping the library does between those calls.
 """
 
 from importlib.metadata import PackageNotFoundError, version
@@ -14,6 +15,7 @@ from importlib.metadata import PackageNotFoundError, version
 from effaced.adapters.sqlalchemy import (
     EffacedTables,
     ErasureExecutor,
+    RectificationExecutor,
     SurrogateRegistry,
     bind_tables,
     collect_data_map,
@@ -23,7 +25,7 @@ from effaced.adapters.sqlalchemy import (
     resolve_subject_graph,
     subject_link,
 )
-from effaced.annotations import PiiSpec, RetentionPolicy, SubjectLink, SubjectRef
+from effaced.annotations import Correction, PiiSpec, RetentionPolicy, SubjectLink, SubjectRef
 from effaced.audit import AuditEvent, AuditEventType, AuditSink, DatabaseAuditSink
 from effaced.categories import ErasureStrategy, LegalBasis, PiiCategory
 from effaced.consent import ConsentLedger, ConsentRecord
@@ -51,8 +53,30 @@ from effaced.manifest import (
     TableEntry,
     fk_safe_deletion_order,
 )
-from effaced.resolvers import Resolver, ResolverErasure, ResolverExport, ResolverRegistry
-from effaced.saga import BackoffPolicy, Outbox, OutboxEntry, OutboxStatus, SagaRunner
+from effaced.rectification import (
+    RectificationResult,
+    RectificationStep,
+    RectificationStepExecutor,
+    Rectifier,
+)
+from effaced.resolvers import (
+    RectifyingResolver,
+    Resolver,
+    ResolverErasure,
+    ResolverExport,
+    ResolverRectification,
+    ResolverRegistry,
+)
+from effaced.restriction import RestrictionLedger, RestrictionRecord
+from effaced.retention import RetentionReport, RetentionReportEntry, RetentionSweeper
+from effaced.saga import (
+    BackoffPolicy,
+    Outbox,
+    OutboxEntry,
+    OutboxOperation,
+    OutboxStatus,
+    SagaRunner,
+)
 
 try:
     __version__ = version("effaced")
@@ -73,6 +97,7 @@ __all__ = [
     "ConsentError",
     "ConsentLedger",
     "ConsentRecord",
+    "Correction",
     "DataMap",
     "DatabaseAuditSink",
     "EffacedError",
@@ -91,15 +116,28 @@ __all__ = [
     "ManifestError",
     "Outbox",
     "OutboxEntry",
+    "OutboxOperation",
     "OutboxStatus",
     "PiiCategory",
     "PiiSpec",
+    "RectificationExecutor",
+    "RectificationResult",
+    "RectificationStep",
+    "RectificationStepExecutor",
+    "Rectifier",
+    "RectifyingResolver",
     "Resolver",
     "ResolverErasure",
     "ResolverError",
     "ResolverExport",
+    "ResolverRectification",
     "ResolverRegistry",
+    "RestrictionLedger",
+    "RestrictionRecord",
     "RetentionPolicy",
+    "RetentionReport",
+    "RetentionReportEntry",
+    "RetentionSweeper",
     "RetentionViolationError",
     "SagaRunner",
     "StepExecutor",

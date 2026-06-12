@@ -7,20 +7,24 @@ gets an explicit upgrade branch in :func:`migrate`.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
 
 from effaced.exceptions import ManifestError
 
-MANIFEST_SCHEMA_VERSION = 1
+MANIFEST_SCHEMA_VERSION = 2
 """Current manifest schema version. Bump on ANY format change, with a
-matching upgrade branch in :func:`migrate` — this is a MAJOR release."""
+matching upgrade branch in :func:`migrate`. Adding a field behind a forward
+migration is MINOR; removing or renaming serialized fields is MAJOR (old
+manifests must keep loading forever)."""
 
 
 def migrate(data: dict[str, Any]) -> dict[str, Any]:
     """Lift a serialized manifest to :data:`MANIFEST_SCHEMA_VERSION`.
 
     Args:
-        data: A manifest payload of any historical schema version.
+        data: A manifest payload of any historical schema version. Never
+            mutated: upgrades operate on a deep copy.
 
     Returns:
         The payload upgraded to the current schema version.
@@ -39,5 +43,14 @@ def migrate(data: dict[str, Any]) -> dict[str, Any]:
             f"release understands ({MANIFEST_SCHEMA_VERSION}); upgrade effaced"
         )
         raise ManifestError(msg)
-    # version 1 is current — future versions add upgrade branches above this line
+    data = deepcopy(data)
+    if version == 1:
+        # v2 added RetentionPolicy.anchor (ADR 0012): old policies have no clock.
+        for table in data.get("tables", ()):
+            for column in table.get("columns", ()):
+                retention = column.get("spec", {}).get("retention")
+                if retention is not None:
+                    retention.setdefault("anchor", None)
+        data["schema_version"] = 2
+    # version 2 is current — future versions add upgrade branches above this line
     return data

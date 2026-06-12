@@ -1,0 +1,101 @@
+---
+title: Rectification
+description: Art. 16 as category-keyed corrections — applied across the mapped schema, fanned out to resolvers through the outbox, audited without ever recording a value.
+---
+
+Art. 16 gives the data subject the right to have inaccurate personal data
+corrected without undue delay. effaced already knows where a subject's
+PII lives — the data map locally, refs→resolvers externally — so
+rectification applies a correction everywhere that map reaches:
+
+```python
+rectifier = Rectifier(
+    data_map, graph, registry,
+    executor=RectificationExecutor(metadata),
+    outbox=outbox,
+    audit_sink=audit,
+)
+
+result = rectifier.rectify_subject(
+    session,
+    "42",
+    (Correction(category=PiiCategory.CONTACT, value="right@example.com"),),
+    refs=(SubjectRef(kind="stripe", value="cus_123"),),
+)
+session.commit()
+```
+
+## Corrections are keyed by category, not column
+
+A `Correction` pairs a `PiiCategory` with the corrected value. Category is
+the right key for three reasons: it is the only vocabulary external
+resolvers share with your schema; Art. 16 is about *accuracy*, and a
+category-wide write keeps denormalized copies of the same fact consistent
+(correcting one `email` column and missing its copy is a fresh
+inaccuracy); and column addressing would leak your schema into the
+request layer.
+
+That makes the write deliberately blunt: every annotated column of the
+category, in every table reachable from the subject, gets the same value
+— a correction cannot fix one row but not another. Schemas where one
+category legitimately holds per-row-divergent values need per-row
+mechanisms effaced does not ship. A category matching no local column is
+a complete answer, not an error: it may still match externally.
+
+## Erasure strategy does not gate rectification
+
+`RETAIN` and `ANONYMIZE` columns of the category are rectified too.
+Strategy governs what happens on *erasure*; an inaccurate record retained
+under a legal duty is the worst of both worlds, and Art. 16 does not
+defer to Art. 17 annotations. This asymmetry is pinned on purpose —
+changing it is a breaking change under
+[widened SemVer](../../project/stability/).
+
+## External fan-out: the outbox as a temporary PII store
+
+External corrections enqueue as outbox entries in your transaction,
+atomically with the local writes — the half-rectified state is the same
+bug as the half-erased state, and gets the same cure. Two things differ
+from erasure entries:
+
+- The entry carries the corrections in its `payload` column. That payload
+  is **real PII** (the corrected values) and must survive retries, so it
+  lives in the row — and is cleared the moment the entry reaches a
+  terminal status (`SUCCEEDED` and `ABANDONED` alike). In-flight rows
+  contain corrected values; the
+  [saga runner guide](../../guides/saga-runner-wiring/) says so where it
+  matters, next to the outbox-inspection SQL.
+- Completion is per (subject, operation): `RECTIFICATION_COMPLETED`
+  considers only rectify entries, `ERASURE_COMPLETED` only erase entries
+  — an abandoned erasure never blocks a finished rectification, or vice
+  versa.
+
+Resolvers opt in by implementing the optional `rectify_subject` method
+(the `RectifyingResolver` capability). A registered resolver without it
+is *skipped and recorded* in `skipped_resolvers` — capability absence is
+an honest answer, never an error, exactly like a resolver with no
+matching ref. The idempotency contract is convergence: re-applying a
+correction the system already reflects returns success with
+`already_consistent=True`, the rectification analogue of erasure's
+`already_absent`.
+
+## The audit trail never sees a value
+
+The local trail is `RECTIFICATION_REQUESTED` · one
+`RECTIFICATION_STEP_SUCCEEDED` per local step · (`RECTIFICATION_STEP_FAILED`
+then re-raise, or `RECTIFICATION_LOCAL_COMPLETED`); the saga runner adds
+`RECTIFICATION_STEP_SUCCEEDED`/`RECTIFICATION_STEP_FAILED` per external
+entry and `RECTIFICATION_COMPLETED` when the subject's last rectify entry
+lands. Payloads carry table, column-category, and resolver names plus
+counts only. **Old and new values never appear in any event** — both are
+PII, and the no-PII-in-the-trail rule has no rectification exception.
+
+:::note
+Art. 19 obliges the controller to communicate a rectification to each
+recipient the data was disclosed to, unless impossible or
+disproportionate. The resolver fan-out is the mechanical half of that
+duty for the systems you have wired in; informing *other* recipients —
+and deciding who counts as one — remains your process.
+:::
+
+Full signatures: [API reference](../../reference/rectification/).

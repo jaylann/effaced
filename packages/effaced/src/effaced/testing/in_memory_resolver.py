@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from effaced.resolvers.results import ResolverErasure, ResolverExport
+from effaced.resolvers.erasure import ResolverErasure
+from effaced.resolvers.export import ResolverExport
+from effaced.resolvers.rectification import ResolverRectification
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-    from effaced.annotations import SubjectRef
+    from effaced.annotations import Correction, SubjectRef
     from effaced.export import ExportRecord
 
 
@@ -18,10 +20,12 @@ class InMemoryResolver:
 
     Executable documentation of the resolver contract: erasure is
     idempotent (erasing an unknown subject reports ``already_absent=True``,
-    never an error) and export converges to empty after erasure. Use it as
-    a stand-in external system in application tests, and as the reference
-    implementation the :class:`~effaced.testing.ResolverConformanceSuite`
-    is itself verified against.
+    never an error), rectification is convergent (re-applying reflected
+    corrections reports ``already_consistent=True``), and export converges
+    to empty after erasure. Use it as a stand-in external system in
+    application tests, and as the reference implementation the
+    :class:`~effaced.testing.ResolverConformanceSuite` is itself verified
+    against.
 
     Not safe for concurrent mutation — it is a test double, not a store.
     """
@@ -84,3 +88,37 @@ class InMemoryResolver:
             raise self._error
         present = self._records.pop(ref.value, None) is not None
         return ResolverErasure(resolver=self._name, already_absent=not present)
+
+    async def rectify_subject(
+        self, ref: SubjectRef, corrections: tuple[Correction, ...]
+    ) -> ResolverRectification:
+        """Replace each held record's value whose category matches a correction.
+
+        Convergent by contract: when nothing changes — every matched
+        record already holds the corrected value, or the subject is not
+        held at all — the call is success with ``already_consistent=True``.
+
+        Args:
+            ref: ``kind=<name>``, ``value=<seeded key>``.
+            corrections: Category-keyed corrected values to apply.
+
+        Returns:
+            ``already_consistent=True`` when the call changed nothing.
+
+        Raises:
+            Exception: The injected ``error``, when one was configured.
+        """
+        if self._error is not None:
+            raise self._error
+        held = self._records.get(ref.value)
+        if held is None:
+            return ResolverRectification(resolver=self._name, already_consistent=True)
+        values = {correction.category: correction.value for correction in corrections}
+        updated = tuple(
+            record.model_copy(update={"value": values[record.category]})
+            if record.category in values
+            else record
+            for record in held
+        )
+        self._records[ref.value] = updated
+        return ResolverRectification(resolver=self._name, already_consistent=updated == held)
