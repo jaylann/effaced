@@ -32,8 +32,8 @@ class ErasureVerifier:
     :class:`~effaced.ErasurePlanner` internally and reading its local steps,
     never re-implementing the classification. It then counts, per table, the
     rows still scoped to the subject through the same hop-chain predicate the
-    executor used (:func:`~effaced.adapters.sqlalchemy.scoping.subject_scope`),
-    issuing nothing but ``SELECT COUNT`` statements — it is strictly
+    executor used (the shared ``scoping.subject_scope`` helper), issuing
+    nothing but ``SELECT COUNT`` statements — it is strictly
     read-only and mutates no row.
 
     The verdict proves **execution fidelity**, not erasure completeness, and
