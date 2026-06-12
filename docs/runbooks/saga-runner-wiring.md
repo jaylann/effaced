@@ -135,6 +135,28 @@ if counts[OutboxStatus.ABANDONED]:
 `SELECT subject_id, resolver, last_error, attempts FROM effaced_outbox
 WHERE status = 'abandoned';`)
 
+Both of the above are a **pull** — you have to remember to look. For a **push**,
+wire an `AbandonedHook` into the runner: it fires the instant an entry flips to
+`ABANDONED`, so a stalled request pages you at 3am instead of waiting for the
+next monitoring sweep.
+
+```python
+class PageOnCall:
+    def on_abandoned(self, signal: AbandonedSignal) -> None:
+        page_oncall(signal.subject_id, signal.resolver, signal.attempts, signal.error)
+
+runner = SagaRunner(registry, outbox, audit, on_abandoned=PageOnCall())
+```
+
+The hook runs **after** the entry is durably `ABANDONED` and its
+`ERASURE_STEP_FAILED` event is written, and whatever it raises is swallowed — a
+slow or down alerting backend can never corrupt or block the state transition or
+the audit trail. Keep it fast and resilient; it runs on the runner's thread. The
+`signal` carries no PII (the error is the exception *class name* only), and its
+`operation` tells erase from rectify — a rectify abandonment cannot be requeued
+(see below). It complements the polling above; it does not replace it (a hook
+that no-ops on a crash still leaves the row queryable).
+
 Remediation (ADR 0015) — abandoned **erase** entries: fix the underlying cause
 (credentials, deleted API resource, resolver bug), then `requeue` them by id.
 Each flips back to `PENDING` with a full retry budget (`attempts = 0`,

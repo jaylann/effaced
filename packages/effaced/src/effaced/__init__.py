@@ -78,6 +78,8 @@ from effaced.resolvers import (
 from effaced.restriction import RestrictionLedger, RestrictionRecord
 from effaced.retention import RetentionReport, RetentionReportEntry, RetentionSweeper
 from effaced.saga import (
+    AbandonedHook,
+    AbandonedSignal,
     BackoffPolicy,
     Outbox,
     OutboxEntry,
@@ -94,6 +96,8 @@ except PackageNotFoundError:  # pragma: no cover - only hit on uninstalled sourc
 
 __all__ = [
     "MANIFEST_SCHEMA_VERSION",
+    "AbandonedHook",
+    "AbandonedSignal",
     "AnonymizationError",
     "AuditEvent",
     "AuditEventType",
