@@ -46,6 +46,9 @@ Repository = "https://github.com/jaylann/effaced"
 Issues = "https://github.com/jaylann/effaced/issues"
 Changelog = "https://github.com/jaylann/effaced/blob/main/packages/effaced/CHANGELOG.md"
 
+[project.scripts]
+effaced = "effaced.cli.main:main"
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/effaced"]
 

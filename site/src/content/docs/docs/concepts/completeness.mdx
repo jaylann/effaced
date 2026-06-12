@@ -66,3 +66,58 @@ removal, so the list never outlives the schema it judged.
 Everything else in a mapped table needs an annotation or an exemption.
 The linter is read-only and needs no database connection — it walks the
 same `MetaData` the [collector](../manifest/) does.
+
+## Reachability: annotated but unreachable
+
+A table can be fully annotated and still never be erased. Completeness
+asks "is every column declared?"; it does not ask "can the planner route
+this table back to a subject?". A table whose `subject_link` path the
+[planner](../erasure/) cannot walk — a wrong relationship name, an
+un-mapped class, a path that stops short of the subject table — is
+silently skipped at erasure time.
+
+`lint_reachability` closes that gap. It is the exact inverse of subject-graph
+resolution: it returns no findings **if and only if**
+`resolve_subject_graph` succeeds. Where resolution raises on the first
+unreachable table, the linter probes each table independently and returns
+one finding per gap, so you see every problem at once.
+
+```python
+from effaced import collect_data_map, lint_reachability
+
+data_map = collect_data_map(Base.metadata)
+for finding in lint_reachability(data_map, Base.registry):
+    print(finding.message)
+# table 'order_items' is unreachable from the subject: subject link path
+#   'order.buyer' ends at 'orders', not at the subject table 'users'
+```
+
+Like a completeness finding, a reachability finding is a **question, not a
+verdict** — fix the path, map the class, or decide the table needs no path
+at all.
+
+## The `effaced lint` command
+
+Both linters run from one console script, for use in CI without writing a
+test harness. Point it at your declarative `Base` (or a bare `MetaData`)
+using the `module.path:attribute` form Alembic and Gunicorn use:
+
+```bash
+effaced lint myapp.models:Base
+```
+
+It prints each finding's one-line message and exits `0` when the data map
+is clean, `1` when there are findings, and `2` on a usage or load error (a
+malformed target, an un-importable module, or malformed annotations). A
+bare `MetaData` has no ORM registry, so reachability is skipped and the
+command notes it; completeness still runs.
+
+## The boundary
+
+This proves the **structural** completeness of your data map — that every
+table and column is either declared or consciously exempt, and that every
+declared store has a subject path the planner can walk. It does **not**
+prove your annotations are semantically correct: that a column really does
+hold the category you tagged it with, or that a `RETAIN` reason is a valid
+legal basis. Those judgements are yours. effaced ships mechanisms, never a
+determination that you have met any legal obligation.

@@ -11,5 +11,6 @@ the storage-agnostic finding model they emit.
 """
 
 from effaced.lint.completeness_finding import CompletenessFinding
+from effaced.lint.reachability_finding import ReachabilityFinding
 
-__all__ = ["CompletenessFinding"]
+__all__ = ["CompletenessFinding", "ReachabilityFinding"]
