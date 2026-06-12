@@ -1,0 +1,84 @@
+---
+title: Hardening the audit trail
+description: Make effaced's append-only audit table append-only at the Postgres
+  layer too, with a trigger and restricted grants.
+sidebar:
+  order: 3
+slug: 0.1/docs/guides/audit-hardening
+---
+
+The `effaced_audit_events` table is append-only **by construction** in the
+library: no code path updates or deletes rows, and the `AuditSink`
+protocol exposes no surface to do so. That covers everything effaced
+itself can do.
+
+It does not cover everything *your database* can do. The table's schema
+alone cannot stop raw SQL in a psql session, a migration gone wrong, or
+another application sharing the database from rewriting history. If your
+threat model includes writers outside effaced, enforce append-only at the
+database itself.
+
+:::note
+This is optional hardening of the mechanism — not a compliance
+determination. Whether your obligations require tamper-resistance at this
+layer is a question for your process, not the library.
+:::
+
+## A trigger that rejects rewrites
+
+On Postgres, a row-level trigger blocks `UPDATE` and `DELETE` for every
+role, including the application's own:
+
+```sql
+CREATE FUNCTION effaced_audit_events_no_rewrite() RETURNS trigger
+LANGUAGE plpgsql AS $$
+BEGIN
+    RAISE EXCEPTION 'effaced_audit_events is append-only (% blocked)', TG_OP;
+END;
+$$;
+
+CREATE TRIGGER effaced_audit_events_append_only
+    BEFORE UPDATE OR DELETE ON effaced_audit_events
+    FOR EACH ROW EXECUTE FUNCTION effaced_audit_events_no_rewrite();
+```
+
+effaced never updates or deletes audit rows, so the trigger changes
+nothing about normal operation — it only turns an out-of-band rewrite
+into a loud error.
+
+## Shipping it with Alembic
+
+The trigger is plain DDL, so it rides your migrations like any other
+schema change:
+
+```python
+def upgrade() -> None:
+    op.execute("""
+        CREATE FUNCTION effaced_audit_events_no_rewrite() ...
+    """)  # full SQL from above
+
+
+def downgrade() -> None:
+    op.execute("DROP TRIGGER effaced_audit_events_append_only ON effaced_audit_events")
+    op.execute("DROP FUNCTION effaced_audit_events_no_rewrite()")
+```
+
+## Gaps the trigger does not close
+
+* **Table owners and superusers can drop the trigger.** Combine it with
+  restricted grants if that matters to you: run the application as a role
+  that does not own the table.
+* **`TRUNCATE` is not covered by row-level triggers.** Revoke it
+  explicitly:
+
+  ```sql
+  REVOKE TRUNCATE ON effaced_audit_events FROM your_app_role;
+  ```
+
+## Retention of the trail itself
+
+With the trigger in place, pruning very old audit events requires
+deliberately dropping the trigger in a migration — an explicit,
+reviewable step rather than a quiet `DELETE`. That friction is the point:
+the record of what your erasure machinery did should not be erasable in
+passing.

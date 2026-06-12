@@ -3,12 +3,21 @@
 from __future__ import annotations
 
 import effaced
+import effaced.adapters.sqlalchemy
 import effaced.manifest
+import effaced.saga
 
 
 def test_all_names_resolve() -> None:
     for name in effaced.__all__:
         assert getattr(effaced, name, None) is not None, f"effaced.{name} missing"
+
+
+def test_status_counts_source_reexported_from_root() -> None:
+    assert "StatusCountsSource" in effaced.__all__
+    assert effaced.StatusCountsSource is effaced.saga.StatusCountsSource
+    assert "SqlStatusCountsSource" in effaced.__all__
+    assert effaced.SqlStatusCountsSource is effaced.adapters.sqlalchemy.SqlStatusCountsSource
 
 
 def test_all_is_sorted() -> None:

@@ -1,0 +1,59 @@
+{
+  "sidebar": [
+    {
+      "label": "Start here",
+      "items": [
+        "docs",
+        "docs/quickstart"
+      ]
+    },
+    {
+      "label": "Concepts",
+      "items": [
+        "docs/concepts/annotations",
+        "docs/concepts/erasure",
+        "docs/concepts/saga",
+        "docs/concepts/export",
+        "docs/concepts/consent",
+        "docs/concepts/audit",
+        "docs/concepts/resolvers",
+        "docs/concepts/manifest"
+      ]
+    },
+    {
+      "label": "Guides",
+      "items": [
+        {
+          "autogenerate": {
+            "directory": "docs/guides"
+          }
+        }
+      ]
+    },
+    {
+      "label": "Project",
+      "items": [
+        {
+          "autogenerate": {
+            "directory": "docs/project"
+          }
+        },
+        {
+          "label": "Roadmap",
+          "link": "/roadmap/"
+        }
+      ]
+    },
+    {
+      "label": "API reference",
+      "collapsed": true,
+      "items": [
+        {
+          "autogenerate": {
+            "directory": "docs/reference"
+          }
+        }
+      ]
+    }
+  ]
+}

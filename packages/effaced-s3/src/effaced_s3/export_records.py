@@ -23,12 +23,11 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
     from datetime import datetime
 
-_SOURCE = "s3"
-
 
 def object_records(
     key: str,
     *,
+    source: str,
     size: int,
     content_type: str | None,
     last_modified: datetime | None,
@@ -44,6 +43,10 @@ def object_records(
 
     Args:
         key: The object's full key.
+        source: The ``ExportRecord.source`` label every produced record
+            carries — the resolver's name (``"s3"``,
+            ``"supabase_storage"``), so the bundle records which system
+            held the object.
         size: Body size in bytes.
         content_type: The stored MIME type, when S3 reports one.
         last_modified: Upload timestamp, when S3 reports one.
@@ -57,16 +60,16 @@ def object_records(
     prefix = f"object.{key}"
     records = [
         ExportRecord(
-            source=_SOURCE, field=f"{prefix}.key", category=PiiCategory.COMMUNICATION, value=key
+            source=source, field=f"{prefix}.key", category=PiiCategory.COMMUNICATION, value=key
         ),
         ExportRecord(
-            source=_SOURCE, field=f"{prefix}.size", category=PiiCategory.TECHNICAL, value=size
+            source=source, field=f"{prefix}.size", category=PiiCategory.TECHNICAL, value=size
         ),
     ]
     if content_type is not None:
         records.append(
             ExportRecord(
-                source=_SOURCE,
+                source=source,
                 field=f"{prefix}.content_type",
                 category=PiiCategory.TECHNICAL,
                 value=content_type,
@@ -75,7 +78,7 @@ def object_records(
     if last_modified is not None:
         records.append(
             ExportRecord(
-                source=_SOURCE,
+                source=source,
                 field=f"{prefix}.last_modified",
                 category=PiiCategory.TECHNICAL,
                 value=last_modified.isoformat(),
@@ -83,7 +86,7 @@ def object_records(
         )
     records.extend(
         ExportRecord(
-            source=_SOURCE,
+            source=source,
             field=f"{prefix}.metadata.{name}",
             category=PiiCategory.COMMUNICATION,
             value=value,
@@ -93,7 +96,7 @@ def object_records(
     if content is not None:
         records.append(
             ExportRecord(
-                source=_SOURCE,
+                source=source,
                 field=f"{prefix}.content_base64",
                 category=PiiCategory.COMMUNICATION,
                 value=base64.b64encode(content).decode("ascii"),

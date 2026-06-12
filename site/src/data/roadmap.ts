@@ -133,7 +133,7 @@ export const tiers: RoadmapTier[] = [
       {
         name: 'Supabase Storage resolver',
         scope: 'Subject-owned storage objects, sharing machinery with the S3 resolver.',
-        status: 'planned',
+        status: 'shipped',
         ref: { kind: 'issue', number: 57 },
       },
       {
@@ -176,8 +176,8 @@ export const tiers: RoadmapTier[] = [
       },
       {
         name: 'Versioned docs + custom domain',
-        scope: 'Docs that match the release you actually run, at effaced.dev.',
-        status: 'planned',
+        scope: 'Docs that match the release you actually run; custom domain still ahead.',
+        status: 'in-progress',
         ref: { kind: 'issue', number: 49 },
       },
     ],

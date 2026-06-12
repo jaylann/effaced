@@ -1,0 +1,175 @@
+---
+title: Supabase resolvers
+description: Export and erase a subject's Supabase Auth record and Storage objects with the first-party effaced-supabase package.
+sidebar:
+  order: 4
+---
+
+`effaced-supabase` is the first-party
+[resolver](../../concepts/resolvers/) package for Supabase. It ships two
+resolvers: `SupabaseAuthResolver` reaches the subject's `auth.users`
+record through the Admin API, and `SupabaseStorageResolver` reaches the
+subject's objects in a Storage bucket through Supabase's S3-compatible
+gateway. Both bring those systems into your Art. 15 exports and Art. 17
+erasures.
+
+## Install
+
+Not on PyPI yet — until its first release, install from the repo. The
+auth resolver needs only the base package:
+
+```bash
+uv add effaced \
+       "effaced-supabase @ git+https://github.com/jaylann/effaced#subdirectory=packages/effaced-supabase"
+```
+
+The Storage resolver rides `effaced-s3`'s S3-compatible machinery, so it
+lives behind an optional `storage` extra — auth-only installs stay
+httpx-only and never pull in `boto3`:
+
+```bash
+pip install "effaced-supabase[storage]"
+```
+
+## Supabase Auth resolver
+
+The auth resolver talks to the GoTrue Admin API (`/auth/v1/admin`), which
+accepts only the **service-role key**. Treat that key as a root
+credential — server-side use only, never shipped to a client.
+
+```python
+from effaced import ResolverRegistry, SubjectRef
+from effaced_supabase import SupabaseAuthResolver
+
+registry = ResolverRegistry()
+registry.register(
+    SupabaseAuthResolver(
+        base_url="https://<project-ref>.supabase.co",
+        service_role_key="<service-role-key>",
+    )
+)
+
+auth_ref = SubjectRef(kind="supabase_auth", value="<gotrue user id>")
+```
+
+- **Export (Art. 15):** the user's `email` and `phone` when populated.
+  Caller-defined `user_metadata`/`app_metadata` and provider-shaped
+  `identities` are never exported.
+- **Erasure (Art. 17):** hard-deletes the GoTrue user.
+- **Idempotency:** a 404 on get or delete means the user is absent —
+  export is empty, erasure reports `already_absent=True`. Success, never
+  an error.
+
+## Supabase Storage resolver
+
+The Storage resolver authenticates with a **dashboard-issued S3 access
+key** (an access-key id and secret, SigV4). Provision one under *Project
+Settings → Storage → S3 Access Keys*. It is a **root credential** — keep
+it server-side only; never embed it in a client.
+
+### Endpoint URL
+
+The gateway origin is project-scoped:
+
+```text
+https://<project_ref>.storage.supabase.co/storage/v1/s3
+```
+
+For local development against the Supabase CLI:
+
+```text
+http://127.0.0.1:54321/storage/v1/s3
+```
+
+### Register
+
+The resolver is **not** re-exported from `effaced_supabase` (so auth-only
+installs import cleanly without the extra). Import it directly:
+
+```python
+from effaced import ResolverRegistry, SubjectRef
+from effaced_supabase.storage_resolver import SupabaseStorageResolver
+
+registry = ResolverRegistry()
+registry.register(
+    SupabaseStorageResolver(
+        bucket="user-content",
+        endpoint_url="https://<project_ref>.storage.supabase.co/storage/v1/s3",
+        access_key_id="<s3-access-key-id>",
+        secret_access_key="<s3-secret-access-key>",
+        region="<project-region>",
+    )
+)
+```
+
+If any of `endpoint_url`, `access_key_id`, or `secret_access_key` is
+missing (and no explicit `client=` is given), construction raises
+`ConfigurationError` rather than building a misdirected or
+unauthenticated client.
+
+### Routing: refs of kind "supabase_storage"
+
+A ref is routed to the resolver whose `name` equals the ref's `kind`. The
+storage resolver's name is `"supabase_storage"`, and the ref's value is
+the **key prefix** that scopes the subject's objects:
+
+```python
+storage_ref = SubjectRef(kind="supabase_storage", value=f"users/{user_id}/")
+
+exporter.export_subject(session, user_id, refs=(storage_ref,))   # Art. 15
+planner.erase_subject(session, user_id, refs=(storage_ref,))     # Art. 17
+```
+
+A prefix layout where each subject's objects live under a stable,
+delimiter-terminated prefix (`users/<id>/...`) is the convention. The
+resolver validates the prefix before any gateway call: a blank prefix
+raises `ResolverError` (it will never enumerate or erase a whole bucket),
+and so does a prefix that doesn't end with `/` — object-store prefixes
+are literal substring matches, so `users/4` also matches `users/42/...`,
+while `users/4/` does not.
+
+### What it does on Supabase's side
+
+- **Export (Art. 15):** per object — key, size, content type,
+  last-modified, user metadata, and by default the object's content,
+  base64-encoded. For user-generated objects the bytes usually *are* the
+  personal data. Pass `include_content=False` for metadata-only exports
+  only when you provide the files through another complete channel.
+  `max_object_bytes=` caps how large an object the export will load; an
+  object over the cap fails the export **loudly** — never a silently
+  thinned bundle.
+- **Erasure (Art. 17):** deletes every current object under the prefix,
+  in batches.
+
+### No versioning — current-object deletion is complete erasure
+
+Supabase Storage has no object versioning, and its S3 gateway does not
+implement `ListObjectVersions`. So unlike the S3 resolver — which sweeps
+every version and delete marker on versioned buckets — the storage
+resolver deletes the **current** objects under the prefix, and that is
+the whole of the subject's data. The resolver never calls
+`list_object_versions`.
+
+### Idempotency: "already gone" is success
+
+Erasing a prefix the store holds nothing under yields
+`already_absent=True` — success, never an error. When a batch delete
+partially fails, the resolver keeps deleting the rest, then raises so the
+[saga runner](../../concepts/saga/) retries: already-deleted objects
+re-delete as no-ops, so retries converge.
+
+### When the gateway is down
+
+External calls cannot join your local database transaction, so erasure
+enqueues them durably in the same transaction and the saga runner
+executes them afterwards. Throttling, connection faults, 5xx, and any
+unrecognized error code retry on backoff; bad credentials, missing
+permissions, and a missing bucket abandon the entry loudly — audited,
+surfaced for operators, never silently dropped. See
+[wiring the saga runner](../saga-runner-wiring/).
+
+:::note
+Exception messages and erasure details carry counts and error codes only
+— never keys, prefixes, or bucket names, which are user content. Audit
+events stay PII-free.
+:::

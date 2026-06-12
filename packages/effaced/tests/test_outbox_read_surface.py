@@ -8,11 +8,21 @@ from typing import NamedTuple
 from uuid import UUID
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 from sqlalchemy import MetaData, create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from effaced import EffacedTables, Outbox, OutboxEntry, OutboxStatus, SubjectRef, bind_tables
+from effaced import (
+    EffacedTables,
+    Outbox,
+    OutboxEntry,
+    OutboxStatus,
+    SqlStatusCountsSource,
+    SubjectRef,
+    bind_tables,
+)
 
 ENQUEUED_AT = datetime(2026, 6, 1, 12, 0, tzinfo=UTC)
 
@@ -39,6 +49,23 @@ def harness() -> Iterator[ReadHarness]:
         outbox=Outbox(session_factory, tables.outbox),
     )
     engine.dispose()
+
+
+@pytest.fixture(params=["python", "sql"])
+def counting_outbox(request: pytest.FixtureRequest, harness: ReadHarness) -> Outbox:
+    """The harness outbox, once counting in Python and once SQL-side.
+
+    Both paths share the harness's seeded database; only the
+    ``status_counts`` strategy differs, so every count assertion runs
+    against the default Python loop and the injected SQL aggregator.
+    """
+    if request.param == "sql":
+        return Outbox(
+            harness.session_factory,
+            harness.tables.outbox,
+            status_counts_source=SqlStatusCountsSource(),
+        )
+    return harness.outbox
 
 
 def entry(number: int, *, subject_id: str = "1", minutes: int = 0) -> OutboxEntry:
@@ -119,19 +146,52 @@ def test_list_abandoned_round_trips_the_full_entry(harness: ReadHarness) -> None
     assert listed.last_error == "StripeError"
 
 
-def test_status_counts_are_zero_filled(harness: ReadHarness) -> None:
-    assert harness.outbox.status_counts() == dict.fromkeys(OutboxStatus, 0)
+def test_status_counts_are_zero_filled(counting_outbox: Outbox) -> None:
+    assert counting_outbox.status_counts() == dict.fromkeys(OutboxStatus, 0)
 
 
-def test_status_counts_track_lifecycle_transitions(harness: ReadHarness) -> None:
+def test_status_counts_track_lifecycle_transitions(
+    harness: ReadHarness, counting_outbox: Outbox
+) -> None:
     seed(harness, [entry(1), entry(2), entry(3, subject_id="2")])
     abandon(harness, entry(2))
-    counts = harness.outbox.status_counts()
+    counts = counting_outbox.status_counts()
     assert counts[OutboxStatus.PENDING] == 2
     assert counts[OutboxStatus.ABANDONED] == 1
     assert counts[OutboxStatus.IN_FLIGHT] == 0
     assert counts[OutboxStatus.FAILED] == 0
     assert counts[OutboxStatus.SUCCEEDED] == 0
+
+
+@pytest.mark.property
+@settings(max_examples=50, deadline=None)
+@given(statuses=st.lists(st.sampled_from(list(OutboxStatus)), max_size=40))
+def test_sql_and_python_status_counts_agree(statuses: list[OutboxStatus]) -> None:
+    """For any population of statuses, both paths return the same zero-filled map."""
+    engine = create_engine("sqlite://", poolclass=StaticPool)
+    metadata = MetaData()
+    tables = bind_tables(metadata)
+    metadata.create_all(engine)
+    try:
+        session_factory = sessionmaker(engine)
+        python_outbox = Outbox(session_factory, tables.outbox)
+        sql_outbox = Outbox(
+            session_factory, tables.outbox, status_counts_source=SqlStatusCountsSource()
+        )
+        entries = [
+            entry(number).model_copy(update={"status": status})
+            for number, status in enumerate(statuses, start=1)
+        ]
+        with session_factory() as session:
+            python_outbox.enqueue(session, entries)
+            session.commit()
+
+        expected = dict.fromkeys(OutboxStatus, 0)
+        for status in statuses:
+            expected[status] += 1
+        assert sql_outbox.status_counts() == python_outbox.status_counts() == expected
+    finally:
+        engine.dispose()
 
 
 def test_read_surface_mutates_nothing(harness: ReadHarness) -> None:
