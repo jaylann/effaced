@@ -16,6 +16,7 @@ from effaced.adapters.sqlalchemy import (
     EffacedTables,
     ErasureExecutor,
     RectificationExecutor,
+    SqlStatusCountsSource,
     SurrogateRegistry,
     bind_tables,
     collect_data_map,
@@ -76,6 +77,7 @@ from effaced.saga import (
     OutboxOperation,
     OutboxStatus,
     SagaRunner,
+    StatusCountsSource,
 )
 
 try:
@@ -140,6 +142,8 @@ __all__ = [
     "RetentionSweeper",
     "RetentionViolationError",
     "SagaRunner",
+    "SqlStatusCountsSource",
+    "StatusCountsSource",
     "StepExecutor",
     "SubjectGraph",
     "SubjectLink",
