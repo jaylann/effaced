@@ -61,11 +61,15 @@ from effaced.rectification import (
 )
 from effaced.resolvers import (
     RectifyingResolver,
+    RegistryBuild,
     Resolver,
     ResolverErasure,
     ResolverExport,
     ResolverRectification,
     ResolverRegistry,
+    ResolverSpec,
+    SpecOutcome,
+    registry_from_settings,
 )
 from effaced.restriction import RestrictionLedger, RestrictionRecord
 from effaced.retention import RetentionReport, RetentionReportEntry, RetentionSweeper
@@ -126,12 +130,14 @@ __all__ = [
     "RectificationStepExecutor",
     "Rectifier",
     "RectifyingResolver",
+    "RegistryBuild",
     "Resolver",
     "ResolverErasure",
     "ResolverError",
     "ResolverExport",
     "ResolverRectification",
     "ResolverRegistry",
+    "ResolverSpec",
     "RestrictionLedger",
     "RestrictionRecord",
     "RetentionPolicy",
@@ -140,6 +146,7 @@ __all__ = [
     "RetentionSweeper",
     "RetentionViolationError",
     "SagaRunner",
+    "SpecOutcome",
     "StepExecutor",
     "SubjectGraph",
     "SubjectLink",
@@ -155,6 +162,7 @@ __all__ = [
     "fk_safe_deletion_order",
     "lint_completeness",
     "pii",
+    "registry_from_settings",
     "resolve_subject_graph",
     "subject_link",
 ]

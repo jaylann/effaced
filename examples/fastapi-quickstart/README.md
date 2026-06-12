@@ -45,6 +45,13 @@ The `X-User-Id` header stands in for your real auth dependency.
 | `STRIPE_API_KEY` | unset | When set, the Stripe resolver is registered (use a restricted key) |
 | `STRIPE_CUSTOMER_ID` | unset | When set together with the key, export/erasure also reach Stripe |
 
+Resolvers are registered declaratively from settings via
+`registry_from_settings`: the app authors a `ResolverSpec` naming Stripe's
+required key, and the helper registers the resolver only when that key is
+present. This stays explicit and auditable — there is no auto-discovery —
+and `build.outcomes` records what was wired and what was skipped (a good
+thing to log at startup).
+
 Without the Stripe variables the example runs fully locally — no network
 calls leave your machine. Set **both** or neither: with only the key, the
 resolver is registered but no requests carry a Stripe ref, so export and

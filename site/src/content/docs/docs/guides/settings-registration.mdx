@@ -1,0 +1,133 @@
+---
+title: Settings-driven registration
+description: Build the resolver registry from configuration with registry_from_settings — declarative wiring, not auto-discovery.
+sidebar:
+  order: 1
+---
+
+A [resolver](../../concepts/resolvers/) reaches the PII you hold outside
+your own database — Stripe, S3, Supabase. Wiring one means registering it
+on a `ResolverRegistry`. `registry_from_settings` lets you drive that
+registration from configuration: name the settings keys a resolver needs,
+and it registers the resolver when those keys are present.
+
+This is **declarative wiring, not discovery.** Every resolver that can ever
+register is named in a `ResolverSpec` you author by hand. There is no
+entry-point scanning and no import-time magic — the spec list stays the
+auditable "where could my PII go" declaration. Adding a resolver becomes a
+configuration change, not a code change, without giving up that explicitness.
+
+## Author specs inline
+
+A `ResolverSpec` pairs a resolver's name with the settings keys it needs and
+a builder that turns those values into the resolver:
+
+```python
+from effaced import ResolverSpec, registry_from_settings
+from effaced_stripe import StripeResolver
+from effaced_s3 import S3Resolver
+from effaced_supabase import SupabaseAuthResolver
+
+specs = (
+    ResolverSpec(
+        name="stripe",
+        settings_keys=("STRIPE_API_KEY",),
+        build=lambda s: StripeResolver(api_key=s["STRIPE_API_KEY"]),
+    ),
+    ResolverSpec(
+        name="s3",
+        settings_keys=("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "S3_BUCKET"),
+        optional_keys=("AWS_REGION",),
+        build=lambda s: S3Resolver(
+            bucket=s["S3_BUCKET"],
+            region=s.get("AWS_REGION"),
+        ),
+    ),
+    ResolverSpec(
+        name="supabase",
+        settings_keys=("SUPABASE_URL", "SUPABASE_SERVICE_ROLE_KEY"),
+        build=lambda s: SupabaseAuthResolver(
+            url=s["SUPABASE_URL"],
+            service_role_key=s["SUPABASE_SERVICE_ROLE_KEY"],
+        ),
+    ),
+)
+
+build = registry_from_settings(specs)  # reads os.environ
+registry = build.registry
+```
+
+Pass an explicit mapping as the second argument to use your own settings
+object instead of the environment:
+
+```python
+build = registry_from_settings(specs, settings={"STRIPE_API_KEY": "rk_live_..."})
+```
+
+The builder receives **exactly the declared keys that are present** — every
+required key plus any present optional keys, and nothing else. A spec cannot
+quietly read settings it did not declare, so the spec list is a complete
+account of what each resolver consumes. The resolver a spec builds must have
+the same `name` the spec declares; a mismatch raises so the declared list
+always matches what actually registers.
+
+## All-or-nothing per spec, never silent
+
+Each spec resolves to exactly one of three outcomes:
+
+- **Every required key present** (or none required): the resolver is built
+  and registered.
+- **Zero required keys present:** the spec is skipped, and the skip is
+  recorded with the missing key names.
+- **Some but not all required keys present:** a `ConfigurationError` is
+  raised, naming the spec and the missing key *names*. Half-configured is an
+  authoring mistake, surfaced loudly rather than registered with a hole.
+
+A key counts as *present* only when it is set **and** non-blank after
+trimming whitespace. A blank value — the `STRIPE_API_KEY=` you leave in a
+compose file to disable a feature — counts as absent, and that skip is
+recorded like any other.
+
+Key **values** never appear in any error message; only key names do.
+
+## The outcomes report is your startup audit
+
+`registry_from_settings` returns a `RegistryBuild` carrying the populated
+`registry` and one `SpecOutcome` per spec, in spec order. That tuple is the
+audit surface — log it at startup to record which configured resolvers were
+wired and which were skipped:
+
+```python
+import logging
+
+log = logging.getLogger("effaced.registration")
+for outcome in build.outcomes:
+    if outcome.registered:
+        log.info("resolver %s registered", outcome.name)
+    else:
+        log.info(
+            "resolver %s skipped; missing %s",
+            outcome.name,
+            ", ".join(outcome.missing_keys),
+        )
+```
+
+Because the report names every skip, "we never wired up S3 in production" is
+a line in your logs, not a silent gap discovered during a data-subject
+request.
+
+## Why not auto-discovery
+
+effaced ships *mechanisms*, never compliance *determinations* — and the
+registry is the one place that declares where a subject's data physically
+lives outside your database. Auto-discovery would let an installed package
+silently add itself to that declaration; settings-driven registration keeps
+it a deliberate, reviewable statement while still letting configuration —
+not code edits — decide which resolvers are live in each environment.
+
+:::note
+A registered resolver still only does work when a request carries a matching
+`SubjectRef` (a ref whose `kind` equals the resolver's `name`). Registration
+makes a resolver *available*; routing decides when it runs. See
+[resolvers](../../concepts/resolvers/).
+:::
