@@ -17,13 +17,17 @@ from sqlalchemy.pool import StaticPool
 from effaced import (
     AuditEventType,
     BackoffPolicy,
+    Correction,
     EffacedTables,
     Outbox,
     OutboxEntry,
+    OutboxOperation,
     OutboxStatus,
+    PiiCategory,
     ResolverErasure,
     ResolverError,
     ResolverExport,
+    ResolverRectification,
     ResolverRegistry,
     SagaRunner,
     SubjectRef,
@@ -300,3 +304,139 @@ def test_an_abandoned_sibling_blocks_completion_forever(harness: RunnerHarness) 
 def test_empty_outbox_is_a_quiet_no_op(harness: RunnerHarness) -> None:
     assert asyncio.run(runner(harness).run_once()) == 0
     assert harness.sink.events == []
+
+
+# --- rectify entries (ADR 0013) ----------------------------------------------
+
+CORRECTIONS = (
+    Correction(category=PiiCategory.CONTACT, value="new@example.com"),
+    Correction(category=PiiCategory.IDENTITY, value="New Name"),
+)
+
+
+class RectifyScriptedResolver(ScriptedResolver):
+    """A scripted resolver that also implements ``rectify_subject``."""
+
+    def __init__(
+        self,
+        name: str,
+        script: tuple[ResolverErasure | Exception, ...] = (),
+        rectify_script: tuple[ResolverRectification | Exception, ...] = (),
+    ) -> None:
+        super().__init__(name, script)
+        self._rectify_script = list(rectify_script)
+        self.rectify_calls: list[tuple[SubjectRef, tuple[Correction, ...]]] = []
+
+    async def rectify_subject(
+        self, ref: SubjectRef, corrections: tuple[Correction, ...]
+    ) -> ResolverRectification:
+        self.rectify_calls.append((ref, corrections))
+        if not self._rectify_script:
+            return ResolverRectification(resolver=self.name)
+        outcome = self._rectify_script.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+
+def rectify_entry(number: int, *, subject_id: str = "1", resolver: str = "stripe") -> OutboxEntry:
+    return OutboxEntry(
+        entry_id=UUID(int=number),
+        subject_id=subject_id,
+        resolver=resolver,
+        ref=SubjectRef(kind=resolver, value=f"cus_{number}"),
+        operation=OutboxOperation.RECTIFY,
+        corrections=CORRECTIONS,
+        enqueued_at=datetime(2026, 6, 1, 12, 0, number, tzinfo=UTC),
+    )
+
+
+def test_rectify_entry_calls_rectify_subject_with_the_corrections(
+    harness: RunnerHarness,
+) -> None:
+    resolver = RectifyScriptedResolver("stripe")
+    harness.registry.register(resolver)
+    seed(harness, rectify_entry(1))
+
+    assert asyncio.run(runner(harness).run_once()) == 1
+
+    assert rows_by_id(harness)[UUID(int=1)]["status"] == OutboxStatus.SUCCEEDED.value
+    ((ref, corrections),) = resolver.rectify_calls
+    assert ref.value == "cus_1"
+    assert corrections == CORRECTIONS
+    assert resolver.calls == []  # erase_subject never invoked for a rectify entry
+
+
+def test_rectify_success_audits_rectification_events_and_never_erasure_ones(
+    harness: RunnerHarness,
+) -> None:
+    harness.registry.register(RectifyScriptedResolver("stripe"))
+    seed(harness, rectify_entry(1))
+
+    asyncio.run(runner(harness).run_once())
+
+    types = {event.event_type for event in harness.sink.events}
+    assert types == {
+        AuditEventType.RECTIFICATION_STEP_SUCCEEDED,
+        AuditEventType.RECTIFICATION_COMPLETED,
+    }
+    (payload,) = events_of(harness, AuditEventType.RECTIFICATION_STEP_SUCCEEDED)
+    assert payload == {
+        "target": "stripe",
+        "external": True,
+        "already_consistent": False,
+        "attempts": 1,
+    }
+
+
+def test_rectify_completion_waits_for_the_subjects_last_rectify_entry(
+    harness: RunnerHarness,
+) -> None:
+    harness.registry.register(RectifyScriptedResolver("stripe", rectify_script=(TimeoutError(),)))
+    seed(harness, rectify_entry(1), rectify_entry(2))
+
+    asyncio.run(runner(harness).run_once())
+    assert events_of(harness, AuditEventType.RECTIFICATION_COMPLETED) == []
+
+    make_due(harness)
+    asyncio.run(runner(harness).run_once())
+    assert events_of(harness, AuditEventType.RECTIFICATION_COMPLETED) == [{}]
+
+
+def test_non_rectifying_resolver_abandons_the_rectify_entry_loudly(
+    harness: RunnerHarness,
+) -> None:
+    """A rectify entry routed to a resolver without rectify_subject is ResolverError."""
+    resolver = ScriptedResolver("stripe")
+    harness.registry.register(resolver)
+    seed(harness, rectify_entry(1))
+
+    assert asyncio.run(runner(harness).run_once()) == 1
+
+    assert rows_by_id(harness)[UUID(int=1)]["status"] == OutboxStatus.ABANDONED.value
+    (payload,) = events_of(harness, AuditEventType.RECTIFICATION_STEP_FAILED)
+    assert payload == {
+        "target": "stripe",
+        "external": True,
+        "error": "ResolverError",
+        "attempts": 1,
+        "abandoned": True,
+    }
+    assert resolver.calls == []  # never falls back to erase_subject
+
+
+def test_already_consistent_is_success(harness: RunnerHarness) -> None:
+    """Convergence idempotency: re-applying a reflected correction is success."""
+    harness.registry.register(
+        RectifyScriptedResolver(
+            "stripe",
+            rectify_script=(ResolverRectification(resolver="stripe", already_consistent=True),),
+        )
+    )
+    seed(harness, rectify_entry(1))
+
+    assert asyncio.run(runner(harness).run_once()) == 1
+
+    assert rows_by_id(harness)[UUID(int=1)]["status"] == OutboxStatus.SUCCEEDED.value
+    (payload,) = events_of(harness, AuditEventType.RECTIFICATION_STEP_SUCCEEDED)
+    assert payload["already_consistent"] is True

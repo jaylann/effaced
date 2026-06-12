@@ -38,6 +38,7 @@ export default defineConfig({
             'docs/concepts/erasure',
             'docs/concepts/saga',
             'docs/concepts/export',
+            'docs/concepts/rectification',
             'docs/concepts/consent',
             'docs/concepts/restriction',
             'docs/concepts/retention',

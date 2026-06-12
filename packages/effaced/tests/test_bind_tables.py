@@ -161,7 +161,9 @@ def test_index_names_are_stable_and_within_pg_limit() -> None:
             assert all(len(name) <= 63 for name in names if name)
 
 
-def test_no_server_defaults() -> None:
+def test_no_server_defaults_except_the_outbox_operation_migration_aid() -> None:
+    """Defaults stay python-side — except ``operation``, whose server default
+    is what makes the additive ALTER backfill populated outboxes (ADR 0013)."""
     tables = bind_tables(MetaData())
     all_tables = (
         tables.audit_events,
@@ -171,6 +173,9 @@ def test_no_server_defaults() -> None:
     )
     for table in all_tables:
         for column in table.columns:
+            if (table.name, column.name) == (OUTBOX_TABLE_NAME, "operation"):
+                assert column.server_default is not None
+                continue
             assert column.server_default is None, f"{table.name}.{column.name}"
 
 

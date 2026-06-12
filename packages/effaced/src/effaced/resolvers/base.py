@@ -33,6 +33,11 @@ class Resolver(Protocol):
     clients) at construction — create them inside the call. Resolver
     methods may be driven from different event loops: the exporter's
     per-call loop and the saga runner's loop (ADR 0006).
+
+    Resolvers that can also correct a subject's data (Art. 16) implement
+    the optional :class:`~effaced.RectifyingResolver` capability
+    sub-protocol on top — this base protocol itself only ever grows
+    additively.
     """
 
     @property

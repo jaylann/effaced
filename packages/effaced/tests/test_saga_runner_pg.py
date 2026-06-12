@@ -17,13 +17,17 @@ from sqlalchemy.orm import Session, sessionmaker
 from effaced import (
     AuditEventType,
     BackoffPolicy,
+    Correction,
     DatabaseAuditSink,
     EffacedTables,
     Outbox,
     OutboxEntry,
+    OutboxOperation,
     OutboxStatus,
+    PiiCategory,
     ResolverErasure,
     ResolverExport,
+    ResolverRectification,
     ResolverRegistry,
     SagaRunner,
     SubjectRef,
@@ -40,6 +44,7 @@ class ThreadSafeResolver:
         self._name = name
         self._lock = threading.Lock()
         self.calls: list[str] = []
+        self.rectify_calls: list[tuple[str, tuple[Correction, ...]]] = []
 
     @property
     def name(self) -> str:
@@ -53,6 +58,14 @@ class ThreadSafeResolver:
         with self._lock:
             self.calls.append(ref.value)
         return ResolverErasure(resolver=self._name)
+
+    async def rectify_subject(
+        self, ref: SubjectRef, corrections: tuple[Correction, ...]
+    ) -> ResolverRectification:
+        await asyncio.sleep(0)
+        with self._lock:
+            self.rectify_calls.append((ref.value, corrections))
+        return ResolverRectification(resolver=self._name)
 
 
 class PgHarness(NamedTuple):
@@ -192,3 +205,56 @@ def test_expired_lease_lets_a_second_runner_take_over(harness: PgHarness) -> Non
     second = harness.outbox.claim_batch()
     assert [claimed.attempts for claimed in second] == [2]
     assert second[0].entry_id == first[0].entry_id
+
+
+# --- rectify entries (ADR 0013) ----------------------------------------------
+
+CORRECTIONS = (
+    Correction(category=PiiCategory.CONTACT, value="new@example.com"),
+    Correction(category=PiiCategory.IDENTITY, value="New Name"),
+)
+
+
+def rectify_entry(subject_id: str, value: str) -> OutboxEntry:
+    return OutboxEntry(
+        entry_id=uuid4(),
+        subject_id=subject_id,
+        resolver="stripe",
+        ref=SubjectRef(kind="stripe", value=value),
+        operation=OutboxOperation.RECTIFY,
+        corrections=CORRECTIONS,
+        enqueued_at=datetime.now(UTC),
+    )
+
+
+def test_corrections_payload_round_trips_jsonb_and_clears_on_success(
+    harness: PgHarness,
+) -> None:
+    """The JSONB payload survives storage and claim, and is NULL once terminal."""
+    enqueue(harness, [rectify_entry("subject-r", "cus_r")])
+    (claimed,) = harness.outbox.claim_batch()
+    assert claimed.operation is OutboxOperation.RECTIFY
+    assert claimed.corrections == CORRECTIONS
+    completions: list[str] = []
+    harness.outbox.mark_succeeded(claimed, on_subject_complete=lambda: completions.append("done"))
+    assert completions == ["done"]
+    with harness.session_factory() as session:
+        row = session.execute(select(harness.tables.outbox)).mappings().one()
+        assert row["status"] == OutboxStatus.SUCCEEDED.value
+        assert row["payload"] is None
+
+
+def test_erase_and_rectify_complete_independently_under_real_locking(
+    harness: PgHarness,
+) -> None:
+    """The locked completion check is scoped per (subject, operation)."""
+    enqueue(harness, [entry("subject-mixed", "cus_e"), rectify_entry("subject-mixed", "cus_r")])
+    runner = build_runner(harness)
+    processed: list[int] = []
+    drain(runner, processed)
+    assert sum(processed) == 2
+    assert harness.resolver.calls == ["cus_e"]
+    assert harness.resolver.rectify_calls == [("cus_r", CORRECTIONS)]
+    events = [str(event.event_type) for event in harness.sink.read("subject-mixed")]
+    assert events.count("erasure_completed") == 1
+    assert events.count("rectification_completed") == 1

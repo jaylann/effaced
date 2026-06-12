@@ -4,19 +4,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, cast
 
-from sqlalchemy import ColumnElement, CursorResult, func, select, tuple_
+from sqlalchemy import ColumnElement, CursorResult, func, select
 
 from effaced.adapters.sqlalchemy.anonymizer import SurrogateRegistry, default_surrogate_registry
+from effaced.adapters.sqlalchemy.scoping import lookup_table, subject_scope
 from effaced.categories import ErasureStrategy
-from effaced.exceptions import (
-    AnonymizationError,
-    ConfigurationError,
-    ManifestError,
-    SubjectResolutionError,
-)
+from effaced.exceptions import AnonymizationError, ConfigurationError, ManifestError
 
 if TYPE_CHECKING:
-    from sqlalchemy import Column, FromClause, MetaData, Table
+    from sqlalchemy import Column, MetaData, Table
     from sqlalchemy.orm import Session
 
     from effaced.erasure.plan import ErasureStep
@@ -29,9 +25,10 @@ class ErasureExecutor:
     The SQLAlchemy implementation of
     :class:`~effaced.erasure.StepExecutor`: each table's
     :class:`~effaced.TableAccessPlan` hop chain becomes nested ``IN``
-    subqueries down to the subject identifier, so a step only ever touches
-    the one subject's rows. Statements run in the caller's session and are
-    never committed here (ADR 0006).
+    subqueries down to the subject identifier (shared with the
+    rectification executor via the scoping module), so a step only ever
+    touches the one subject's rows. Statements run in the caller's session
+    and are never committed here (ADR 0006).
 
     Two ADR 0007 consequences surface at this layer: a foreign-key
     reference into a row-deleted table from *outside* the subject path
@@ -86,44 +83,13 @@ class ErasureExecutor:
                 f"the outbox, never the local transaction"
             )
             raise ConfigurationError(msg)
-        table = self._table(step.target)
-        predicate = self._scope(graph, step.target, subject_id)
+        table = lookup_table(self._metadata, step.target)
+        predicate = subject_scope(self._metadata, graph, step.target, subject_id)
         if step.strategy is ErasureStrategy.DELETE:
             return _delete(session, table, predicate)
         if step.strategy is ErasureStrategy.ANONYMIZE:
             return self._anonymize(session, table, step.columns, predicate)
         return _count(session, table, predicate)
-
-    def _table(self, name: str) -> Table:
-        """Look one manifest table up in the bound metadata."""
-        try:
-            return self._metadata.tables[name]
-        except KeyError as exc:
-            msg = f"the plan references table {name!r}, which is not in the bound metadata"
-            raise ManifestError(msg) from exc
-
-    def _scope(self, graph: SubjectGraph, name: str, subject_id: str) -> ColumnElement[bool]:
-        """One table's rows-belong-to-this-subject predicate.
-
-        Built from the subject outward as nested ``IN`` subqueries; every
-        inner level is aliased so self-referential hops and revisited
-        tables never collide, and only the outermost level is the raw
-        table the surrounding DELETE/UPDATE binds to.
-        """
-        hops = graph.access(name).hops
-        inner: FromClause = self._table(graph.subject_table)
-        if hops:
-            inner = inner.alias()
-        column = inner.c[graph.subject_id_column]
-        predicate: ColumnElement[bool] = column == _coerce(column, subject_id)
-        for depth, hop in enumerate(reversed(hops)):
-            source: FromClause = self._table(hop.source_table)
-            if depth < len(hops) - 1:
-                source = source.alias()
-            subquery = select(*(inner.c[name] for name in hop.target_columns)).where(predicate)
-            predicate = _grouped(source, hop.source_columns).in_(subquery)
-            inner = source
-        return predicate
 
     def _anonymize(
         self,
@@ -172,38 +138,3 @@ def _column(table: Table, name: str) -> Column[Any]:
     except KeyError as exc:
         msg = f"the plan references column {name!r}, which is not on table {table.name!r}"
         raise ManifestError(msg) from exc
-
-
-def _coerce(column: ColumnElement[Any], subject_id: str) -> object:
-    """Coerce the subject id to the column's python type.
-
-    The published ``subject_id`` is a string, but subject columns are
-    often integers; typed-parameter drivers (psycopg 3 binary mode)
-    reject ``integer = text`` comparisons that quoted-literal dialects
-    forgive.
-
-    Raises:
-        SubjectResolutionError: If the id cannot carry the column's type.
-    """
-    try:
-        python_type = column.type.python_type
-    except NotImplementedError:
-        # A type effaced cannot interpret; let the dialect be the authority.
-        return subject_id
-    if python_type is str:
-        return subject_id
-    try:
-        return python_type(subject_id)
-    except (TypeError, ValueError) as exc:
-        msg = (
-            f"subject id {subject_id!r} cannot be interpreted as the subject "
-            f"column's type ({python_type.__name__})"
-        )
-        raise SubjectResolutionError(msg) from exc
-
-
-def _grouped(source: FromClause, names: tuple[str, ...]) -> ColumnElement[Any]:
-    """One column, or a row-value tuple for composite foreign keys."""
-    if len(names) == 1:
-        return source.c[names[0]]
-    return tuple_(*(source.c[name] for name in names))

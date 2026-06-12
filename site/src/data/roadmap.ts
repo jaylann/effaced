@@ -139,9 +139,10 @@ export const tiers: RoadmapTier[] = [
       {
         name: 'Rectification mechanism',
         scope: 'Correct a subject’s data across the mapped schema, auditably.',
-        status: 'planned',
+        status: 'shipped',
         art: 'ART. 16',
         ref: { kind: 'issue', number: 46 },
+        docsPath: 'concepts/rectification/',
       },
       {
         name: 'Restriction of processing',

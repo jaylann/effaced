@@ -28,10 +28,12 @@ paths: ["packages/effaced/src/**", "packages/effaced-stripe/src/**"]
 - Every consent change, export, and erasure outcome (including failures and abandonment) produces an event. Nothing is silently dropped.
 
 ## Resolvers & saga
-- `Resolver` and `AuditSink` protocols are public API with the strictest stability promise: extend **additively only** (optional methods with default impls). Never change existing signatures.
-- Idempotency contract: erasing a subject that's already gone is SUCCESS (`already_absent=True`), never an error. Saga retries depend on it.
-- Outbox entries are enqueued in the SAME transaction as the local erasure. Anything else reintroduces the half-erased-state bug this library exists to prevent.
-- Terminal saga outcomes are always audited (`ERASURE_STEP_SUCCEEDED` / `ERASURE_STEP_FAILED` with `abandoned: true`); abandonment is never silent. `ERASURE_COMPLETED` requires every outbox entry for the subject `SUCCEEDED` — an abandoned entry blocks it permanently. Claim, retry/backoff, and completion semantics are ADR 0010 — changing them is MAJOR.
+- `Resolver` and `AuditSink` protocols are public API with the strictest stability promise: extend **additively only** (optional methods with default impls; capability sub-protocols like `RectifyingResolver` are the pattern). Never change existing signatures.
+- Idempotency contract: erasing a subject that's already gone is SUCCESS (`already_absent=True`), never an error; re-applying a correction the system already reflects is SUCCESS (`already_consistent=True`) — the convergence analogue. Saga retries depend on both.
+- Outbox entries are enqueued in the SAME transaction as the local phase. Anything else reintroduces the half-erased/half-rectified-state bug this library exists to prevent.
+- Terminal saga outcomes are always audited (`ERASURE_STEP_*` / `RECTIFICATION_STEP_*` with `abandoned: true` on abandonment); abandonment is never silent. Completion is per (subject, operation): `ERASURE_COMPLETED` requires every *erase* entry for the subject `SUCCEEDED`, `RECTIFICATION_COMPLETED` every *rectify* entry — an abandoned entry blocks its own operation's completion permanently, never the other's. Claim, retry/backoff, and completion semantics are ADR 0010 (amended by ADR 0013) — changing them is MAJOR.
+- A rectify entry's corrections live in the outbox row's `payload` — real PII: cleared on every terminal transition (SUCCEEDED and ABANDONED alike), kept on FAILED for the retry, never mirrored into any audit event.
+- Erasure strategy does not gate rectification: `RETAIN` and `ANONYMIZE` columns of a corrected category are rewritten too (ADR 0013) — do not "fix" this asymmetry.
 - Registration stays explicit — no auto-discovery, no entry-point magic. The registry is an auditable "where is my PII" declaration.
 
 ## Wording discipline (load-bearing, legally)
