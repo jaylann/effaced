@@ -1,8 +1,10 @@
 """StripeResolver passes the shared resolver conformance suite.
 
-Acceptance for issue #17: export shape, erase idempotency (404-on-delete
-is success), and the error taxonomy, all proven through the suite shipped
-in effaced core — driven by the fake Stripe backend, no live calls.
+Acceptance for issues #17 and #96: export shape, erase idempotency
+(404-on-delete is success), the error taxonomy, and rectify convergence
+(``make_corrections`` activates the suite's rectify section), all proven
+through the suite shipped in effaced core — driven by the fake Stripe
+backend, no live calls.
 """
 
 from __future__ import annotations
@@ -10,7 +12,7 @@ from __future__ import annotations
 from fake_stripe_client import FakeStripeHTTPClient
 from stripe import RateLimitError
 
-from effaced import SubjectRef
+from effaced import Correction, PiiCategory, SubjectRef
 from effaced.testing import ResolverConformanceSuite
 from effaced_stripe import StripeResolver
 
@@ -40,4 +42,10 @@ class TestStripeResolverConformance(ResolverConformanceSuite):
         return (
             StripeResolver(api_key="rk_test_x", http_client=fake),
             RateLimitError,
+        )
+
+    def make_corrections(self) -> tuple[Correction, ...]:
+        return (
+            Correction(category=PiiCategory.IDENTITY, value="Grace Hopper"),
+            Correction(category=PiiCategory.CONTACT, value="grace@example.com"),
         )

@@ -17,7 +17,8 @@ expires.
 from sqlalchemy.orm import sessionmaker
 
 from effaced import (
-    BackoffPolicy, DatabaseAuditSink, Outbox, ResolverRegistry, SagaRunner, bind_tables,
+    BackoffPolicy, DatabaseAuditSink, Outbox, OutboxOperation,
+    ResolverRegistry, SagaRunner, bind_tables,
 )
 
 session_factory = sessionmaker(engine)
@@ -26,10 +27,15 @@ tables = bind_tables(metadata)
 registry = ResolverRegistry()
 registry.register(StripeResolver(api_key="rk_live_..."))
 
+audit = DatabaseAuditSink(session_factory, tables.audit_events)
+# Pass the same audit sink to the outbox so `requeue()` (below) can append
+# its supervised event — `requeue` raises `ConfigurationError` without one.
+outbox = Outbox(session_factory, tables.outbox, audit_sink=audit)
+
 runner = SagaRunner(
     registry,
-    Outbox(session_factory, tables.outbox),
-    DatabaseAuditSink(session_factory, tables.audit_events),
+    outbox,
+    audit,
     # Size the lease above your slowest resolver call: an expired lease
     # mid-call means double execution (idempotent, but wasteful).
     backoff=BackoffPolicy(),
@@ -129,10 +135,41 @@ if counts[OutboxStatus.ABANDONED]:
 `SELECT subject_id, resolver, last_error, attempts FROM effaced_outbox
 WHERE status = 'abandoned';`)
 
-Remediation: fix the underlying cause (credentials, deleted API resource,
-resolver bug), delete the abandoned row, and re-run `erase_subject` for the
-subject — it re-enqueues the external work under fresh idempotency keys, and
-resolvers treat "already gone" as success, so the re-run converges.
+Remediation (ADR 0015) — abandoned **erase** entries: fix the underlying cause
+(credentials, deleted API resource, resolver bug), then `requeue` them by id.
+Each flips back to `PENDING` with a full retry budget (`attempts = 0`,
+`next_attempt_at = NULL`) under its unchanged `entry_id`, so the resolver-side
+idempotency key holds and re-execution converges:
+
+```python
+abandoned = outbox.list_abandoned()       # full entries, oldest first
+erase_ids = [item.entry_id for item in abandoned if item.operation is OutboxOperation.ERASE]
+# Look at what you are about to re-run, then hand back the ids:
+requeued = outbox.requeue(erase_ids)
+# `requeued` reports only the entries that actually flipped — ids that were
+# already requeued or no longer abandoned are skipped, never errors.
+```
+
+`requeue` appends one `ERASURE_REQUEUED` event per flipped entry (carrying the
+prior attempt count and the prior error's class name) **before** the row flips,
+so the supervised re-run is always in the trail. A requeued entry blocks
+`ERASURE_COMPLETED` again until it lands; an operator who requeues without
+fixing the cause will see a second abandonment in the trail, each cycle its own
+evidence.
+
+Abandoned **rectify** entries cannot be requeued — `requeue` refuses them with
+`ConfigurationError`. A rectify entry's corrections (the new values) are real
+PII held only in the outbox row's `payload` and are **cleared at abandonment**
+(ADR 0013), so there is nothing left to re-apply; a blind requeue would
+re-execute with no corrections — a silent no-op that still reports completion.
+Remediate by **re-issuing the rectification** through your `Rectifier` (the same
+call that first enqueued it), which writes a fresh entry carrying the
+corrections again:
+
+```python
+# Fix the cause, then re-run the original rectification — NOT requeue():
+rectifier.rectify_subject(session, subject_id, corrections)
+```
 
 The outbox is a mechanism and this is its operating manual — whether an
 abandoned erasure needs escalation under your obligations is a determination

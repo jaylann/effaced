@@ -258,3 +258,79 @@ def test_erase_and_rectify_complete_independently_under_real_locking(
     events = [str(event.event_type) for event in harness.sink.read("subject-mixed")]
     assert events.count("erasure_completed") == 1
     assert events.count("rectification_completed") == 1
+
+
+# --- supervised requeue (ADR 0015) -------------------------------------------
+
+
+def requeue_outbox(harness: PgHarness) -> Outbox:
+    """An outbox wired with the harness's audit sink, so requeue is callable."""
+    return Outbox(harness.session_factory, harness.tables.outbox, audit_sink=harness.sink)
+
+
+def abandon_one(harness: PgHarness, item: OutboxEntry, *, error: str = "ResolverError") -> None:
+    (claimed,) = harness.outbox.claim_batch()
+    assert claimed.entry_id == item.entry_id
+    harness.outbox.mark_abandoned(claimed, error=error)
+
+
+def test_requeue_returns_an_abandoned_entry_to_pending_on_postgres(
+    harness: PgHarness,
+) -> None:
+    """End-to-end on real Postgres: abandon, requeue, reclaim with a fresh budget."""
+    item = entry("subject-rq", "cus_rq")
+    enqueue(harness, [item])
+    abandon_one(harness, item, error="StripeError")
+
+    requeued = requeue_outbox(harness).requeue([item.entry_id])
+    assert len(requeued) == 1
+    assert requeued[0].status is OutboxStatus.PENDING
+    assert requeued[0].attempts == 0
+    assert requeued[0].next_attempt_at is None
+
+    (reclaimed,) = harness.outbox.claim_batch()
+    assert reclaimed.entry_id == item.entry_id
+    assert reclaimed.attempts == 1  # a single fresh claim off the reset budget
+    events = [str(event.event_type) for event in harness.sink.read("subject-rq")]
+    assert events == ["erasure_requeued"]
+
+
+def test_requeue_serializes_against_a_held_row_lock(harness: PgHarness) -> None:
+    """requeue's FOR UPDATE blocks on a held lock, then completes — same lock order.
+
+    A concurrent runner finishing this subject holds the row ``FOR UPDATE``
+    ordered by ``entry_id``; requeue takes the same lock order, so it waits
+    for the holder instead of deadlocking (claiming uses SKIP LOCKED, so no
+    cycle exists). Proven here by holding the lock in the main thread and
+    showing the background requeue does not flip the row until release.
+    """
+    item = entry("subject-lock", "cus_lock")
+    enqueue(harness, [item])
+    abandon_one(harness, item)
+
+    table = harness.tables.outbox
+    flipped = threading.Event()
+
+    def background_requeue() -> None:
+        requeue_outbox(harness).requeue([item.entry_id])
+        flipped.set()
+
+    with harness.session_factory() as session, session.begin():
+        # Hold the abandoned row's lock, as a concurrent finisher would.
+        session.execute(
+            select(table.c.entry_id).where(table.c.entry_id == item.entry_id).with_for_update()
+        ).one()
+        worker = threading.Thread(target=background_requeue)
+        worker.start()
+        time.sleep(0.3)
+        # The requeue is blocked on our lock — the row has not flipped yet.
+        assert not flipped.is_set()
+    # Lock released; the requeue now serializes through and completes.
+    worker.join(timeout=5)
+    assert flipped.is_set()
+
+    with harness.session_factory() as session:
+        status = session.execute(
+            select(table.c.status).where(table.c.entry_id == item.entry_id)
+        ).scalar_one()
+    assert status == OutboxStatus.PENDING.value

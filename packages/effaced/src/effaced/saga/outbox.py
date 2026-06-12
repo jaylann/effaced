@@ -4,18 +4,24 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
+from uuid import uuid4
 
 from effaced.annotations import Correction, SubjectRef
+from effaced.audit.event import AuditEvent
+from effaced.audit.event_type import AuditEventType
+from effaced.exceptions import ConfigurationError
 from effaced.saga.outbox_entry import OutboxEntry
 from effaced.saga.outbox_operation import OutboxOperation
 from effaced.saga.outbox_status import OutboxStatus
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Iterable, Sequence
+    from uuid import UUID
 
     from sqlalchemy import RowMapping, Table
     from sqlalchemy.orm import Session, sessionmaker
 
+    from effaced.audit import AuditSink
     from effaced.saga.status_counts_source import StatusCountsSource
 
 
@@ -44,6 +50,7 @@ class Outbox:
         outbox: Table,
         *,
         status_counts_source: StatusCountsSource | None = None,
+        audit_sink: AuditSink | None = None,
     ) -> None:
         """Wire the outbox to the application's session factory and table.
 
@@ -58,10 +65,16 @@ class Outbox:
                 every row in Python; inject
                 :class:`~effaced.SqlStatusCountsSource` to push the
                 aggregation into the database for large outboxes.
+            audit_sink: The trail :meth:`requeue` appends its supervised
+                ``*_REQUEUED`` events to. Optional because the read and
+                bookkeeping surfaces need no sink; :meth:`requeue` raises
+                :class:`~effaced.ConfigurationError` when called without
+                one. Pass the same sink the saga runner writes to.
         """
         self._session_factory = session_factory
         self._outbox = outbox
         self._status_counts_source = status_counts_source
+        self._audit_sink = audit_sink
 
     def enqueue(self, session: Session, entries: Sequence[OutboxEntry]) -> None:
         """Persist entries inside the caller's open transaction.
@@ -244,9 +257,11 @@ class Outbox:
 
         The read half of "abandoned loudly": every entry whose retries are
         exhausted stays visible here (and in the audit trail) until it is
-        handled out of band. Read-only by design — abandonment is permanent
-        under ADR 0010, so there is deliberately no requeue surface; what
-        an abandoned erasure requires is a determination only you can make.
+        handled out of band. The ids it returns are exactly what
+        :meth:`requeue` consumes once the underlying cause is fixed —
+        abandonment is terminal under ADR 0010 *until an operator
+        requeues* (ADR 0015); whether an abandoned erasure needs that is a
+        determination only you can make.
 
         Args:
             limit: Maximum entries to return.
@@ -264,6 +279,110 @@ class Outbox:
         )
         with self._session_factory() as session:
             return tuple(_entry(row) for row in session.execute(query).mappings())
+
+    def requeue(self, entry_ids: Iterable[UUID]) -> Sequence[OutboxEntry]:
+        """Return abandoned *erase* entries to the queue with a fresh budget.
+
+        The single supervised mutation of the operator surface (ADR 0015):
+        the operator, having fixed the cause an entry abandoned for, hands
+        back the ids :meth:`list_abandoned` produced. Each id that is
+        currently ``ABANDONED`` flips to ``PENDING`` with
+        ``next_attempt_at = NULL`` (due immediately), ``attempts = 0`` (the
+        full budget, not one borrowed attempt), and ``last_error = NULL``.
+        The prior struggle is not lost — it moves into the requeue audit
+        event, where history belongs, instead of lingering in columns that
+        now describe a fresh entry. ``entry_id`` is unchanged, so the
+        resolver-side idempotency key holds and re-execution converges.
+
+        **Erase-only — rectify entries cannot be requeued.** A rectify
+        entry's corrections (real PII) live in the row's ``payload`` and
+        are *cleared at abandonment* under ADR 0013, exactly as on success.
+        A requeued rectify entry would re-execute with no corrections — a
+        silent no-op that would still fire ``RECTIFICATION_COMPLETED``, an
+        Art. 16 correctness hole. So an ``ABANDONED`` rectify entry among
+        the ids raises :class:`~effaced.ConfigurationError` naming it,
+        *before* any audit append or status change (validation-first, the
+        same ordering as the rest of the trail): nothing flips and no event
+        is written. The remediation for an abandoned rectification is to
+        re-issue it through the :class:`~effaced.Rectifier`, which
+        re-enqueues a fresh entry carrying the corrections again.
+
+        **Append-first audit.** Before any row flips, one
+        ``ERASURE_REQUEUED`` event is appended per entry, payload
+        ``{entry_id, resolver, prior_attempts, prior_error}`` — the prior
+        error is the exception *class name* only, never a message. The
+        append precedes the status change under ADR 0010's ordering rule:
+        if the sink is down, the append raises and nothing transitions; a
+        crash between the sink commit and the outbox commit can duplicate
+        an event but never lose one. With the default
+        :class:`~effaced.DatabaseAuditSink` each append opens a *second*
+        pooled connection while this transaction still holds the ``FOR
+        UPDATE`` locks — the same connection-budget footgun as
+        :meth:`mark_succeeded`; size the pool for two connections per
+        caller, or an exhausted pool deadlocks the requeue against itself.
+
+        **Idempotent and skip-tolerant.** Ids that are missing, or whose
+        entry is no longer ``ABANDONED`` (a colleague requeued first, a
+        generation already succeeded), are silently skipped — never
+        errors. Calling :meth:`requeue` twice with the same ids is success;
+        the return value reports only the entries that actually flipped.
+
+        The whole call runs in one transaction that first locks the
+        affected rows ``FOR UPDATE`` ordered by ``entry_id`` — the same
+        lock order as :meth:`mark_succeeded`'s completion check, so a
+        requeue racing a concurrent runner serializes instead of
+        deadlocking. (SQLite ignores row locking; the serialization
+        guarantee holds only on dialects that support ``FOR UPDATE``.)
+
+        Args:
+            entry_ids: The ids to requeue, as produced by
+                :meth:`list_abandoned`. Order is irrelevant; locking always
+                follows ``entry_id`` order.
+
+        Returns:
+            The entries that actually flipped, in their post-requeue
+            ``PENDING`` state. Empty when no supplied id was ``ABANDONED``.
+
+        Raises:
+            ConfigurationError: If the outbox was constructed without an
+                ``audit_sink`` (the supervised requeue event has nowhere to
+                land), or if any supplied ``ABANDONED`` entry is a rectify
+                entry (its corrections were cleared at abandonment, ADR
+                0013 — re-issue via the :class:`~effaced.Rectifier`). Both
+                are raised before any event or flip.
+        """
+        if self._audit_sink is None:
+            msg = "Outbox.requeue requires an audit_sink; construct the Outbox with one"
+            raise ConfigurationError(msg)
+        ids = list(dict.fromkeys(entry_ids))
+        if not ids:
+            return ()
+        columns = self._outbox.c
+        locked = (
+            self._outbox.select()
+            .where(columns.entry_id.in_(ids))
+            .order_by(columns.entry_id)
+            .with_for_update()
+        )
+        with self._session_factory() as session, session.begin():
+            rows = session.execute(locked).mappings().all()
+            abandoned = [row for row in rows if row["status"] == OutboxStatus.ABANDONED.value]
+            _reject_rectify_entries(abandoned)
+            for row in abandoned:
+                self._audit_sink.append(_requeued_event(row))
+            if not abandoned:
+                return ()
+            session.execute(
+                self._outbox.update()
+                .where(columns.entry_id.in_([row["entry_id"] for row in abandoned]))
+                .values(
+                    status=OutboxStatus.PENDING.value,
+                    attempts=0,
+                    next_attempt_at=None,
+                    last_error=None,
+                )
+            )
+            return tuple(_requeued_entry(row) for row in abandoned)
 
     def status_counts(self) -> dict[OutboxStatus, int]:
         """Count entries per lifecycle status, for dashboards and health checks.
@@ -380,4 +499,63 @@ def _entry(row: RowMapping) -> OutboxEntry:
         last_attempt_at=row["last_attempt_at"],
         next_attempt_at=row["next_attempt_at"],
         last_error=row["last_error"],
+    )
+
+
+def _reject_rectify_entries(rows: list[RowMapping]) -> None:
+    """Refuse to requeue an abandoned rectify entry (ADR 0013 and ADR 0015).
+
+    A rectify entry's corrections are cleared at abandonment, so requeuing
+    it would re-execute with nothing to apply — a silent no-op rectification
+    that still completes. Raised before any append or flip; re-issue the
+    rectification via the :class:`~effaced.Rectifier` instead.
+    """
+    rectify = [row for row in rows if OutboxOperation(row["operation"]) is OutboxOperation.RECTIFY]
+    if not rectify:
+        return
+    ids = ", ".join(str(row["entry_id"]) for row in rectify)
+    msg = (
+        f"cannot requeue abandoned rectify entries ({ids}): their corrections were "
+        "cleared at abandonment (ADR 0013); re-issue the rectification via the Rectifier"
+    )
+    raise ConfigurationError(msg)
+
+
+def _requeued_event(row: RowMapping) -> AuditEvent:
+    """The append-first ``ERASURE_REQUEUED`` event for one abandoned row.
+
+    Requeue is erase-only (rectify entries are refused upstream), so the
+    event type is fixed. The payload carries the prior struggle
+    (``prior_attempts``/``prior_error`` — the exception *class name* only)
+    so the row's columns can reset to a fresh budget. ``prior_error`` is
+    omitted entirely when the row carried none, rather than emitted as an
+    empty string — an abandoned row always has one, so this is defensive,
+    but the payload shape is MAJOR-protected and an absent error is "no
+    error", never the empty-string error class.
+    """
+    payload: dict[str, str | int | bool] = {
+        "entry_id": str(row["entry_id"]),
+        "resolver": row["resolver"],
+        "prior_attempts": row["attempts"],
+    }
+    if row["last_error"] is not None:
+        payload["prior_error"] = row["last_error"]
+    return AuditEvent(
+        event_id=uuid4(),
+        event_type=AuditEventType.ERASURE_REQUEUED,
+        subject_ref=row["subject_id"],
+        occurred_at=datetime.now(UTC),
+        payload=payload,
+    )
+
+
+def _requeued_entry(row: RowMapping) -> OutboxEntry:
+    """One entry in its post-requeue ``PENDING`` state (fresh retry budget)."""
+    return _entry(row).model_copy(
+        update={
+            "status": OutboxStatus.PENDING,
+            "attempts": 0,
+            "next_attempt_at": None,
+            "last_error": None,
+        }
     )
