@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from effaced.resolvers.results import ResolverErasure, ResolverExport, ResolverRectification
+from effaced.resolvers.erasure import ResolverErasure
+from effaced.resolvers.export import ResolverExport
+from effaced.resolvers.rectification import ResolverRectification
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence

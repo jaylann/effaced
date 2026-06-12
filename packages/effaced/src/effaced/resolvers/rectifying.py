@@ -8,7 +8,7 @@ from effaced.resolvers.base import Resolver
 
 if TYPE_CHECKING:
     from effaced.annotations import Correction, SubjectRef
-    from effaced.resolvers.results import ResolverRectification
+    from effaced.resolvers.rectification import ResolverRectification
 
 
 @runtime_checkable

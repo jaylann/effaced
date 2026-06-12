@@ -12,7 +12,8 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from effaced.annotations import SubjectRef
-    from effaced.resolvers.results import ResolverErasure, ResolverExport
+    from effaced.resolvers.erasure import ResolverErasure
+    from effaced.resolvers.export import ResolverExport
 
 
 @runtime_checkable
