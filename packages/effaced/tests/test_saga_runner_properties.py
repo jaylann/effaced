@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from conftest import RecordingAuditSink, StatefulResolver
-from hypothesis import given
+from hypothesis import given, settings
 from hypothesis import strategies as st
 from sqlalchemy import MetaData, create_engine, select, update
 from sqlalchemy.orm import Session, sessionmaker
@@ -27,8 +27,10 @@ from effaced import (
     PiiCategory,
     ResolverErasure,
     ResolverError,
+    ResolverExport,
     ResolverRectification,
     ResolverRegistry,
+    ResolverScheduledErasure,
     SagaRunner,
     SubjectRef,
     bind_tables,
@@ -387,3 +389,161 @@ def test_completion_isolation_per_operation(
         rectify_completions = events.count(AuditEventType.RECTIFICATION_COMPLETED)
         assert erase_completions == (1 if erases and not erase_poisoned else 0)
         assert rectify_completions == (1 if rectifies and not rectify_poisoned else 0)
+
+
+# --- retention-only erasure honesty (ADR 0018) ---------------------------------
+
+RETENTION_OUTCOMES = ("transient", "future", "past", "absent")
+
+
+class RetentionScriptedResolver:
+    """A retention-only double replaying a per-ref script of outcome kinds.
+
+    ``"transient"`` raises ``TimeoutError``, ``"future"``/``"past"`` report
+    a horizon on that side of now (both park the entry; a past horizon is
+    clamped by the runner), ``"absent"`` verifies the data gone. An
+    exhausted script keeps reporting absence — the vendor's retention job
+    eventually purges.
+    """
+
+    def __init__(self, name: str, scripts: dict[str, list[str]]) -> None:
+        self._name = name
+        self._scripts = {value: list(script) for value, script in scripts.items()}
+        self.parks = 0
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    async def export_subject(self, ref: SubjectRef) -> ResolverExport:
+        raise NotImplementedError
+
+    async def erase_subject(self, ref: SubjectRef) -> ResolverErasure:
+        msg = "retention-only: cannot delete on demand"
+        raise ResolverError(msg)
+
+    async def schedule_erasure(self, ref: SubjectRef) -> ResolverScheduledErasure:
+        script = self._scripts.get(ref.value, [])
+        kind = script.pop(0) if script else "absent"
+        if kind == "transient":
+            msg = "transient outage"
+            raise TimeoutError(msg)
+        if kind == "absent":
+            return ResolverScheduledErasure(resolver=self._name, already_absent=True)
+        self.parks += 1
+        offset = timedelta(days=30) if kind == "future" else -timedelta(days=1)
+        return ResolverScheduledErasure(resolver=self._name, expires_at=datetime.now(UTC) + offset)
+
+
+def build_retention_world(resolver: RetentionScriptedResolver, *, max_attempts: int) -> World:
+    """A fresh in-memory world around the retention-only resolver."""
+    engine = create_engine("sqlite://", poolclass=StaticPool)
+    metadata = MetaData()
+    tables = bind_tables(metadata)
+    metadata.create_all(engine)
+    session_factory = sessionmaker(engine)
+    outbox = Outbox(session_factory, tables.outbox)
+    sink = RecordingAuditSink()
+    registry = ResolverRegistry()
+    registry.register(resolver)
+    saga = SagaRunner(registry, outbox, sink, max_attempts=max_attempts, backoff=TINY_BACKOFF)
+    return World(session_factory, tables, outbox, sink, StatefulResolver("unused", set()), saga)
+
+
+def vendor_entry(value: str) -> OutboxEntry:
+    return OutboxEntry(
+        entry_id=uuid4(),
+        subject_id="subject-1",
+        resolver="vault",
+        ref=SubjectRef(kind="vault", value=value),
+        enqueued_at=datetime.now(UTC),
+    )
+
+
+def force_due(world: World) -> None:
+    """Expire every pending gate (backoff or horizon) so the next claim runs."""
+    table = world.tables.outbox
+    terminal = (OutboxStatus.SUCCEEDED.value, OutboxStatus.ABANDONED.value)
+    with world.session_factory() as session:
+        session.execute(
+            update(table)
+            .where(table.c.status.notin_(terminal))
+            .values(next_attempt_at=datetime.now(UTC) - timedelta(seconds=1))
+        )
+        session.commit()
+
+
+def event_count(world: World, event_type: AuditEventType) -> int:
+    return sum(1 for e in world.sink.events if e.event_type is event_type)
+
+
+def expected_to_abandon(script: list[str], max_attempts: int) -> bool:
+    """Mirror the budget: transients count claims, a park resets, absence ends.
+
+    Between parks every claim is a transient (a horizon parks, absence is
+    terminal), so an entry abandons exactly when some transient streak
+    since the last park reaches ``max_attempts``. An exhausted script
+    defaults to absence, so it never abandons past its scripted outcomes.
+    """
+    streak = 0
+    for kind in script:
+        if kind == "transient":
+            streak += 1
+            if streak >= max_attempts:
+                return True
+        elif kind == "absent":
+            return False
+        else:
+            streak = 0
+    return False
+
+
+@settings(deadline=None, max_examples=25)
+@given(
+    scripts=st.lists(
+        st.lists(st.sampled_from(RETENTION_OUTCOMES), max_size=4), min_size=1, max_size=3
+    ),
+    max_attempts=st.integers(min_value=1, max_value=4),
+)
+def test_completion_honesty_for_any_retention_only_script(
+    scripts: list[list[str]], max_attempts: int
+) -> None:
+    """ERASURE_COMPLETED iff every entry reached SUCCEEDED — never while parked.
+
+    The honesty property of ADR 0018: a SCHEDULED entry blocks completion,
+    completion fires at most once per subject, every park leaves an
+    ERASURE_EXPIRY_SCHEDULED event, and any script — exhaustion defaults to
+    verified absence — converges to a terminal outbox.
+    """
+    resolver = RetentionScriptedResolver(
+        "vault", {f"rec_{index}": script for index, script in enumerate(scripts)}
+    )
+    world = build_retention_world(resolver, max_attempts=max_attempts)
+    entries = {index: vendor_entry(f"rec_{index}") for index in range(len(scripts))}
+    enqueue(world, *entries.values())
+
+    terminal = {OutboxStatus.SUCCEEDED.value, OutboxStatus.ABANDONED.value}
+    for _ in range(10 * sum(len(script) + 1 for script in scripts) * max_attempts):
+        asyncio.run(world.saga.run_once())
+        completions = event_count(world, AuditEventType.ERASURE_COMPLETED)
+        assert completions <= 1  # at most once per subject
+        current = statuses(world)
+        if OutboxStatus.SCHEDULED.value in current.values():
+            assert completions == 0  # never complete while a horizon is pending
+        if set(current.values()) <= terminal:
+            break
+        force_due(world)
+    else:
+        pytest.fail("eventual purge did not converge within the cycle budget")
+
+    final = statuses(world)
+    for index, script in enumerate(scripts):
+        expected = (
+            OutboxStatus.ABANDONED
+            if expected_to_abandon(script, max_attempts)
+            else OutboxStatus.SUCCEEDED
+        )
+        assert final[entries[index].entry_id] == expected.value
+    all_succeeded = all(status == OutboxStatus.SUCCEEDED.value for status in final.values())
+    assert event_count(world, AuditEventType.ERASURE_COMPLETED) == (1 if all_succeeded else 0)
+    assert event_count(world, AuditEventType.ERASURE_EXPIRY_SCHEDULED) == resolver.parks

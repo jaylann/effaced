@@ -23,6 +23,7 @@ from effaced import (
     collect_data_map,
     resolve_subject_graph,
 )
+from effaced.testing import InMemoryRetentionOnlyResolver
 
 LOCAL_RECORD_COUNT = 4
 
@@ -73,7 +74,7 @@ class ExplodingResolver:
 def build(
     engine: Engine,
     sink: RecordingAuditSink,
-    *resolvers: StaticResolver | ExplodingResolver,
+    *resolvers: StaticResolver | ExplodingResolver | InMemoryRetentionOnlyResolver,
 ) -> Exporter:
     """An exporter on the seeded shared schema with the given resolvers."""
     with sessionmaker(engine)() as session:
@@ -182,3 +183,24 @@ def test_fan_out_on_a_loop_thread_raises_runtime_error(sqlite_engine: Engine) ->
 
     with pytest.raises(RuntimeError):
         asyncio.run(run())
+
+
+def test_retention_only_records_carry_the_schedule_horizon(sqlite_engine: Engine) -> None:
+    """Art. 15 honesty (ADR 0018): scheduled records name their expiry, local rows don't."""
+    held = ExportRecord(
+        source="retention_memory",
+        field="recording",
+        category=PiiCategory.COMMUNICATION,
+        value="call transcript",
+    )
+    resolver = InMemoryRetentionOnlyResolver(records={"ext-1": (held,)})
+    scheduled = asyncio.run(resolver.schedule_erasure(ref("retention_memory")))
+    assert scheduled.expires_at is not None
+
+    exporter = build(sqlite_engine, RecordingAuditSink(), resolver)
+    bundle = export(sqlite_engine, exporter, (ref("retention_memory"),))
+
+    local = bundle.records[:LOCAL_RECORD_COUNT]
+    external = bundle.records[LOCAL_RECORD_COUNT:]
+    assert all(record.expires_at is None for record in local)
+    assert [record.expires_at for record in external] == [scheduled.expires_at]

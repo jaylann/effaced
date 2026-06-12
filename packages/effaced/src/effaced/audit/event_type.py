@@ -18,6 +18,7 @@ class AuditEventType(StrEnum):
     EXPORT_COMPLETED = "export_completed"
     ERASURE_REQUESTED = "erasure_requested"
     ERASURE_LOCAL_COMPLETED = "erasure_local_completed"
+    ERASURE_EXPIRY_SCHEDULED = "erasure_expiry_scheduled"
     ERASURE_STEP_SUCCEEDED = "erasure_step_succeeded"
     ERASURE_STEP_FAILED = "erasure_step_failed"
     ERASURE_COMPLETED = "erasure_completed"

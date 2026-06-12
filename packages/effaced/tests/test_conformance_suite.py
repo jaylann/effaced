@@ -2,10 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
+from datetime import UTC, datetime, timedelta
+
 import pytest
 
 from effaced import Correction, ExportRecord, PiiCategory, ResolverError, SubjectRef
-from effaced.testing import InMemoryResolver, ResolverConformanceSuite
+from effaced.testing import (
+    InMemoryResolver,
+    InMemoryRetentionOnlyResolver,
+    ResolverConformanceSuite,
+)
 
 PRESENT = "subj-1"
 ABSENT = "subj-never"
@@ -112,3 +119,73 @@ def test_required_hooks_default_to_not_implemented():
     for hook in (suite.make_resolver, suite.make_present_ref, suite.make_absent_ref):
         with pytest.raises(NotImplementedError):
             hook()
+
+
+# --- retention-only reference fake (ADR 0018) ----------------------------------
+
+RETENTION_RECORDS = (
+    ExportRecord(source="retention_memory", field="recording", category=PiiCategory.COMMUNICATION),
+)
+
+
+class TestInMemoryRetentionOnlyResolverConformance(ResolverConformanceSuite):
+    """The retention-only reference fake passes the scheduled-erasure contract."""
+
+    def make_resolver(self) -> InMemoryRetentionOnlyResolver:
+        return InMemoryRetentionOnlyResolver(records={PRESENT: RETENTION_RECORDS})
+
+    def make_present_ref(self) -> SubjectRef:
+        return SubjectRef(kind="retention_memory", value=PRESENT)
+
+    def make_absent_ref(self) -> SubjectRef:
+        return SubjectRef(kind="retention_memory", value=ABSENT)
+
+    def make_nonretryable_resolver(self) -> InMemoryRetentionOnlyResolver:
+        return InMemoryRetentionOnlyResolver(error=ResolverError("revoked key"))
+
+    def make_transient_resolver(self) -> tuple[InMemoryRetentionOnlyResolver, type[Exception]]:
+        return InMemoryRetentionOnlyResolver(error=TimeoutError("slow")), TimeoutError
+
+    def make_expired_resolver(self) -> InMemoryRetentionOnlyResolver:
+        """Schedule the present subject, then step the clock past its horizon."""
+        now = [datetime(2026, 6, 1, 12, 0, tzinfo=UTC)]
+        resolver = InMemoryRetentionOnlyResolver(
+            records={PRESENT: RETENTION_RECORDS},
+            retention=timedelta(days=30),
+            clock=lambda: now[0],
+        )
+        scheduled = asyncio.run(resolver.schedule_erasure(self.make_present_ref()))
+        assert scheduled.expires_at is not None
+        now[0] = scheduled.expires_at + timedelta(seconds=1)
+        return resolver
+
+
+ERASE_TESTS = (
+    "test_erase_of_present_subject_succeeds",
+    "test_erase_is_idempotent",
+    "test_erase_of_absent_subject_reports_already_absent",
+    "test_export_after_erase_is_empty",
+)
+
+SCHEDULED_TESTS = (
+    "test_retention_only_erase_subject_raises",
+    "test_schedule_of_present_subject_reports_horizon",
+    "test_schedule_is_convergent",
+    "test_schedule_of_absent_subject_is_already_absent",
+    "test_export_after_schedule_carries_expires_at",
+    "test_post_horizon_schedule_verifies_absent",
+)
+
+
+@pytest.mark.parametrize("test_name", ERASE_TESTS)
+def test_erase_tests_skip_for_a_retention_only_resolver(test_name: str) -> None:
+    """On-demand erase proofs do not apply: erase_subject raises by contract."""
+    with pytest.raises(pytest.skip.Exception):
+        getattr(TestInMemoryRetentionOnlyResolverConformance(), test_name)()
+
+
+@pytest.mark.parametrize("test_name", SCHEDULED_TESTS)
+def test_scheduled_tests_skip_for_a_non_retention_only_resolver(test_name: str) -> None:
+    """The scheduled section is isinstance-gated to RetentionOnlyResolver."""
+    with pytest.raises(pytest.skip.Exception):
+        getattr(_HooklessSuite(), test_name)()
