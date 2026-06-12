@@ -26,10 +26,15 @@ tables = bind_tables(metadata)
 registry = ResolverRegistry()
 registry.register(StripeResolver(api_key="rk_live_..."))
 
+audit = DatabaseAuditSink(session_factory, tables.audit_events)
+# Pass the same audit sink to the outbox so `requeue()` (below) can append
+# its supervised event — `requeue` raises `ConfigurationError` without one.
+outbox = Outbox(session_factory, tables.outbox, audit_sink=audit)
+
 runner = SagaRunner(
     registry,
-    Outbox(session_factory, tables.outbox),
-    DatabaseAuditSink(session_factory, tables.audit_events),
+    outbox,
+    audit,
     # Size the lease above your slowest resolver call: an expired lease
     # mid-call means double execution (idempotent, but wasteful).
     backoff=BackoffPolicy(),
@@ -129,10 +134,26 @@ if counts[OutboxStatus.ABANDONED]:
 `SELECT subject_id, resolver, last_error, attempts FROM effaced_outbox
 WHERE status = 'abandoned';`)
 
-Remediation: fix the underlying cause (credentials, deleted API resource,
-resolver bug), delete the abandoned row, and re-run `erase_subject` for the
-subject — it re-enqueues the external work under fresh idempotency keys, and
-resolvers treat "already gone" as success, so the re-run converges.
+Remediation (ADR 0015): fix the underlying cause (credentials, deleted API
+resource, resolver bug), then `requeue` the abandoned entries by id. Each one
+flips back to `PENDING` with a full retry budget (`attempts = 0`,
+`next_attempt_at = NULL`) under its unchanged `entry_id`, so the resolver-side
+idempotency key holds and re-execution converges:
+
+```python
+abandoned = outbox.list_abandoned()       # full entries, oldest first
+# Look at what you are about to re-run, then hand back the ids:
+requeued = outbox.requeue([item.entry_id for item in abandoned])
+# `requeued` reports only the entries that actually flipped — ids that were
+# already requeued or no longer abandoned are skipped, never errors.
+```
+
+`requeue` appends one `ERASURE_REQUEUED` / `RECTIFICATION_REQUEUED` event per
+flipped entry (carrying the prior attempt count and the prior error's class
+name) **before** the row flips, so the supervised re-run is always in the
+trail. A requeued entry blocks `ERASURE_COMPLETED` again until it lands; an
+operator who requeues without fixing the cause will see a second abandonment
+in the trail, each cycle its own evidence.
 
 The outbox is a mechanism and this is its operating manual — whether an
 abandoned erasure needs escalation under your obligations is a determination
