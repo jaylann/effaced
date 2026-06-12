@@ -15,7 +15,7 @@ import pytest
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
-from sqlalchemy import Column, Connection, Engine, MetaData, select, text
+from sqlalchemy import Column, Connection, Engine, MetaData, inspect, select, text
 
 from effaced import bind_tables
 from effaced.adapters.sqlalchemy.storage.bind_tables import (
@@ -65,6 +65,8 @@ def test_autogenerate_discovers_all_owned_tables(pg_engine: Engine) -> None:
     metadata = MetaData()
     bind_tables(metadata)
     with pg_engine.connect() as conn:
+        leftovers = OWNED_TABLE_NAMES & set(inspect(conn).get_table_names())
+        assert not leftovers, f"integration database not clean on entry: {sorted(leftovers)}"
         diffs = compare_metadata(_migration_ctx(conn), metadata)
 
     added_tables = {diff[1].name for diff in diffs if diff[0] == "add_table"}
