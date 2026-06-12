@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from copy import deepcopy
 
 import pytest
 from sqlalchemy import MetaData
@@ -61,12 +62,14 @@ def test_v1_payload_migrates_forward_to_anchorless_retention(metadata: MetaData)
             retention = column["spec"]["retention"]
             if retention is not None:
                 del retention["anchor"]
+    before = deepcopy(payload)
     restored = DataMap.from_payload(payload)
     assert restored.schema_version == MANIFEST_SCHEMA_VERSION
     (billing,) = restored.table("invoices").columns
     assert billing.spec.retention is not None
     assert billing.spec.retention.anchor is None
     assert billing.spec.retention.duration is not None  # v1 fields survive the lift
+    assert payload == before  # migration never mutates the caller's payload
 
 
 def test_future_schema_version_is_rejected_loudly(metadata: MetaData) -> None:

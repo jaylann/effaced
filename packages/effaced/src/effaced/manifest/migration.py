@@ -7,6 +7,7 @@ gets an explicit upgrade branch in :func:`migrate`.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
 
 from effaced.exceptions import ManifestError
@@ -22,7 +23,8 @@ def migrate(data: dict[str, Any]) -> dict[str, Any]:
     """Lift a serialized manifest to :data:`MANIFEST_SCHEMA_VERSION`.
 
     Args:
-        data: A manifest payload of any historical schema version.
+        data: A manifest payload of any historical schema version. Never
+            mutated: upgrades operate on a deep copy.
 
     Returns:
         The payload upgraded to the current schema version.
@@ -41,6 +43,7 @@ def migrate(data: dict[str, Any]) -> dict[str, Any]:
             f"release understands ({MANIFEST_SCHEMA_VERSION}); upgrade effaced"
         )
         raise ManifestError(msg)
+    data = deepcopy(data)
     if version == 1:
         # v2 added RetentionPolicy.anchor (ADR 0012): old policies have no clock.
         for table in data.get("tables", ()):
