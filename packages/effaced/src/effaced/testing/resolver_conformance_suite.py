@@ -348,9 +348,8 @@ class ResolverConformanceSuite:
         export = self._run(resolver.export_subject(self.make_present_ref()))
         for record in export.records:
             for exclusion in surface.exclusions:
-                assert not fnmatch(
-                    record.field, exclusion.field
-                ), f"{record.field} matches excluded {exclusion.field}"
+                excluded = fnmatch(record.field, exclusion.field)
+                assert not excluded, f"{record.field} matches excluded {exclusion.field}"
 
     def test_fully_populated_export_enumerates_the_declared_surface(self) -> None:
         """Every covered glob is matched by a record of the maximal export."""

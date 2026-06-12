@@ -19,6 +19,7 @@ from effaced_stripe.export_records import (
     _BILLING_DETAILS_FIELDS,
     _CARD_FIELDS,
     _CUSTOMER_FIELDS,
+    _PAYMENT_METHOD_FIELDS,
     _SHIPPING_FIELDS,
 )
 
@@ -37,7 +38,7 @@ _COVERED_FIELDS: tuple[CoveredField, ...] = tuple(
     + _fields("customer.address", _ADDRESS_FIELDS)
     + _fields("customer.shipping", _SHIPPING_FIELDS)
     + _fields("customer.shipping.address", _ADDRESS_FIELDS)
-    + [CoveredField(field=f"{_PM}.type", category=PiiCategory.FINANCIAL)]
+    + _fields(_PM, _PAYMENT_METHOD_FIELDS)
     + _fields(f"{_PM}.card", _CARD_FIELDS)
     + _fields(f"{_PM}.billing_details", _BILLING_DETAILS_FIELDS)
     + _fields(f"{_PM}.billing_details.address", _ADDRESS_FIELDS)
