@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 class RetentionSweeper:
     """Finds data whose declared retention window has lapsed — and reports it.
 
-    The sweep is read-only by construction: it builds nothing but SELECTTs,
+    The sweep is read-only by construction: it builds nothing but SELECT statements,
     writes no rows, and the erasure planner stays time-free — a lapsed
     window changes the report, never any plan. Whether a lapsed duty
     permits erasure is the controller's determination (ADR 0012); acting on

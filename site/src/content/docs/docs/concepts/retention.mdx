@@ -33,7 +33,7 @@ datetime-typed, or collection fails loudly before any sweep runs.
 the manifest against one instant and returns a `RetentionReport`: per
 (table, column), the policy's reason, the subjects whose declared window
 has lapsed with row counts, and what could not be evaluated. The sweep
-builds nothing but SELECTTs — only subject ids leave the database, never
+builds nothing but SELECT statements — only subject ids leave the database, never
 values — and writes no rows.
 
 ```python
