@@ -1,0 +1,112 @@
+---
+title: Backup replay
+description: Restores resurrect erased subjects — derive which erasures the surviving audit trail shows were committed since the backup point, inspect the plan, replay them.
+---
+
+Restoring a database backup brings back every subject erased after the
+backup point: Art. 17 work silently undone by an ordinary operational
+act. The audit trail records exactly which erasures were committed in
+that window, so effaced can replay them — derive a plan from the trail,
+inspect it, re-run each erasure through the same planner that ran it the
+first time.
+
+```python
+replayer = Replayer(planner, audit_sink)
+
+events = surviving_sink.read_since(backup_taken_at)   # any ReplaySource
+plan = replayer.plan(events, backup_taken_at=backup_taken_at)
+
+plan.entries          # subjects with a committed erasure in the window
+plan.indeterminate    # interrupted attempts — your call, never guessed
+plan.failed_only      # attempts that rolled back — nothing resurrected
+
+with session_factory() as session:
+    results = replayer.replay(session, plan)
+    session.commit()
+```
+
+## The trail must survive the restore
+
+The mechanism reads the audit trail — but with the default
+`DatabaseAuditSink` the trail lives in the same database, so the restore
+rolled it back too. The post-backup window is gone from the restored
+database, and effaced cannot conjure it. Replay consumes a *surviving*
+record: an external sink, a replica, a pre-restore dump of
+`effaced_audit_events`.
+
+Derivation takes a plain sequence of `AuditEvent`s, so any surviving
+record works. For the common case, anything implementing the
+`ReplaySource` capability — `read_since(since)`, all subjects, oldest
+first — plugs in directly; `DatabaseAuditSink` implements it, so a
+replica or the pre-restore database is one call away. `ReplaySource` is
+deliberately not part of the `AuditSink` protocol: existing custom sinks
+keep working unchanged, and a dump-file loader can be a replay source
+without being a sink at all.
+
+## What gets replayed, honestly
+
+A restore resurrects **local** rows only, so the trigger is
+`ERASURE_LOCAL_COMPLETED` — the event appended exactly when an erasure's
+local phase committed. Per subject, looking at events at or after
+`backup_taken_at`:
+
+- **A committed completion** → the subject is replayable. The plan entry
+  counts the qualifying completions and cites the latest event id — the
+  evidence the decision rests on.
+- **Only failed attempts** → `failed_only`. Those erasures rolled back;
+  the restore resurrected nothing of them.
+- **Only an interrupted attempt** (`ERASURE_REQUESTED` with no terminal
+  event) → `indeterminate`. The trail does not show what happened, so
+  effaced surfaces the subject and refuses to guess — the same posture as
+  the retention sweep.
+
+The boundary is inclusive: whether a commit at exactly the backup instant
+made it into the backup is unknowable, and replaying an erasure that was
+never undone is a convergent no-op, so doubt resolves toward replaying.
+Derivation is pure — same events in, equal plan out — so you can derive,
+inspect, and re-derive freely before executing anything.
+
+## Replay is the same erasure, run again
+
+`replay(session, plan)` delegates every entry to
+`ErasurePlanner.erase_subject` — there is no second erasure engine.
+Deletion order, anonymization, retention handling, and audit semantics
+are exactly those of a first-run erasure, and re-runs are convergent by
+contract: row-deleting tables report zero the second time, `RETAIN`
+columns survive every pass, and replaying a replay is a no-op success.
+
+Before each subject's re-run, one `ERASURE_REPLAYED` event is appended —
+*before* any mutation, so a down sink stops the replay before it touches
+anything. A replayed subject's trail then reads `ERASURE_REPLAYED ·
+ERASURE_REQUESTED · …` — each run is evidence, and consumers of the
+trail must tolerate repeated sequences.
+
+Replay runs in your open session and never commits; it fails fast on the
+first error so you can roll back the whole batch and re-run — the re-run
+converges.
+
+## External systems: re-derive refs, or skip them
+
+Your database restore did not restore Stripe. External erasures stand,
+so by default replay touches the local database only. The trail cannot
+help here even if you wanted it to — it is PII-free by design and carries
+no external refs. But the restore resurrected exactly the columns refs
+derive from, so when you do want external re-enqueueing (for example
+after restoring *into* an environment whose external state is unknown),
+pass a `refs_for` callable and each replayed erasure routes refs to
+resolvers exactly as a first run would:
+
+```python
+replayer = Replayer(planner, audit_sink, refs_for=stripe_refs_for_user)
+```
+
+Resolvers treat "already gone" as success, so re-enqueued work converges.
+
+:::note
+Replay re-applies erasures; whether a restore obligates you to do so —
+and what else it obligates — is a determination for you and your counsel.
+effaced ships the mechanism and the audited record that it ran, never the
+determination. Semantics are pinned in ADR 0018.
+:::
+
+Full signatures: [API reference](../../reference/replay/).

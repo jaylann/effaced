@@ -199,8 +199,9 @@ export const tiers: RoadmapTier[] = [
         name: 'Backup-replay log',
         scope:
           'Backups resurrect erased subjects; replay the erasures committed since the backup point after a restore.',
-        status: 'planned',
+        status: 'shipped',
         ref: { kind: 'issue', number: 59 },
+        docsPath: 'concepts/backup-replay/',
       },
       {
         name: 'Email-provider resolver',

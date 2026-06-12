@@ -53,6 +53,7 @@ export default defineConfig({
             'docs/concepts/consent',
             'docs/concepts/restriction',
             'docs/concepts/retention',
+            'docs/concepts/backup-replay',
             'docs/concepts/audit',
             'docs/concepts/resolvers',
             'docs/concepts/manifest',

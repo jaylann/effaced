@@ -20,6 +20,7 @@ from effaced import (
     AuditSink,
     DatabaseAuditSink,
     EffacedTables,
+    ReplaySource,
     bind_tables,
 )
 
@@ -136,3 +137,45 @@ def test_read_unknown_event_type_raises_with_upgrade_guidance(harness: SinkHarne
 
 def test_database_sink_satisfies_protocol(harness: SinkHarness) -> None:
     assert isinstance(harness.sink, AuditSink)
+
+
+def test_read_since_returns_the_window_across_subjects_oldest_first(
+    harness: SinkHarness,
+) -> None:
+    """read_since spans all subjects, inclusive at the boundary (ADR 0018)."""
+    before = event("subject-1", at=T1)
+    at_boundary = event("subject-2", at=T2)
+    after = event("subject-1", at=T3)
+    for appended in (after, before, at_boundary):
+        harness.sink.append(appended)
+    assert tuple(harness.sink.read_since(T2)) == (at_boundary, after)
+
+
+def test_read_since_breaks_occurred_at_ties_by_event_id(harness: SinkHarness) -> None:
+    tied_second = event("subject-2", at=T1, event_id=UUID(int=9))
+    tied_first = event("subject-1", at=T1, event_id=UUID(int=4))
+    for appended in (tied_second, tied_first):
+        harness.sink.append(appended)
+    assert tuple(harness.sink.read_since(T1)) == (tied_first, tied_second)
+
+
+def test_read_since_unknown_event_type_raises_with_upgrade_guidance(
+    harness: SinkHarness,
+) -> None:
+    """The window read is all-or-nothing, exactly like the per-subject read."""
+    with harness.session_factory.begin() as session:
+        session.execute(
+            harness.tables.audit_events.insert().values(
+                event_id=uuid4(),
+                event_type="from_the_future",
+                subject_ref="subject-1",
+                occurred_at=T2,
+                payload={},
+            )
+        )
+    with pytest.raises(AuditIntegrityError, match="from_the_future"):
+        harness.sink.read_since(T1)
+
+
+def test_database_sink_is_a_replay_source(harness: SinkHarness) -> None:
+    assert isinstance(harness.sink, ReplaySource)
