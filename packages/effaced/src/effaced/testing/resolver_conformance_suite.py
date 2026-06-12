@@ -10,12 +10,14 @@ export shape, idempotent erasure, and the error taxonomy.
 from __future__ import annotations
 
 import asyncio
+from fnmatch import fnmatch
 from typing import TYPE_CHECKING, TypeVar
 
 import pytest
 
 from effaced.exceptions import ResolverError
 from effaced.resolvers import (
+    AttestingResolver,
     RectifyingResolver,
     Resolver,
     ResolverErasure,
@@ -57,6 +59,15 @@ class ResolverConformanceSuite:
     erase tests, which skip — their ``erase_subject`` raises by contract.
     Override :meth:`make_expired_resolver` to also prove post-horizon
     verification; that test skips while the hook returns ``None``.
+
+    Resolvers implementing the optional
+    :class:`~effaced.AttestingResolver` capability get the covered-surface
+    section: the present subject's export must stay within the declared
+    surface (subset) and never touch a declared exclusion (absence).
+    Override :meth:`make_fully_populated_resolver` to also prove the
+    enumeration direction — every declared field is reachable; that test
+    skips while the hook returns ``None``. The whole section skips for a
+    resolver that does not attest a surface.
     """
 
     def make_resolver(self) -> Resolver:
@@ -96,6 +107,19 @@ class ResolverConformanceSuite:
         was scheduled and its retention horizon already elapsed — the
         suite proves the next schedule verifies ``already_absent=True``
         and the export is empty.
+        """
+        return None
+
+    def make_fully_populated_resolver(self) -> Resolver | None:
+        """A resolver whose present subject populates every covered field.
+
+        Build the system so the subject behind :meth:`make_present_ref`
+        holds at least one value matching *every*
+        :class:`~effaced.CoveredField` glob in the resolver's
+        ``covered_surface`` — the maximal export. The suite then proves
+        the enumeration direction: the declared surface contains no field
+        the resolver can never emit. Skips while this returns ``None`` or
+        the resolver does not attest a surface.
         """
         return None
 
@@ -291,3 +315,53 @@ class ResolverConformanceSuite:
         assert outcome.already_absent is True
         export = self._run(resolver.export_subject(ref))
         assert export.records == ()
+
+    def _attesting_resolver(self) -> AttestingResolver:
+        """The covered-surface tests' resolver, or a skip."""
+        resolver = self.make_resolver()
+        if not isinstance(resolver, AttestingResolver):
+            pytest.skip("resolver does not implement covered_surface")
+        return resolver
+
+    def test_covered_surface_names_the_resolver(self) -> None:
+        """The surface names this resolver and declares at least one field."""
+        resolver = self._attesting_resolver()
+        surface = resolver.covered_surface
+        assert surface.resolver == resolver.name
+        assert len(surface.fields) >= 1
+
+    def test_export_stays_within_the_declared_surface(self) -> None:
+        """Every exported field matches a covered glob of the same category."""
+        resolver = self._attesting_resolver()
+        surface = resolver.covered_surface
+        export = self._run(resolver.export_subject(self.make_present_ref()))
+        for record in export.records:
+            assert any(
+                fnmatch(record.field, covered.field) and record.category == covered.category
+                for covered in surface.fields
+            ), f"{record.field} ({record.category}) is outside the declared surface"
+
+    def test_declared_exclusions_never_appear_in_exports(self) -> None:
+        """No exported field matches a declared exclusion glob."""
+        resolver = self._attesting_resolver()
+        surface = resolver.covered_surface
+        export = self._run(resolver.export_subject(self.make_present_ref()))
+        for record in export.records:
+            for exclusion in surface.exclusions:
+                excluded = fnmatch(record.field, exclusion.field)
+                assert not excluded, f"{record.field} matches excluded {exclusion.field}"
+
+    def test_fully_populated_export_enumerates_the_declared_surface(self) -> None:
+        """Every covered glob is matched by a record of the maximal export."""
+        resolver = self.make_fully_populated_resolver()
+        if resolver is None:
+            pytest.skip("resolver package provides no fully-populated hook")
+        if not isinstance(resolver, AttestingResolver):
+            pytest.skip("resolver does not implement covered_surface")
+        surface = resolver.covered_surface
+        export = self._run(resolver.export_subject(self.make_present_ref()))
+        for covered in surface.fields:
+            assert any(
+                fnmatch(record.field, covered.field) and record.category == covered.category
+                for record in export.records
+            ), f"declared {covered.field} ({covered.category}) is matched by no record"

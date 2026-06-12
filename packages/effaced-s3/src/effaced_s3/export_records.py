@@ -23,6 +23,24 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
     from datetime import datetime
 
+# The per-object export fields, as (suffix, category) pairs — the single
+# source of truth: :func:`object_records` iterates this tuple to emit its
+# records, and the covered-surface declarations build their globs from it,
+# so emitter and declaration cannot drift by construction. The object key
+# is dynamic, so a covered-surface field globs it as ``object.*.<suffix>``
+# (and ``object.*.metadata.*`` for the open-ended metadata entries). The
+# ``metadata`` suffix here is the *prefix* of those per-entry fields.
+_OBJECT_FIELDS: tuple[tuple[str, PiiCategory], ...] = (
+    ("key", PiiCategory.COMMUNICATION),
+    ("size", PiiCategory.TECHNICAL),
+    ("content_type", PiiCategory.TECHNICAL),
+    ("last_modified", PiiCategory.TECHNICAL),
+    ("metadata", PiiCategory.COMMUNICATION),
+    ("content_base64", PiiCategory.COMMUNICATION),
+)
+
+_METADATA_SUFFIX = "metadata"
+
 
 def object_records(
     key: str,
@@ -55,51 +73,36 @@ def object_records(
             metadata-only record set.
 
     Returns:
-        One record per populated field.
+        One record per populated field, in ``_OBJECT_FIELDS`` order — the
+        emitter iterates that tuple, so the emitted field set and the
+        covered-surface declarations built from it cannot drift.
     """
     prefix = f"object.{key}"
-    records = [
-        ExportRecord(
-            source=source, field=f"{prefix}.key", category=PiiCategory.COMMUNICATION, value=key
-        ),
-        ExportRecord(
-            source=source, field=f"{prefix}.size", category=PiiCategory.TECHNICAL, value=size
-        ),
-    ]
-    if content_type is not None:
-        records.append(
-            ExportRecord(
-                source=source,
-                field=f"{prefix}.content_type",
-                category=PiiCategory.TECHNICAL,
-                value=content_type,
+    scalars: dict[str, str | int | None] = {
+        "key": key,
+        "size": size,
+        "content_type": content_type,
+        "last_modified": None if last_modified is None else last_modified.isoformat(),
+        "content_base64": None if content is None else base64.b64encode(content).decode("ascii"),
+    }
+    records: list[ExportRecord] = []
+    for suffix, category in _OBJECT_FIELDS:
+        if suffix == _METADATA_SUFFIX:
+            records.extend(
+                ExportRecord(
+                    source=source,
+                    field=f"{prefix}.{suffix}.{name}",
+                    category=category,
+                    value=value,
+                )
+                for name, value in sorted(metadata.items())
             )
-        )
-    if last_modified is not None:
-        records.append(
-            ExportRecord(
-                source=source,
-                field=f"{prefix}.last_modified",
-                category=PiiCategory.TECHNICAL,
-                value=last_modified.isoformat(),
+            continue
+        value = scalars[suffix]
+        if value is not None:
+            records.append(
+                ExportRecord(
+                    source=source, field=f"{prefix}.{suffix}", category=category, value=value
+                )
             )
-        )
-    records.extend(
-        ExportRecord(
-            source=source,
-            field=f"{prefix}.metadata.{name}",
-            category=PiiCategory.COMMUNICATION,
-            value=value,
-        )
-        for name, value in sorted(metadata.items())
-    )
-    if content is not None:
-        records.append(
-            ExportRecord(
-                source=source,
-                field=f"{prefix}.content_base64",
-                category=PiiCategory.COMMUNICATION,
-                value=base64.b64encode(content).decode("ascii"),
-            )
-        )
     return tuple(records)

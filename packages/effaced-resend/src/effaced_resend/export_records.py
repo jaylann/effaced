@@ -26,6 +26,8 @@ _STRING_FIELDS = (
     ("last_name", PiiCategory.IDENTITY),
 )
 
+_BOOL_FIELDS = (("unsubscribed", PiiCategory.BEHAVIORAL),)
+
 
 def _contact_scalar(contact: Mapping[str, object], key: str) -> str | None:
     """Fetch a string scalar; absent, empty, or odd-typed values drop.
@@ -60,14 +62,9 @@ def contact_records(contact: object) -> tuple[ExportRecord, ...]:
         for key, category in _STRING_FIELDS
         if (value := _contact_scalar(contact, key)) is not None
     ]
-    unsubscribed = contact.get("unsubscribed")
-    if isinstance(unsubscribed, bool):
-        records.append(
-            ExportRecord(
-                source=_SOURCE,
-                field="contact.unsubscribed",
-                category=PiiCategory.BEHAVIORAL,
-                value=unsubscribed,
-            )
-        )
+    records.extend(
+        ExportRecord(source=_SOURCE, field=f"contact.{key}", category=category, value=value)
+        for key, category in _BOOL_FIELDS
+        if isinstance(value := contact.get(key), bool)
+    )
     return tuple(records)

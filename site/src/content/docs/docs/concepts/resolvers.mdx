@@ -94,6 +94,25 @@ never broken by a new capability:
   the horizon and then re-verifies; a schedule is never recorded as a
   completed erasure.
 
+- **`AttestingResolver`** lets a resolver declare its **covered
+  surface**: a `CoveredSurface` naming the PII-bearing fields its export
+  and erasure claim to reach (`CoveredField` globs over
+  `ExportRecord.field`, each with its category), the fields it knowingly
+  does **not** reach (`SurfaceExclusion`, each with a human reason), and
+  free-text `notes` for asymmetries — for example that `S3Resolver`
+  exports the *current* object versions but erases *all* versions and
+  delete markers. The conformance suite checks every export of a present
+  subject stays within the declared surface, never touches an exclusion,
+  and — given a fully-populated fixture — exercises every declared field.
+
+  A covered surface makes a resolver's *claimed* coverage explicit and
+  testable. It can never prove the external system holds no personal data
+  the resolver does not reach — coverage of an opaque third-party system
+  is unknowable from the outside — and it is never a compliance
+  determination. All five first-party resolvers attest one, built from
+  the same field tuples their exporters use so declaration and
+  implementation cannot drift.
+
 A retention-only implementation's structurally-required `erase_subject`
 **raises `ResolverError`** — returning a fabricated success would record
 a deletion that did not happen. The saga never calls it for these
