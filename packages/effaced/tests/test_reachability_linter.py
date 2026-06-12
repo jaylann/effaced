@@ -219,6 +219,29 @@ def test_missing_subject_id_column_is_flagged() -> None:
     assert "subject_id_column" in findings[0].reason
 
 
+def test_subject_id_column_on_non_subject_table_is_flagged() -> None:
+    metadata = MetaData()
+    Table(
+        "people",
+        metadata,
+        Column("id", Integer, primary_key=True),
+        Column("email", String, info=pii(PiiCategory.CONTACT)),
+        info=subject_link(""),
+    )
+    Table(
+        "orders",
+        metadata,
+        Column("id", Integer, primary_key=True),
+        Column("user_id", Integer, ForeignKey("people.id")),
+        Column("note", String, info=pii(PiiCategory.COMMUNICATION)),
+        info=subject_link("user", subject_id_column="custom"),
+    )
+    mappers = _map(metadata, {"orders": {"user": "people"}})
+    findings = lint_reachability(collect_data_map(metadata), mappers)
+    assert [finding.table for finding in findings] == ["orders"]
+    assert "only meaningful on the subject" in findings[0].reason
+
+
 def test_messages_name_the_gap() -> None:
     metadata = MetaData()
     Table(

@@ -34,8 +34,15 @@ def _install(name: str, **attrs: object) -> Iterator[None]:
         del sys.modules[name]
 
 
-def _clean_base() -> type[DeclarativeBase]:
-    """A declarative Base whose only table is fully annotated and reachable."""
+def _clean_base() -> tuple[type[DeclarativeBase], type]:
+    """A declarative Base whose only table is fully annotated and reachable.
+
+    Returns the imperatively mapped class alongside the Base: SQLAlchemy
+    registries hold mapped classes weakly, so the caller must keep a strong
+    reference for the fixture's lifetime or GC unmaps the schema mid-test
+    (it manifested as a "not mapped" reachability finding on py3.13 under
+    full-suite GC pressure).
+    """
 
     class Base(DeclarativeBase):
         metadata = MetaData()
@@ -47,13 +54,18 @@ def _clean_base() -> type[DeclarativeBase]:
         Column("email", String, info=pii(PiiCategory.CONTACT)),
         info=subject_link(""),
     )
-    Base.registry.map_imperatively(type("Person", (), {}), Base.metadata.tables["people"])
+    person = type("Person", (), {})
+    Base.registry.map_imperatively(person, Base.metadata.tables["people"])
     Base.registry.configure()
-    return Base
+    return Base, person
 
 
-def _broken_base() -> type[DeclarativeBase]:
-    """A Base with an annotated table the planner cannot reach (no anchor)."""
+def _broken_base() -> tuple[type[DeclarativeBase], type]:
+    """A Base with an annotated table the planner cannot reach (no anchor).
+
+    Returns the mapped class too — see :func:`_clean_base` on why the strong
+    reference is load-bearing.
+    """
 
     class Base(DeclarativeBase):
         metadata = MetaData()
@@ -65,19 +77,23 @@ def _broken_base() -> type[DeclarativeBase]:
         Column("body", String, info=pii(PiiCategory.COMMUNICATION)),
         info=subject_link("owner"),
     )
-    Base.registry.map_imperatively(type("Note", (), {}), Base.metadata.tables["notes"])
+    note = type("Note", (), {})
+    Base.registry.map_imperatively(note, Base.metadata.tables["notes"])
     Base.registry.configure()
-    return Base
+    return Base, note
 
 
 @pytest.fixture()
 def clean_module() -> Iterator[None]:
-    yield from _install("cli_fixture_clean", Base=_clean_base())
+    base, person = _clean_base()
+    # The module attribute keeps the weakly-registered mapped class alive.
+    yield from _install("cli_fixture_clean", Base=base, _person=person)
 
 
 @pytest.fixture()
 def broken_module() -> Iterator[None]:
-    yield from _install("cli_fixture_broken", Base=_broken_base())
+    base, note = _broken_base()
+    yield from _install("cli_fixture_broken", Base=base, _note=note)
 
 
 @pytest.fixture()
@@ -194,7 +210,8 @@ def test_a_foreign_key_only_clean_base_is_reachable(
         properties={"user": relationship(person)},
     )
     Base.registry.configure()
-    gen = _install("cli_fixture_fk", Base=Base)
+    # person/order ride along so the weakly-registered classes stay alive.
+    gen = _install("cli_fixture_fk", Base=Base, _person=person, _order=order)
     next(gen)
     try:
         code = main(["lint", "cli_fixture_fk:Base"])
