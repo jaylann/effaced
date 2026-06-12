@@ -5,12 +5,26 @@ from __future__ import annotations
 import os
 from collections.abc import Iterator, Sequence
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Any, ClassVar
 
 import pytest
+from hypothesis import settings
 from sqlalchemy import Column, Engine, ForeignKey, Integer, MetaData, Table, create_engine
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, registry, relationship
 from sqlalchemy.pool import StaticPool
+
+if "mutants" in Path(__file__).parts:
+    # mutmut copies this suite into packages/effaced/mutants/tests/ and runs
+    # pytest from there, so the workspace-root conftest (where the ci/deep
+    # hypothesis profiles live) is never loaded and property tests would run
+    # on hypothesis defaults: a 200ms per-example deadline that flakes under
+    # mutation-run load (recording spurious "killed" results) and fresh random
+    # seeds per run (making ordering-mutant kills oscillate between runs).
+    # Both destabilize the mutation hard gate (#124), whose allowlist needs
+    # every mutant's killed/survived status to be reproducible run-to-run.
+    settings.register_profile("mutation", deadline=None, derandomize=True)
+    settings.load_profile("mutation")
 
 from effaced import (
     AuditEvent,

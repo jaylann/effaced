@@ -10,6 +10,7 @@ from sqlalchemy import MetaData
 
 from effaced import DataMap, ErasureStrategy, ManifestError, collect_data_map
 from effaced.manifest import MANIFEST_SCHEMA_VERSION
+from effaced.manifest.migration import migrate
 
 
 def test_collects_only_annotated_tables(metadata: MetaData) -> None:
@@ -70,6 +71,75 @@ def test_v1_payload_migrates_forward_to_anchorless_retention(metadata: MetaData)
     assert billing.spec.retention.anchor is None
     assert billing.spec.retention.duration is not None  # v1 fields survive the lift
     assert payload == before  # migration never mutates the caller's payload
+
+
+def test_migrate_writes_anchor_into_each_v1_retention_dict() -> None:
+    """``migrate`` lifts a v1 payload by adding ``anchor`` to every retention dict.
+
+    Asserts on the migrated *payload* (not the loaded ``DataMap``, whose
+    model default would mask a no-op migration): the v1→v2 branch must walk
+    ``tables`` → ``columns`` → ``spec`` → ``retention`` and set ``anchor``
+    on each retention dict, leaving non-retention columns and the original
+    retention fields untouched.
+    """
+    payload = {
+        "schema_version": 1,
+        "tables": [
+            {
+                "name": "invoices",
+                "columns": [
+                    {"name": "amount", "spec": {"retention": {"reason": "tax", "duration": "P7Y"}}},
+                    {"name": "note", "spec": {"retention": None}},
+                ],
+            }
+        ],
+    }
+    migrated = migrate(payload)
+    assert migrated["schema_version"] == 2
+    amount_retention = migrated["tables"][0]["columns"][0]["spec"]["retention"]
+    assert "anchor" in amount_retention  # the key is added, not merely defaulted on read
+    assert amount_retention["anchor"] is None
+    assert amount_retention["reason"] == "tax"  # v1 fields preserved
+    assert amount_retention["duration"] == "P7Y"
+    assert migrated["tables"][0]["columns"][1]["spec"]["retention"] is None
+
+
+def test_migrate_tolerates_a_sparse_v1_payload() -> None:
+    """The v1→v2 walk never crashes on absent ``tables``/``columns``/``spec`` keys.
+
+    A v1 manifest may legitimately omit ``tables`` entirely, hold a table
+    with no ``columns``, or a column with no ``spec``. The migration must
+    treat each missing level as empty and still bump ``schema_version`` —
+    pinning the ``.get(..., ())`` / ``.get(..., {})`` defaults against a
+    payload that actually exercises them.
+    """
+    assert migrate({"schema_version": 1}) == {"schema_version": 2}
+    assert migrate({"schema_version": 1, "tables": [{"name": "t"}]}) == {
+        "schema_version": 2,
+        "tables": [{"name": "t"}],
+    }
+    spec_less = {"schema_version": 1, "tables": [{"name": "t", "columns": [{"name": "c"}]}]}
+    assert migrate(spec_less)["schema_version"] == 2
+
+
+def test_migrate_preserves_an_existing_v1_anchor() -> None:
+    """``setdefault`` never overwrites an ``anchor`` already present."""
+    payload = {
+        "schema_version": 1,
+        "tables": [
+            {
+                "name": "invoices",
+                "columns": [
+                    {
+                        "name": "amount",
+                        "spec": {"retention": {"duration": "P7Y", "anchor": "created"}},
+                    },
+                ],
+            }
+        ],
+    }
+    migrated = migrate(payload)
+    assert migrated["tables"][0]["columns"][0]["spec"]["retention"]["anchor"] == "created"
 
 
 def test_future_schema_version_is_rejected_loudly(metadata: MetaData) -> None:

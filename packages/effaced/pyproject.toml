@@ -52,7 +52,10 @@ packages = ["src/effaced"]
 # Mutation testing — weekly deep-checks workflow, not per-PR (slow). Run from
 # this directory: mutmut only puts mutants/src on sys.path, so it must see the
 # package as src/effaced. The whole tree is copied; mutation is restricted to
-# the erasure-critical modules below.
+# the erasure-critical modules below. Since #124 the weekly job is a HARD GATE:
+# scripts/check_mutation_gate.py fails it on any survivor not in
+# mutation-equivalents.txt (and on stale allowlist entries). Don't widen
+# only_mutate without driving the new survivors to the allowlist floor first.
 [tool.mutmut]
 source_paths = ["src"]
 only_mutate = [

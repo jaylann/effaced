@@ -46,6 +46,15 @@ semgrep:
 lint-actions:
     uvx zizmor@1.25.2 .github/workflows/
 
+# mutation testing over the erasure-critical modules (slow; CI runs it weekly)
+mutmut *args:
+    cd packages/effaced && uv run mutmut run {{args}}
+
+# the mutation hard gate locally: survivors must match the equivalent-mutant
+# allowlist exactly (run `just mutmut` first to populate results)
+mutmut-results:
+    cd packages/effaced && uv run mutmut results | uv run python ../../scripts/check_mutation_gate.py
+
 # build all packages' sdists+wheels into dist/
 build:
     uv build --package effaced --out-dir dist
