@@ -36,7 +36,9 @@ specs = (
     ),
     ResolverSpec(
         name="s3",
-        settings_keys=("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "S3_BUCKET"),
+        # boto3 resolves credentials from its own chain (env, profile, IAM
+        # role), so only the bucket gates registration here.
+        settings_keys=("S3_BUCKET",),
         optional_keys=("AWS_REGION",),
         build=lambda s: S3Resolver(
             s["S3_BUCKET"],
