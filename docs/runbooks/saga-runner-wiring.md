@@ -171,6 +171,18 @@ corrections again:
 rectifier.rectify_subject(session, subject_id, corrections)
 ```
 
+## Operating scheduled expiry
+
+`status_counts()[OutboxStatus.SCHEDULED]` is **pending vendor expiry, not a
+fault** (ADR 0018): each entry is an erasure a retention-only system can only
+expire, parked until its horizon and then re-claimed to verify. The horizons
+live in the audit trail — one `ERASURE_EXPIRY_SCHEDULED` event per park,
+carrying `expires_at`. A subject's erasure stays open (no `ERASURE_COMPLETED`)
+until every scheduled entry verifies expiry, so don't expect completion before
+the vendor's retention window lapses. What does deserve attention: repeated
+`ERASURE_EXPIRY_SCHEDULED` events for the same entry — a vendor that keeps
+slipping its horizon re-parks loudly instead of completing or abandoning.
+
 The outbox is a mechanism and this is its operating manual — whether an
 abandoned erasure needs escalation under your obligations is a determination
 your process owns, not the library.

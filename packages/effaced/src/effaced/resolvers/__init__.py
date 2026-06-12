@@ -8,6 +8,8 @@ from effaced.resolvers.rectifying import RectifyingResolver
 from effaced.resolvers.registry import ResolverRegistry
 from effaced.resolvers.registry_build import RegistryBuild
 from effaced.resolvers.registry_from_settings import registry_from_settings
+from effaced.resolvers.retention_only import RetentionOnlyResolver
+from effaced.resolvers.scheduled_erasure import ResolverScheduledErasure
 from effaced.resolvers.spec import ResolverSpec
 from effaced.resolvers.spec_outcome import SpecOutcome
 
@@ -19,7 +21,9 @@ __all__ = [
     "ResolverExport",
     "ResolverRectification",
     "ResolverRegistry",
+    "ResolverScheduledErasure",
     "ResolverSpec",
+    "RetentionOnlyResolver",
     "SpecOutcome",
     "registry_from_settings",
 ]

@@ -74,6 +74,35 @@ errors or double-effects. Two more contract points:
   driven from different event loops: the exporter's per-call loop and the
   saga runner's (ADR 0006).
 
+## Capability sub-protocols
+
+`Resolver` itself never grows. Optional capabilities are separate
+`@runtime_checkable` sub-protocols — implement one and the engines detect
+it with `isinstance`, so a resolver written against the base protocol is
+never broken by a new capability:
+
+- **`RectifyingResolver`** adds `rectify_subject` for Art. 16
+  [rectification](../rectification/); resolvers without it are skipped
+  and recorded, never errored.
+- **`RetentionOnlyResolver`** (ADR 0018) is for systems with **no
+  per-subject delete** — call recordings, transcripts, vendors with
+  fixed retention windows. Its `schedule_erasure(ref)` performs whatever
+  marking the system supports and returns a `ResolverScheduledErasure`:
+  either a timezone-aware `expires_at` horizon ("guaranteed gone by T")
+  or `already_absent=True` for data verifiably gone — exactly one,
+  validator-enforced. The [saga runner](../saga/) parks the entry until
+  the horizon and then re-verifies; a schedule is never recorded as a
+  completed erasure.
+
+A retention-only implementation's structurally-required `erase_subject`
+**raises `ResolverError`** — returning a fabricated success would record
+a deletion that did not happen. The saga never calls it for these
+resolvers; the raise protects direct callers. A vendor that can delete
+some data on demand but only expire the rest is modeled as **two
+resolvers with two ref kinds** — the routing rule above already handles
+the split. `InMemoryRetentionOnlyResolver` in `effaced.testing` is the
+reference implementation.
+
 ## Writing your own
 
 A minimal sketch:

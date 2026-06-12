@@ -13,6 +13,7 @@ paths: ["**"]
 - **Conventional Commits**, lowercase subject, ≤72 chars: `type(scope)?: subject`. Types: `feat fix chore docs refactor test perf style ci build revert`.
 - **DCO sign-off on every commit**: `git commit -s`. The PreToolUse hook blocks unsigned commits; CI rejects them too.
 - **No Claude attribution**: `includeCoAuthoredBy` is false in settings — never add `Co-Authored-By: Claude` trailers manually either.
+- The `typos` pre-commit hook auto-"fixes" prose it misreads — a SQL keyword pluralized with a bare lowercase s (SELECT/UPDATE + "s") gets a letter doubled, and a word spliced across an f-string brace gets "completed" into a typo — and the retry then commits the corruption silently. Write `SELECT statements` / `UPDATE statements`, never split a word across an f-string brace, and re-diff any file the hook reports as "modified" before re-committing.
 - Squash-merge only; the PR title becomes the commit on stage, so PR titles follow the same convention (CI-enforced).
 - The `typos` pre-commit hook auto-"fixes" prose it misreads — a SQL keyword pluralized with a bare lowercase s (SELECT/UPDATE + "s") gets a letter doubled, and a word spliced across an f-string brace gets "completed" into a typo — and the retry commits the corruption silently. Write `SELECT statements` / `UPDATE statements`, never split a word across an f-string brace, and re-diff any file the hook reports as "modified" before re-committing.
 

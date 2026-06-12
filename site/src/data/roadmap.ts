@@ -171,8 +171,16 @@ export const tiers: RoadmapTier[] = [
       {
         name: 'Requeue of abandoned outbox entries',
         scope: 'Operator API to safely re-run an abandoned external deletion, per ADR 0015.',
-        status: 'planned',
+        status: 'shipped',
         ref: { kind: 'issue', number: 90 },
+      },
+      {
+        name: 'Retention-only erasure',
+        scope:
+          'Systems with no per-subject delete (recordings, transcripts, vendor retention windows): schedule expiry, audit the horizon honestly, verify after it passes — per ADR 0018.',
+        status: 'shipped',
+        ref: { kind: 'issue', number: 107 },
+        docsPath: 'concepts/retention/',
       },
       {
         name: 'Versioned docs + custom domain',

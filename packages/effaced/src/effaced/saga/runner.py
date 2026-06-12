@@ -11,7 +11,13 @@ from effaced.audit.event import AuditEvent
 from effaced.audit.event_type import AuditEventType
 from effaced.categories import ErasureStrategy
 from effaced.exceptions import ResolverError
-from effaced.resolvers import RectifyingResolver, ResolverErasure, ResolverRectification
+from effaced.resolvers import (
+    RectifyingResolver,
+    ResolverErasure,
+    ResolverRectification,
+    ResolverScheduledErasure,
+    RetentionOnlyResolver,
+)
 from effaced.saga.backoff_policy import BackoffPolicy
 from effaced.saga.outbox_operation import OutboxOperation
 
@@ -30,8 +36,11 @@ class SagaRunner:
     :meth:`run_once` processes one batch; the runner owns no event loop.
 
     Entries are dispatched by their ``operation``: erase entries call
-    ``Resolver.erase_subject``, rectify entries call
-    ``RectifyingResolver.rectify_subject`` with the entry's corrections.
+    ``Resolver.erase_subject`` — or ``RetentionOnlyResolver.schedule_erasure``
+    when the resolver can only schedule expiry (ADR 0018) — and rectify
+    entries call ``RectifyingResolver.rectify_subject`` with the entry's
+    corrections. A scheduled erasure parks its entry until the retention
+    horizon, then re-verifies; it never counts as a completed erasure.
 
     Failure taxonomy (ADR 0010): :class:`~effaced.ResolverError` — raised
     by a resolver for a non-retryable failure, by the registry for an
@@ -92,6 +101,14 @@ class SagaRunner:
         class name and the entry retries on the backoff schedule (a failed
         rectify row keeps its corrections payload; terminal rows never do).
 
+        A retention-only resolver reporting a future horizon appends
+        ``ERASURE_EXPIRY_SCHEDULED`` and parks the entry ``SCHEDULED``
+        until the horizon (ADR 0018); the parked entry blocks
+        ``ERASURE_COMPLETED`` until a later claim verifies the data gone
+        (``already_absent=True``), which succeeds the step with
+        ``verified_expiry``. A vendor that keeps reporting fresh horizons
+        re-parks loudly each time — every slip is audited, never silent.
+
         Awaits resolver calls concurrently but makes blocking database
         calls (claiming, audit appends) between awaits — run it in a
         worker, cron job, or background task, never on a serving event
@@ -110,14 +127,19 @@ class SagaRunner:
             self._settle(entry, outcome)
         return len(entries)
 
-    async def _execute(self, entry: OutboxEntry) -> ResolverErasure | ResolverRectification:
+    async def _execute(
+        self, entry: OutboxEntry
+    ) -> ResolverErasure | ResolverRectification | ResolverScheduledErasure:
         """One resolver call, dispatched by operation; the gather captures raises.
 
         A rectify entry routed to a resolver without ``rectify_subject``
         raises :class:`~effaced.ResolverError`: the enqueuer never creates
         such an entry, but registries can change between enqueue and run,
         and a loud immediate abandonment is the same taxonomy as an
-        unknown resolver name.
+        unknown resolver name. An erase entry routed to a
+        :class:`~effaced.RetentionOnlyResolver` calls ``schedule_erasure``
+        instead of ``erase_subject`` — such a resolver cannot delete on
+        demand (ADR 0018).
         """
         resolver = self._registry.get(entry.resolver)
         if entry.operation is OutboxOperation.RECTIFY:
@@ -125,13 +147,21 @@ class SagaRunner:
                 msg = f"resolver {entry.resolver!r} does not implement rectify_subject"
                 raise ResolverError(msg)
             return await resolver.rectify_subject(entry.ref, entry.corrections)
+        if isinstance(resolver, RetentionOnlyResolver):
+            return await resolver.schedule_erasure(entry.ref)
         return await resolver.erase_subject(entry.ref)
 
     def _settle(
-        self, entry: OutboxEntry, outcome: ResolverErasure | ResolverRectification | BaseException
+        self,
+        entry: OutboxEntry,
+        outcome: ResolverErasure | ResolverRectification | ResolverScheduledErasure | BaseException,
     ) -> None:
-        """Book one entry's outcome: succeed, retry with backoff, or abandon."""
-        if isinstance(outcome, ResolverErasure | ResolverRectification):
+        """Book one entry's outcome: succeed, park until horizon, retry, or abandon."""
+        if isinstance(outcome, ResolverScheduledErasure) and outcome.expires_at is not None:
+            self._park(entry, expires_at=outcome.expires_at)
+        elif isinstance(
+            outcome, ResolverErasure | ResolverRectification | ResolverScheduledErasure
+        ):
             self._succeed(entry, outcome)
         elif isinstance(outcome, ResolverError):
             self._abandon(entry, outcome)
@@ -146,7 +176,9 @@ class SagaRunner:
             raise outcome
 
     def _succeed(
-        self, entry: OutboxEntry, outcome: ResolverErasure | ResolverRectification
+        self,
+        entry: OutboxEntry,
+        outcome: ResolverErasure | ResolverRectification | ResolverScheduledErasure,
     ) -> None:
         """Audit the success, then mark it; completion fires on the operation's last entry."""
         if isinstance(outcome, ResolverRectification):
@@ -158,6 +190,17 @@ class SagaRunner:
             }
             step_type = AuditEventType.RECTIFICATION_STEP_SUCCEEDED
             completed_type = AuditEventType.RECTIFICATION_COMPLETED
+        elif isinstance(outcome, ResolverScheduledErasure):
+            # Verified expiry: nothing was deleted by us, so no "strategy" key.
+            step_payload = {
+                "target": entry.resolver,
+                "external": True,
+                "verified_expiry": True,
+                "already_absent": True,
+                "attempts": entry.attempts,
+            }
+            step_type = AuditEventType.ERASURE_STEP_SUCCEEDED
+            completed_type = AuditEventType.ERASURE_COMPLETED
         else:
             step_payload = {
                 "target": entry.resolver,
@@ -175,6 +218,27 @@ class SagaRunner:
                 _event(completed_type, entry.subject_id, {})
             ),
         )
+
+    def _park(self, entry: OutboxEntry, *, expires_at: datetime) -> None:
+        """Audit the scheduled expiry, then park the entry until the horizon.
+
+        The append precedes the park (ADR 0010's ordering rule), and the
+        resume gate is clamped to at least one backoff step from now — a
+        stale or past horizon must not hot-loop the entry. ``attempts``
+        resets at the park (the ADR 0015 requeue precedent); the prior
+        struggle is preserved here as ``prior_attempts``.
+        """
+        payload: dict[str, str | int | bool] = {
+            "target": entry.resolver,
+            "external": True,
+            "expires_at": expires_at.astimezone(UTC).isoformat(),
+            "prior_attempts": entry.attempts,
+        }
+        self._audit.append(
+            _event(AuditEventType.ERASURE_EXPIRY_SCHEDULED, entry.subject_id, payload)
+        )
+        resume_at = max(expires_at, datetime.now(UTC) + self._backoff.delay(entry.attempts))
+        self._outbox.mark_scheduled(entry, resume_at=resume_at)
 
     def _abandon(self, entry: OutboxEntry, exc: BaseException) -> None:
         """Audit the abandonment loudly, then mark the entry terminal."""
