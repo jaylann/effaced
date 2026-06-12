@@ -129,9 +129,12 @@ Export records are `ExportRecord`s like local ones — `source` is your
 resolver name, and they merge straight into the
 [export bundle](../export/).
 
-Two first-party resolvers ship today: `StripeResolver` (the
-`effaced-stripe` package) covers the external system almost everyone has —
-see the [Stripe guide](../../guides/stripe/) — and `S3Resolver` (the
-`effaced-s3` package) covers subject-owned objects in S3 — see the
-[S3 guide](../../guides/s3/). Full protocol docs:
+First-party resolvers ship for the systems most apps already have:
+`StripeResolver` (the `effaced-stripe` package) — see the
+[Stripe guide](../../guides/stripe/) —, the Supabase Auth and Storage
+resolvers (the `effaced-supabase` package), `S3Resolver` (the
+`effaced-s3` package) for subject-owned objects in S3 — see the
+[S3 guide](../../guides/s3/) — and `ResendResolver` (the
+`effaced-resend` package) for the subject's email contact record in
+Resend. Full protocol docs:
 [API reference](../../reference/resolvers/).

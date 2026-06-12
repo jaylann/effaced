@@ -39,6 +39,12 @@
       "package-name": "effaced-s3",
       "component": "effaced-s3",
       "changelog-path": "CHANGELOG.md"
+    },
+    "packages/effaced-resend": {
+      "release-type": "python",
+      "package-name": "effaced-resend",
+      "component": "effaced-resend",
+      "changelog-path": "CHANGELOG.md"
     }
   }
 }

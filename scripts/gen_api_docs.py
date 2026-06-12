@@ -2,7 +2,7 @@
 
 Renders ``site/src/content/docs/docs/reference/*.mdx`` (Astro Starlight) from
 the docstrings and signatures of ``effaced`` and the resolver packages
-(``effaced_stripe``, ``effaced_supabase``).
+(``effaced_stripe``, ``effaced_supabase``, ``effaced_s3``, ``effaced_resend``).
 
 Constraint — pure static analysis: this script must NEVER import any
 workspace package. CI runs it with only the ``docs`` dependency group
@@ -69,11 +69,17 @@ PAGES: tuple[PageSpec, ...] = (
     PageSpec("effaced-stripe", "effaced-stripe", "effaced_stripe", 17),
     PageSpec("effaced-supabase", "effaced-supabase", "effaced_supabase", 18),
     PageSpec("effaced-s3", "effaced-s3", "effaced_s3", 19),
+    PageSpec("effaced-resend", "effaced-resend", "effaced_resend", 20),
 )
 
 # Non-core workspace packages, each documented by its own page. The module
 # name maps to its directory: effaced_stripe → packages/effaced-stripe.
-EXTERNAL_PACKAGES: tuple[str, ...] = ("effaced_stripe", "effaced_supabase", "effaced_s3")
+EXTERNAL_PACKAGES: tuple[str, ...] = (
+    "effaced_stripe",
+    "effaced_supabase",
+    "effaced_s3",
+    "effaced_resend",
+)
 
 _CODE_SPAN = re.compile(r"(`+[^`]+`+)")
 _REF = re.compile(r":([a-z]+):`([^`]+)`")  # targets may wrap across source lines
