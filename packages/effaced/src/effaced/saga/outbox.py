@@ -33,11 +33,6 @@ _CLAIMABLE = (
     OutboxStatus.IN_FLIGHT.value,
 )
 
-_REQUEUED_EVENT = {
-    OutboxOperation.ERASE: AuditEventType.ERASURE_REQUEUED,
-    OutboxOperation.RECTIFY: AuditEventType.RECTIFICATION_REQUEUED,
-}
-
 
 class Outbox:
     """Transactional outbox in the application's own database.
@@ -286,7 +281,7 @@ class Outbox:
             return tuple(_entry(row) for row in session.execute(query).mappings())
 
     def requeue(self, entry_ids: Iterable[UUID]) -> Sequence[OutboxEntry]:
-        """Return abandoned entries to the queue with a fresh retry budget.
+        """Return abandoned *erase* entries to the queue with a fresh budget.
 
         The single supervised mutation of the operator surface (ADR 0015):
         the operator, having fixed the cause an entry abandoned for, hands
@@ -299,10 +294,21 @@ class Outbox:
         now describe a fresh entry. ``entry_id`` is unchanged, so the
         resolver-side idempotency key holds and re-execution converges.
 
-        **Append-first, operation-agnostic audit.** Before any row flips,
-        one event is appended per entry: ``ERASURE_REQUEUED`` for an erase
-        entry, ``RECTIFICATION_REQUEUED`` for a rectify one (the event
-        follows the entry's ``operation``). Its payload carries
+        **Erase-only — rectify entries cannot be requeued.** A rectify
+        entry's corrections (real PII) live in the row's ``payload`` and
+        are *cleared at abandonment* under ADR 0013, exactly as on success.
+        A requeued rectify entry would re-execute with no corrections — a
+        silent no-op that would still fire ``RECTIFICATION_COMPLETED``, an
+        Art. 16 correctness hole. So an ``ABANDONED`` rectify entry among
+        the ids raises :class:`~effaced.ConfigurationError` naming it,
+        *before* any audit append or status change (validation-first, the
+        same ordering as the rest of the trail): nothing flips and no event
+        is written. The remediation for an abandoned rectification is to
+        re-issue it through the :class:`~effaced.Rectifier`, which
+        re-enqueues a fresh entry carrying the corrections again.
+
+        **Append-first audit.** Before any row flips, one
+        ``ERASURE_REQUEUED`` event is appended per entry, payload
         ``{entry_id, resolver, prior_attempts, prior_error}`` — the prior
         error is the exception *class name* only, never a message. The
         append precedes the status change under ADR 0010's ordering rule:
@@ -339,9 +345,11 @@ class Outbox:
 
         Raises:
             ConfigurationError: If the outbox was constructed without an
-                ``audit_sink`` — the supervised requeue event has nowhere
-                to land, and a silent flip would violate the append-first
-                contract.
+                ``audit_sink`` (the supervised requeue event has nowhere to
+                land), or if any supplied ``ABANDONED`` entry is a rectify
+                entry (its corrections were cleared at abandonment, ADR
+                0013 — re-issue via the :class:`~effaced.Rectifier`). Both
+                are raised before any event or flip.
         """
         if self._audit_sink is None:
             msg = "Outbox.requeue requires an audit_sink; construct the Outbox with one"
@@ -359,6 +367,7 @@ class Outbox:
         with self._session_factory() as session, session.begin():
             rows = session.execute(locked).mappings().all()
             abandoned = [row for row in rows if row["status"] == OutboxStatus.ABANDONED.value]
+            _reject_rectify_entries(abandoned)
             for row in abandoned:
                 self._audit_sink.append(_requeued_event(row))
             if not abandoned:
@@ -493,18 +502,37 @@ def _entry(row: RowMapping) -> OutboxEntry:
     )
 
 
-def _requeued_event(row: RowMapping) -> AuditEvent:
-    """The append-first requeue event for one abandoned row (ADR 0015).
+def _reject_rectify_entries(rows: list[RowMapping]) -> None:
+    """Refuse to requeue an abandoned rectify entry (ADR 0013 and ADR 0015).
 
-    The event type follows the entry's ``operation``; the payload carries
-    the prior struggle (``prior_attempts``/``prior_error`` — the exception
-    *class name* only) so the row's columns can reset to a fresh budget.
-    ``prior_error`` is omitted entirely when the row carried none, rather
-    than emitted as an empty string — an abandoned row always has one, so
-    this is defensive, but the payload shape is MAJOR-protected and an
-    absent error is "no error", never the empty-string error class.
+    A rectify entry's corrections are cleared at abandonment, so requeuing
+    it would re-execute with nothing to apply — a silent no-op rectification
+    that still completes. Raised before any append or flip; re-issue the
+    rectification via the :class:`~effaced.Rectifier` instead.
     """
-    operation = OutboxOperation(row["operation"])
+    rectify = [row for row in rows if OutboxOperation(row["operation"]) is OutboxOperation.RECTIFY]
+    if not rectify:
+        return
+    ids = ", ".join(str(row["entry_id"]) for row in rectify)
+    msg = (
+        f"cannot requeue abandoned rectify entries ({ids}): their corrections were "
+        "cleared at abandonment (ADR 0013); re-issue the rectification via the Rectifier"
+    )
+    raise ConfigurationError(msg)
+
+
+def _requeued_event(row: RowMapping) -> AuditEvent:
+    """The append-first ``ERASURE_REQUEUED`` event for one abandoned row.
+
+    Requeue is erase-only (rectify entries are refused upstream), so the
+    event type is fixed. The payload carries the prior struggle
+    (``prior_attempts``/``prior_error`` — the exception *class name* only)
+    so the row's columns can reset to a fresh budget. ``prior_error`` is
+    omitted entirely when the row carried none, rather than emitted as an
+    empty string — an abandoned row always has one, so this is defensive,
+    but the payload shape is MAJOR-protected and an absent error is "no
+    error", never the empty-string error class.
+    """
     payload: dict[str, str | int | bool] = {
         "entry_id": str(row["entry_id"]),
         "resolver": row["resolver"],
@@ -514,7 +542,7 @@ def _requeued_event(row: RowMapping) -> AuditEvent:
         payload["prior_error"] = row["last_error"]
     return AuditEvent(
         event_id=uuid4(),
-        event_type=_REQUEUED_EVENT[operation],
+        event_type=AuditEventType.ERASURE_REQUEUED,
         subject_ref=row["subject_id"],
         occurred_at=datetime.now(UTC),
         payload=payload,

@@ -28,7 +28,6 @@ class AuditEventType(StrEnum):
     RECTIFICATION_STEP_SUCCEEDED = "rectification_step_succeeded"
     RECTIFICATION_STEP_FAILED = "rectification_step_failed"
     RECTIFICATION_COMPLETED = "rectification_completed"
-    RECTIFICATION_REQUEUED = "rectification_requeued"
     RESTRICTION_PLACED = "restriction_placed"
     RESTRICTION_LIFTED = "restriction_lifted"
     RETENTION_EXPIRED = "retention_expired"

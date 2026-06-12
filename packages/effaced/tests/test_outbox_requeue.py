@@ -206,16 +206,38 @@ def test_requeue_appends_an_erasure_event_class_name_only(harness: RequeueHarnes
     }
 
 
-def test_requeue_of_a_rectify_entry_emits_the_rectification_event(
-    harness: RequeueHarness,
-) -> None:
-    """Requeue is operation-agnostic: a rectify entry emits RECTIFICATION_REQUEUED."""
+def test_requeue_refuses_an_abandoned_rectify_entry(harness: RequeueHarness) -> None:
+    """A rectify entry can't be requeued — its corrections were cleared (ADR 0013).
+
+    Requeuing would re-execute with no corrections (a silent no-op
+    rectification that still completes), so it raises before any append or
+    flip; the row stays ABANDONED and no event is written.
+    """
     seed(harness, [entry(1, operation=OutboxOperation.RECTIFY)])
     abandon(harness, entry(1, operation=OutboxOperation.RECTIFY))
-    requeued = harness.outbox.requeue([UUID(int=1)])
-    assert requeued[0].operation is OutboxOperation.RECTIFY
-    (event,) = harness.sink.events
-    assert event.event_type is AuditEventType.RECTIFICATION_REQUEUED
+    with pytest.raises(ConfigurationError, match=str(UUID(int=1))):
+        harness.outbox.requeue([UUID(int=1)])
+    assert stored_row(harness, UUID(int=1))["status"] == OutboxStatus.ABANDONED.value
+    assert harness.sink.events == []
+
+
+def test_requeue_of_a_mixed_batch_refuses_all_before_any_flip(
+    harness: RequeueHarness,
+) -> None:
+    """One abandoned rectify id poisons the whole batch — validation-first.
+
+    The erase sibling must NOT flip and NO event must be appended: the
+    rectify rejection happens before any side effect, so the operator gets
+    an all-or-nothing answer rather than a half-applied requeue.
+    """
+    seed(harness, [entry(1), entry(2, operation=OutboxOperation.RECTIFY)])
+    for claimed in harness.outbox.claim_batch(limit=200):
+        harness.outbox.mark_abandoned(claimed, error="ResolverError")
+    with pytest.raises(ConfigurationError, match=str(UUID(int=2))):
+        harness.outbox.requeue([UUID(int=1), UUID(int=2)])
+    assert stored_row(harness, UUID(int=1))["status"] == OutboxStatus.ABANDONED.value
+    assert stored_row(harness, UUID(int=2))["status"] == OutboxStatus.ABANDONED.value
+    assert harness.sink.events == []
 
 
 def test_requeue_append_first_no_flip_when_sink_is_down(harness: RequeueHarness) -> None:
