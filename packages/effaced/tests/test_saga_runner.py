@@ -15,6 +15,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from effaced import (
+    AbandonedHook,
+    AbandonedSignal,
     AuditEventType,
     BackoffPolicy,
     Correction,
@@ -99,13 +101,19 @@ def harness() -> Iterator[RunnerHarness]:
     engine.dispose()
 
 
-def runner(harness: RunnerHarness, *, max_attempts: int = 8) -> SagaRunner:
+def runner(
+    harness: RunnerHarness,
+    *,
+    max_attempts: int = 8,
+    on_abandoned: AbandonedHook | None = None,
+) -> SagaRunner:
     return SagaRunner(
         harness.registry,
         harness.outbox,
         harness.sink,
         max_attempts=max_attempts,
         backoff=BACKOFF,
+        on_abandoned=on_abandoned,
     )
 
 
@@ -440,3 +448,109 @@ def test_already_consistent_is_success(harness: RunnerHarness) -> None:
     assert rows_by_id(harness)[UUID(int=1)]["status"] == OutboxStatus.SUCCEEDED.value
     (payload,) = events_of(harness, AuditEventType.RECTIFICATION_STEP_SUCCEEDED)
     assert payload["already_consistent"] is True
+
+
+# --- abandonment hook (#108) -------------------------------------------------
+
+
+class RecordingHook:
+    """An ``AbandonedHook`` double that captures every signal it receives."""
+
+    def __init__(self) -> None:
+        self.signals: list[AbandonedSignal] = []
+
+    def on_abandoned(self, signal: AbandonedSignal) -> None:
+        self.signals.append(signal)
+
+
+class RaisingHook:
+    """A hook whose backend is down — records the call, then raises."""
+
+    def __init__(self) -> None:
+        self.signals: list[AbandonedSignal] = []
+
+    def on_abandoned(self, signal: AbandonedSignal) -> None:
+        self.signals.append(signal)
+        msg = "alerting backend unreachable"
+        raise RuntimeError(msg)
+
+
+def test_abandonment_hook_fires_once_with_the_signal_on_resolver_error(
+    harness: RunnerHarness,
+) -> None:
+    harness.registry.register(ScriptedResolver("stripe", (ResolverError("locked"),)))
+    seed(harness, entry(1))
+    hook = RecordingHook()
+
+    asyncio.run(runner(harness, on_abandoned=hook).run_once())
+
+    (signal,) = hook.signals
+    assert signal == AbandonedSignal(
+        entry_id=UUID(int=1),
+        subject_id="1",
+        resolver="stripe",
+        operation=OutboxOperation.ERASE,
+        attempts=1,
+        error="ResolverError",
+    )
+
+
+def test_abandonment_hook_fires_after_exhausted_retries(harness: RunnerHarness) -> None:
+    harness.registry.register(ScriptedResolver("stripe", tuple(TimeoutError() for _ in range(10))))
+    seed(harness, entry(1))
+    hook = RecordingHook()
+
+    saga = runner(harness, max_attempts=3, on_abandoned=hook)
+    for _ in range(3):
+        make_due(harness)
+        asyncio.run(saga.run_once())
+
+    (signal,) = hook.signals
+    assert signal.error == "TimeoutError"
+    assert signal.attempts == 3
+    assert signal.operation is OutboxOperation.ERASE
+
+
+def test_abandonment_hook_reports_rectify_operation(harness: RunnerHarness) -> None:
+    """A rectify entry routed to a non-rectifying resolver abandons; operation distinguishes it."""
+    harness.registry.register(ScriptedResolver("stripe"))
+    seed(harness, rectify_entry(1))
+    hook = RecordingHook()
+
+    asyncio.run(runner(harness, on_abandoned=hook).run_once())
+
+    (signal,) = hook.signals
+    assert signal.operation is OutboxOperation.RECTIFY
+    assert signal.error == "ResolverError"
+
+
+def test_abandonment_hook_is_silent_on_success_and_retry(harness: RunnerHarness) -> None:
+    harness.registry.register(ScriptedResolver("stripe", (TimeoutError(),)))
+    seed(harness, entry(1))
+    hook = RecordingHook()
+
+    saga = runner(harness, on_abandoned=hook)
+    asyncio.run(saga.run_once())  # transient failure -> retry, not abandon
+    make_due(harness)
+    asyncio.run(saga.run_once())  # script exhausted -> success
+
+    assert rows_by_id(harness)[UUID(int=1)]["status"] == OutboxStatus.SUCCEEDED.value
+    assert hook.signals == []
+
+
+def test_failing_hook_does_not_corrupt_the_transition_or_audit(harness: RunnerHarness) -> None:
+    """A raising hook is swallowed: the entry still abandons and is still audited."""
+    harness.registry.register(ScriptedResolver("stripe", (ResolverError("locked"),)))
+    seed(harness, entry(1))
+    hook = RaisingHook()
+
+    assert asyncio.run(runner(harness, on_abandoned=hook).run_once()) == 1
+
+    assert rows_by_id(harness)[UUID(int=1)]["status"] == OutboxStatus.ABANDONED.value
+    (payload,) = events_of(harness, AuditEventType.ERASURE_STEP_FAILED)
+    assert payload["abandoned"] is True
+    assert len(hook.signals) == 1  # the hook ran; its raise was isolated
+
+
+def test_recording_hook_satisfies_the_protocol() -> None:
+    assert isinstance(RecordingHook(), AbandonedHook)

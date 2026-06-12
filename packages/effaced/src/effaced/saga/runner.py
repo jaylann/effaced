@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 from uuid import uuid4
@@ -18,12 +19,14 @@ from effaced.resolvers import (
     ResolverScheduledErasure,
     RetentionOnlyResolver,
 )
+from effaced.saga.abandoned_signal import AbandonedSignal
 from effaced.saga.backoff_policy import BackoffPolicy
 from effaced.saga.outbox_operation import OutboxOperation
 
 if TYPE_CHECKING:
     from effaced.audit import AuditSink
     from effaced.resolvers import ResolverRegistry
+    from effaced.saga.abandoned_hook import AbandonedHook
     from effaced.saga.outbox import Outbox
     from effaced.saga.outbox_entry import OutboxEntry
 
@@ -51,7 +54,7 @@ class SagaRunner:
     is audited; an abandonment is never silent.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 — six collaborators plus the optional alerting hook
         self,
         registry: ResolverRegistry,
         outbox: Outbox,
@@ -60,6 +63,7 @@ class SagaRunner:
         max_attempts: int = 8,
         batch_size: int = 50,
         backoff: BackoffPolicy | None = None,
+        on_abandoned: AbandonedHook | None = None,
     ) -> None:
         """Wire the runner to its collaborators.
 
@@ -73,6 +77,11 @@ class SagaRunner:
             backoff: Retry schedule and claim lease; defaults to
                 :class:`~effaced.BackoffPolicy`'s defaults (30s doubling to
                 1h, 5min lease).
+            on_abandoned: Optional :class:`~effaced.AbandonedHook` fired
+                after each entry is abandoned — proactive notice for paging
+                or metrics. Side-effect-isolated: it runs after the durable
+                transition and its audit event, and whatever it raises is
+                swallowed, so it can never corrupt or block either.
         """
         self._registry = registry
         self._outbox = outbox
@@ -80,6 +89,7 @@ class SagaRunner:
         self._max_attempts = max_attempts
         self._batch_size = batch_size
         self._backoff = backoff if backoff is not None else BackoffPolicy()
+        self._on_abandoned = on_abandoned
 
     async def run_once(self) -> int:
         """Claim and execute one batch of due entries.
@@ -263,6 +273,29 @@ class SagaRunner:
             event_type = AuditEventType.ERASURE_STEP_FAILED
         self._audit.append(_event(event_type, entry.subject_id, payload))
         self._outbox.mark_abandoned(entry, error=type(exc).__name__)
+        self._notify_abandoned(entry, exc)
+
+    def _notify_abandoned(self, entry: OutboxEntry, exc: BaseException) -> None:
+        """Fire the abandonment hook, isolated from the transition it follows.
+
+        Runs only after the entry is durably ``ABANDONED`` and its event is
+        written, and swallows any ``Exception`` the hook raises — a slow or
+        failing alerting backend must never corrupt or block the state
+        transition or the audit trail. ``BaseException`` (cancellation) still
+        propagates, matching the runner's outcome taxonomy.
+        """
+        if self._on_abandoned is None:
+            return
+        signal = AbandonedSignal(
+            entry_id=entry.entry_id,
+            subject_id=entry.subject_id,
+            resolver=entry.resolver,
+            operation=entry.operation,
+            attempts=entry.attempts,
+            error=type(exc).__name__,
+        )
+        with contextlib.suppress(Exception):
+            self._on_abandoned.on_abandoned(signal)
 
     def _retry(self, entry: OutboxEntry, exc: BaseException) -> None:
         """Schedule the next attempt on the backoff curve; not audited."""
