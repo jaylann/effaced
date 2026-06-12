@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import pytest
-from hypothesis import given, settings
-from schema_strategies import GeneratedSchema, annotated_schemas, scaled_examples
+from hypothesis import find, given, settings
+from schema_strategies import (
+    _SELF_FK_ROW_MAX,
+    GeneratedSchema,
+    annotated_schemas,
+    scaled_examples,
+)
 
 from effaced import ErasurePlanner, ErasureStrategy
 
@@ -49,26 +54,32 @@ def test_planner_row_deletion_matches_generator_expectation(schema: GeneratedSch
     assert deleted == schema.row_deleted_tables
 
 
-def test_widened_space_actually_draws_composite_and_deep_shapes() -> None:
-    """The widened draw really produces composite hops and deep self-chains.
+def test_widened_space_actually_draws_a_composite_hop_with_a_child() -> None:
+    """The widened draw really produces a composite FK hop on a subject path.
 
-    The shared invariant proofs only evidence composite ``JoinHop`` pairs and
-    depth-4 self-referential chains if the strategy draws them; this guard
-    fails loudly if a future change silently narrows the space back.
+    The shared invariant proofs only evidence composite ``JoinHop`` pairs if
+    the strategy draws a composite parent *with* a child. ``find`` searches
+    for exactly that shape (no co-occurrence with other shapes inside one
+    small sample) and raises ``NoSuchExample`` if a future change silently
+    narrows the space back.
     """
-    seen: dict[str, bool] = {"composite_with_child": False, "deep_self_chain": False}
+    find(
+        annotated_schemas(),
+        lambda schema: any(parent in schema.composite_tables for parent in schema.parents.values()),
+    )
 
-    @given(schema=annotated_schemas())
-    @settings(max_examples=scaled_examples(2), deadline=None)
-    def collect(schema: GeneratedSchema) -> None:
-        if any(parent in schema.composite_tables for parent in schema.parents.values()):
-            seen["composite_with_child"] = True
-        if any(
-            schema.rows[name] >= 4 and "self_id" in schema.metadata.tables[name].c
+
+def test_widened_space_actually_draws_a_depth_4_self_chain() -> None:
+    """The widened draw really produces a depth-4 self-referential chain.
+
+    Five seeded rows (indices 0..4) chained through ``self_id`` are four
+    hops — the depth the module docstring, PROOFS.md, and testing.md
+    advertise. ``find`` raises ``NoSuchExample`` if the space narrows back.
+    """
+    find(
+        annotated_schemas(),
+        lambda schema: any(
+            schema.rows[name] >= _SELF_FK_ROW_MAX and "self_id" in schema.metadata.tables[name].c
             for name in schema.rows
-        ):
-            seen["deep_self_chain"] = True
-
-    collect()
-    assert seen["composite_with_child"], "no composite FK hop with a child was drawn"
-    assert seen["deep_self_chain"], "no depth-4 self-referential chain was drawn"
+        ),
+    )
