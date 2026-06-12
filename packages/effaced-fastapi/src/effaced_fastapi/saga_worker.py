@@ -63,10 +63,15 @@ class SagaWorker:
         Args:
             timeout: Seconds to wait for the thread to join; the thread is
                 a daemon, so a missed join never blocks interpreter exit.
+                On a timed-out join the worker keeps its thread handle, so
+                a subsequent :meth:`start` stays a no-op instead of
+                spawning a second concurrent drain loop.
         """
         self._stop.set()
-        if self._thread is not None:
-            self._thread.join(timeout=timeout)
+        if self._thread is None:
+            return
+        self._thread.join(timeout=timeout)
+        if not self._thread.is_alive():
             self._thread = None
 
     def _drain_forever(self) -> None:
