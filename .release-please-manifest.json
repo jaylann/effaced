@@ -3,5 +3,6 @@
   "packages/effaced-stripe": "0.1.0",
   "packages/effaced-supabase": "0.0.0",
   "packages/effaced-s3": "0.0.0",
+  "packages/effaced-resend": "0.0.0",
   "packages/effaced-fastapi": "0.0.0"
 }

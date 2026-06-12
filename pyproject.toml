@@ -39,6 +39,7 @@ src = [
     "packages/effaced-stripe/src",
     "packages/effaced-supabase/src",
     "packages/effaced-s3/src",
+    "packages/effaced-resend/src",
     "packages/effaced-fastapi/src",
 ]
 
@@ -133,6 +134,7 @@ files = [
     "packages/effaced-stripe/src",
     "packages/effaced-supabase/src",
     "packages/effaced-s3/src",
+    "packages/effaced-resend/src",
     "packages/effaced-fastapi/src",
     "scripts",
     "examples/fastapi-quickstart/app.py",
@@ -157,6 +159,7 @@ testpaths = [
     "packages/effaced-stripe/tests",
     "packages/effaced-supabase/tests",
     "packages/effaced-s3/tests",
+    "packages/effaced-resend/tests",
     "packages/effaced-fastapi/tests",
     "examples/fastapi-quickstart",
 ]
@@ -167,7 +170,14 @@ markers = [
 ]
 
 [tool.coverage.run]
-source = ["effaced", "effaced_stripe", "effaced_supabase", "effaced_s3", "effaced_fastapi"]
+source = [
+    "effaced",
+    "effaced_stripe",
+    "effaced_supabase",
+    "effaced_s3",
+    "effaced_resend",
+    "effaced_fastapi",
+]
 branch = true
 
 [tool.coverage.report]
