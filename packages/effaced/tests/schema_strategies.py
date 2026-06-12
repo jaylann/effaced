@@ -12,7 +12,20 @@ Schemas are valid by construction: a table with children always carries an
 unannotated ``payload`` column, so it is never fully PII-owned and never
 row-deleted — no surviving table's subject path can pass through a
 row-deleted ancestor, which keeps the planner's conflict checks (ADR 0007)
-out of the drawn space without burning ``assume()`` budget.
+out of the drawn space without burning ``assume()`` budget. The *rejected*
+shapes — a row-deleted ancestor with a surviving child, and many-to-many
+secondary tables — are drawn (and shown to fail loudly, never partially)
+by ``rejected_schema_strategies.py`` and its properties instead.
+
+The valid space spans deep self-referential chains and composite
+foreign-key hops. Both the subject table and non-subject tables may carry a
+``self_id`` self-FK; self-FK tables seed up to five rows, so a chain runs to
+depth 4 within one subject. A composite table has an ``(id, id2)`` primary
+key and its children reference both columns through a
+``ForeignKeyConstraint`` — exercising :class:`JoinHop` column tuples and the
+``scoping.grouped`` row-value tuples in every shared invariant. Composite
+*subject* keys are out of scope: :class:`SubjectGraph` carries a single
+``subject_id_column``.
 
 Scope: generated schemas are local-database-only — no resolvers, refs, or
 outbox legs. Saga re-execution and external-failure semantics are proven
@@ -26,7 +39,15 @@ from typing import TYPE_CHECKING, NamedTuple
 
 from hypothesis import settings
 from hypothesis import strategies as st
-from sqlalchemy import Column, ForeignKey, Integer, MetaData, String, Table
+from sqlalchemy import (
+    Column,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Integer,
+    MetaData,
+    String,
+    Table,
+)
 from sqlalchemy.orm import registry, relationship
 
 from effaced import (
@@ -49,7 +70,13 @@ if TYPE_CHECKING:
 SUBJECT_TABLE = "t0"
 """Name of the generated subject table; non-subject tables are ``t1``, ``t2``, …"""
 
-_STRUCTURAL_COLUMNS = frozenset({"id", "pid", "self_id"})
+_STRUCTURAL_COLUMNS = frozenset({"id", "id2", "pid", "pid2", "self_id", "self_id2"})
+
+_SELF_FK_ROW_MAX = 5
+"""Per-subject row cap for self-FK tables — deep enough for depth-4 chains."""
+
+_ROW_MAX = 3
+"""Per-subject row cap for tables without a self-FK chain."""
 
 
 def scaled_examples(divisor: int) -> int:
@@ -86,6 +113,9 @@ class GeneratedSchema(NamedTuple):
     """Each non-subject table's parent on the path to the subject."""
     row_deleted_tables: frozenset[str]
     """Tables the planner must whole-row delete (ADR 0007 classification)."""
+    composite_tables: frozenset[str]
+    """Tables with a composite ``(id, id2)`` primary key — their children
+    join on both columns, exercising composite ``JoinHop`` pairs."""
 
     @property
     def pii_columns(self) -> dict[str, dict[str, PiiSpec]]:
@@ -138,10 +168,20 @@ class GeneratedSchema(NamedTuple):
     def _row(self, table: Table, subject_id: int, index: int) -> dict[str, object]:
         name = table.name
         values: dict[str, object] = {"id": self.row_id(name, subject_id, index)}
+        if name in self.composite_tables:
+            # Seed the second key half deterministically so the owner stays
+            # recoverable from ``id`` alone and the composite FK still joins.
+            values["id2"] = subject_id
         if name != SUBJECT_TABLE:
-            values["pid"] = self.row_id(self.parents[name], subject_id, 0)
+            parent = self.parents[name]
+            values["pid"] = self.row_id(parent, subject_id, 0)
+            if parent in self.composite_tables:
+                values["pid2"] = subject_id
         if "self_id" in table.c:
             values["self_id"] = self.row_id(name, subject_id, index - 1) if index else None
+        if "self_id2" in table.c:
+            # Composite self-FK references (id, id2); id2 is the subject id.
+            values["self_id2"] = subject_id if index else None
         for column in table.c:
             if column.name not in _STRUCTURAL_COLUMNS:
                 values[column.name] = sentinel(subject_id, name, column.name, index)
@@ -165,24 +205,23 @@ def annotated_schemas(
     has_children = frozenset(parents.values())
     specs = {name: _draw_specs(draw, max_pii_columns) for name in names}
     with_payload = {name for name in names if name in has_children or draw(st.booleans())}
-    with_self_fk = {name for name in names[1:] if draw(st.booleans())}
-    rows = {
-        name: 1
-        if name == SUBJECT_TABLE
-        else draw(st.integers(min_value=1 if name in has_children else 0, max_value=3))
-        for name in names
-    }
+    # Self-FK is allowed on the subject table too — its single seeded row
+    # carries a null self_id, exercising the self-referential hop chain on
+    # the subject table itself without changing its one-row-per-subject seed.
+    with_self_fk = {name for name in names if draw(st.booleans())}
+    # Composite (id, id2) primary keys only on non-subject tables: the
+    # subject identity stays a single column (SubjectGraph.subject_id_column).
+    composite = {name for name in names[1:] if draw(st.booleans())}
+    rows = {name: _row_count(draw, name, has_children, with_self_fk) for name in names}
     metadata = MetaData()
     for name in names:
-        _build_table(
-            metadata,
-            name,
-            parents,
-            specs[name],
+        shape = _TableShape(
             payload=name in with_payload,
             self_fk=name in with_self_fk,
+            composite=name in composite,
         )
-    mappers, classes = _map_classes(metadata, names, parents)
+        _build_table(metadata, name, parents, specs[name], shape, composite)
+    mappers, classes = _map_classes(metadata, names, parents, composite)
     data_map = collect_data_map(metadata)
     row_deleted = frozenset(
         name
@@ -199,7 +238,25 @@ def annotated_schemas(
         rows=rows,
         parents=parents,
         row_deleted_tables=row_deleted,
+        composite_tables=frozenset(composite),
     )
+
+
+def _row_count(
+    draw: st.DrawFn,
+    name: str,
+    has_children: frozenset[str],
+    with_self_fk: frozenset[str],
+) -> int:
+    """Per-subject row count: the subject table is always one row.
+
+    Self-FK tables seed up to five rows so a self-referential chain reaches
+    depth 4 within one subject; other tables keep the original cap.
+    """
+    if name == SUBJECT_TABLE:
+        return 1
+    maximum = _SELF_FK_ROW_MAX if name in with_self_fk else _ROW_MAX
+    return draw(st.integers(min_value=1 if name in has_children else 0, max_value=maximum))
 
 
 def _draw_specs(draw: st.DrawFn, max_pii_columns: int) -> dict[str, PiiSpec]:
@@ -223,24 +280,97 @@ def _draw_specs(draw: st.DrawFn, max_pii_columns: int) -> dict[str, PiiSpec]:
     return specs
 
 
+class _TableShape(NamedTuple):
+    """The drawn structural choices for one generated table."""
+
+    payload: bool
+    self_fk: bool
+    composite: bool
+
+
 def _build_table(
     metadata: MetaData,
     name: str,
     parents: dict[str, str],
     specs: dict[str, PiiSpec],
-    *,
-    payload: bool,
-    self_fk: bool,
+    shape: _TableShape,
+    composite_parents: frozenset[str],
 ) -> Table:
-    """One generated table, annotated through the real ``pii``/``subject_link``."""
-    columns = [Column("id", Integer, primary_key=True)]
-    if name != SUBJECT_TABLE:
-        columns.append(Column("pid", Integer, ForeignKey(f"{parents[name]}.id"), nullable=False))
-    if self_fk:
-        columns.append(Column("self_id", Integer, ForeignKey(f"{name}.id"), nullable=True))
-    if payload:
+    """One generated table, annotated through the real ``pii``/``subject_link``.
+
+    A composite table carries an ``(id, id2)`` primary key; a child of a
+    composite parent references both halves through a ``ForeignKeyConstraint``
+    so the resolved subject path is built from composite ``JoinHop`` pairs.
+    """
+    parent_composite = name != SUBJECT_TABLE and parents[name] in composite_parents
+    columns: list[Column[Integer] | Column[String]] = [
+        Column("id", Integer, primary_key=True, autoincrement=False)
+    ]
+    if shape.composite:
+        columns.append(Column("id2", Integer, primary_key=True, autoincrement=False))
+    columns.extend(_parent_fk_columns(name, parents, parent_composite=parent_composite))
+    columns.extend(_self_fk_columns(name, self_fk=shape.self_fk, composite=shape.composite))
+    if shape.payload:
         columns.append(Column("payload", String, nullable=False))
-    columns.extend(
+    columns.extend(_pii_columns(specs))
+    constraints = _composite_constraints(
+        name,
+        parents,
+        self_fk=shape.self_fk,
+        composite=shape.composite,
+        parent_composite=parent_composite,
+    )
+    return Table(name, metadata, *columns, *constraints, info=subject_link(_path(name, parents)))
+
+
+def _parent_fk_columns(
+    name: str, parents: dict[str, str], *, parent_composite: bool
+) -> list[Column[Integer]]:
+    """The pid (and composite pid2) columns linking a child to its parent."""
+    if name == SUBJECT_TABLE:
+        return []
+    if parent_composite:
+        # Both halves; the ForeignKeyConstraint is declared on the table.
+        return [Column("pid", Integer, nullable=False), Column("pid2", Integer, nullable=False)]
+    return [Column("pid", Integer, ForeignKey(f"{parents[name]}.id"), nullable=False)]
+
+
+def _self_fk_columns(name: str, *, self_fk: bool, composite: bool) -> list[Column[Integer]]:
+    """The self_id (and composite self_id2) self-referential FK columns."""
+    if not self_fk:
+        return []
+    if composite:
+        # Both halves; the ForeignKeyConstraint is declared on the table.
+        return [
+            Column("self_id", Integer, nullable=True),
+            Column("self_id2", Integer, nullable=True),
+        ]
+    return [Column("self_id", Integer, ForeignKey(f"{name}.id"), nullable=True)]
+
+
+def _composite_constraints(
+    name: str,
+    parents: dict[str, str],
+    *,
+    self_fk: bool,
+    composite: bool,
+    parent_composite: bool,
+) -> list[ForeignKeyConstraint]:
+    """Composite foreign-key constraints (parent hop and, if any, self hop)."""
+    constraints: list[ForeignKeyConstraint] = []
+    if parent_composite:
+        parent = parents[name]
+        constraints.append(ForeignKeyConstraint(["pid", "pid2"], [f"{parent}.id", f"{parent}.id2"]))
+    if composite and self_fk:
+        constraints.append(
+            ForeignKeyConstraint(["self_id", "self_id2"], [f"{name}.id", f"{name}.id2"])
+        )
+    return constraints
+
+
+def _pii_columns(specs: dict[str, PiiSpec]) -> list[Column[String]]:
+    """The annotated PII columns, declared through the real ``pii`` helper."""
+    return [
         Column(
             column_name,
             String,
@@ -254,8 +384,7 @@ def _build_table(
             ),
         )
         for column_name, spec in specs.items()
-    )
-    return Table(name, metadata, *columns, info=subject_link(_path(name, parents)))
+    ]
 
 
 def _path(name: str, parents: dict[str, str]) -> str:
@@ -268,9 +397,12 @@ def _path(name: str, parents: dict[str, str]) -> str:
 
 
 def _map_classes(
-    metadata: MetaData, names: list[str], parents: dict[str, str]
+    metadata: MetaData, names: list[str], parents: dict[str, str], composite: frozenset[str]
 ) -> tuple[registry, dict[str, type]]:
     """ORM-map every generated table so subject-link paths resolve for real.
+
+    A child of a composite parent maps its ``parent`` relationship over both
+    foreign-key columns, so the resolved hop carries a composite column pair.
 
     Returns the classes alongside the registry: the registry references its
     mapped classes weakly, so the caller must keep them alive.
@@ -279,11 +411,12 @@ def _map_classes(
     classes = {name: type(f"Generated_{name}", (), {}) for name in names}
     for name in names:
         table = metadata.tables[name]
-        properties = (
-            {"parent": relationship(classes[parents[name]], foreign_keys=[table.c.pid])}
-            if name in parents
-            else {}
-        )
+        properties: dict[str, object] = {}
+        if name in parents:
+            foreign_keys = (
+                [table.c.pid, table.c.pid2] if parents[name] in composite else [table.c.pid]
+            )
+            properties["parent"] = relationship(classes[parents[name]], foreign_keys=foreign_keys)
         mappers.map_imperatively(classes[name], table, properties=properties)
     mappers.configure()
     return mappers, classes

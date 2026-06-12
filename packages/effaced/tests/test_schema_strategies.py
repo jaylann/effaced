@@ -47,3 +47,28 @@ def test_planner_row_deletion_matches_generator_expectation(schema: GeneratedSch
     plan = ErasurePlanner(schema.data_map, schema.graph).plan("1")
     deleted = {step.target for step in plan.local_steps if step.strategy is ErasureStrategy.DELETE}
     assert deleted == schema.row_deleted_tables
+
+
+def test_widened_space_actually_draws_composite_and_deep_shapes() -> None:
+    """The widened draw really produces composite hops and deep self-chains.
+
+    The shared invariant proofs only evidence composite ``JoinHop`` pairs and
+    depth-4 self-referential chains if the strategy draws them; this guard
+    fails loudly if a future change silently narrows the space back.
+    """
+    seen: dict[str, bool] = {"composite_with_child": False, "deep_self_chain": False}
+
+    @given(schema=annotated_schemas())
+    @settings(max_examples=scaled_examples(2), deadline=None)
+    def collect(schema: GeneratedSchema) -> None:
+        if any(parent in schema.composite_tables for parent in schema.parents.values()):
+            seen["composite_with_child"] = True
+        if any(
+            schema.rows[name] >= 4 and "self_id" in schema.metadata.tables[name].c
+            for name in schema.rows
+        ):
+            seen["deep_self_chain"] = True
+
+    collect()
+    assert seen["composite_with_child"], "no composite FK hop with a child was drawn"
+    assert seen["deep_self_chain"], "no depth-4 self-referential chain was drawn"
