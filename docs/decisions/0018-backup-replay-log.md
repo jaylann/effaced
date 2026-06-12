@@ -102,6 +102,12 @@ all subjects' events oldest-first — implemented concretely by
 protocol follows the `RectifyingResolver` precedent, looser still — a
 dump-file loader can implement `ReplaySource` without being a sink at all.
 
+`read_since` applies the same timezone guard as derivation: a naive
+`since` raises `ConfigurationError`. On a timestamptz column a naive
+bound silently shifts the window by the session offset — events drop out
+of the read with no error, which on this path means resurrected PII never
+replayed. Both ends of the pipeline refuse naive time.
+
 ### No new tables, no manifest change
 
 Replay reads the existing trail and delegates to existing machinery.
