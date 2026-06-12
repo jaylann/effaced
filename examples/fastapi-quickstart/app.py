@@ -30,10 +30,11 @@ from effaced import (
     ErasurePlanner,
     Exporter,
     Outbox,
-    ResolverRegistry,
+    ResolverSpec,
     SubjectRef,
     bind_tables,
     collect_data_map,
+    registry_from_settings,
     resolve_subject_graph,
 )
 from effaced_stripe import StripeResolver
@@ -42,12 +43,21 @@ data_map = collect_data_map(Base.metadata)
 graph = resolve_subject_graph(data_map, Base.registry)
 tables = bind_tables(Base.metadata)  # effaced-owned tables ride your migrations
 
-# Explicit registration — the registry doubles as your "where is my PII" list.
-# The Stripe resolver only joins when a key is configured, so the example
-# runs end-to-end against a local Postgres alone.
-registry = ResolverRegistry()
-if stripe_key := os.environ.get("STRIPE_API_KEY"):
-    registry.register(StripeResolver(api_key=stripe_key))
+# Declarative registration — the spec list is your auditable "where is my PII"
+# declaration; it is config-driven, not auto-discovered. The Stripe resolver
+# only joins when its key is configured, so the example runs end-to-end against
+# a local Postgres alone. ``build.outcomes`` records what was wired and what was
+# skipped — log it at startup as your registration audit trail.
+resolver_specs = (
+    ResolverSpec(
+        name="stripe",
+        settings_keys=("STRIPE_API_KEY",),
+        build=lambda settings: StripeResolver(api_key=settings["STRIPE_API_KEY"]),
+    ),
+)
+build = registry_from_settings(resolver_specs)
+registry = build.registry
+stripe_key = os.environ.get("STRIPE_API_KEY")
 
 engine = create_engine(
     os.environ.get("DATABASE_URL", "postgresql+psycopg://effaced:effaced@localhost:5432/effaced")

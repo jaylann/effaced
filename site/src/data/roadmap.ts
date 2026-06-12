@@ -164,8 +164,9 @@ export const tiers: RoadmapTier[] = [
         name: 'Settings-driven resolver registration',
         scope:
           'Build the resolver registry from configuration — registration stays explicit and auditable, just declarative.',
-        status: 'planned',
+        status: 'shipped',
         ref: { kind: 'issue', number: 58 },
+        docsPath: 'guides/settings-registration/',
       },
       {
         name: 'Requeue of abandoned outbox entries',

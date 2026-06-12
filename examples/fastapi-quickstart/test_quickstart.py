@@ -31,6 +31,18 @@ def test_quickstart_imports_and_exposes_the_three_trigger_points(
     assert {"/me/consent", "/me/export", "/me"} <= paths
 
 
+def test_settings_driven_registration_records_the_stripe_skip(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Stripe-free, the registry is empty and the skip is recorded, not silent."""
+    module = _fresh_import(monkeypatch)
+    assert module.registry.all() == ()
+    outcome = module.build.outcomes[0]
+    assert outcome.name == "stripe"
+    assert outcome.registered is False
+    assert outcome.missing_keys == ("STRIPE_API_KEY",)
+
+
 def _assert_consent_recorded(client: TestClient, module: ModuleType) -> None:
     """Trigger point 1: consent (Art. 7)."""
     response = client.post(
