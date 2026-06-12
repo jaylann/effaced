@@ -93,8 +93,18 @@ convention = "google"
 # N803: the S3 client protocol mirrors the AWS wire API's CamelCase kwargs;
 # renaming them would break structural compatibility with boto3 clients
 "packages/effaced-s3/src/effaced_s3/object_client.py" = ["N803"]
+# PLR0913: object_records maps one S3 object's distinct fields (key, size,
+# content_type, last_modified, metadata, content) plus the source label — a
+# data-shaped signature where each argument is a separate exported field
+"packages/effaced-s3/src/effaced_s3/export_records.py" = ["PLR0913"]
+# PLR0913: the storage resolver's __init__ carries the gateway connection
+# tuple (endpoint, key id, secret, region) alongside the export knobs — the
+# loud ConfigurationError guard depends on accepting them individually
+"packages/effaced-supabase/src/effaced_supabase/storage_resolver.py" = ["PLR0913"]
 # PLR0913: the fake client's constructor doubles as the test-scenario knob set
 "packages/effaced-s3/tests/**" = ["N803", "PLR0913"]
+# the supabase storage fake mirrors the same S3-gateway CamelCase wire kwargs
+"packages/effaced-supabase/tests/fake_supabase_storage_client.py" = ["N803", "PLR0913"]
 
 # ---------------------------------------------------------------------------
 # Types — strict everywhere. PII machinery must not have untyped seams.

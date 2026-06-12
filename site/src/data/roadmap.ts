@@ -133,7 +133,7 @@ export const tiers: RoadmapTier[] = [
       {
         name: 'Supabase Storage resolver',
         scope: 'Subject-owned storage objects, sharing machinery with the S3 resolver.',
-        status: 'planned',
+        status: 'shipped',
         ref: { kind: 'issue', number: 57 },
       },
       {

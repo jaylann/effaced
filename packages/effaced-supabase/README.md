@@ -1,8 +1,10 @@
 # effaced-supabase
 
-First-party [effaced](https://github.com/jaylann/effaced) resolver for
-Supabase — export and erase a data subject's record in Supabase Auth
-(`auth.users`) via the Admin API.
+First-party [effaced](https://github.com/jaylann/effaced) resolvers for
+Supabase: `SupabaseAuthResolver` reaches the subject's Supabase Auth
+(`auth.users`) record via the Admin API, and `SupabaseStorageResolver`
+reaches the subject's objects in a Storage bucket via Supabase's
+S3-compatible gateway.
 
 - **Export (Art. 15):** the user's contact fields (`email`, `phone`).
 - **Erase (Art. 17):** hard-deletes the user via
@@ -29,6 +31,48 @@ registry.register(
 # the GoTrue user id (the `auth.users` primary key).
 ref = SubjectRef(kind="supabase_auth", value="00000000-0000-0000-0000-000000000000")
 ```
+
+## Supabase Storage resolver
+
+Subject-owned files (avatars, uploads) live in Storage buckets. The
+storage resolver rides `effaced-s3`'s S3-compatible machinery, so it
+ships behind an optional extra — auth-only installs stay httpx-only:
+
+```bash
+pip install "effaced-supabase[storage]"
+```
+
+It is **not** re-exported from `effaced_supabase`; import it directly so
+auth-only installs import cleanly without the extra:
+
+```python
+from effaced_supabase.storage_resolver import SupabaseStorageResolver
+
+registry.register(
+    SupabaseStorageResolver(
+        bucket="user-content",
+        endpoint_url="https://<project_ref>.storage.supabase.co/storage/v1/s3",
+        access_key_id="...",      # dashboard S3 access key — server-side only
+        secret_access_key="...",
+        region="<project-region>",
+    )
+)
+
+# Refs of kind "supabase_storage"; the value is the subject's key prefix.
+ref = SubjectRef(kind="supabase_storage", value="users/42/")
+```
+
+Authentication is a dashboard-issued **S3 access key** (Project Settings →
+Storage → S3 Access Keys) — a root credential, server-side only. The
+prefix must be non-blank and end with `/`, or construction-time and
+call-time guards refuse it: an unterminated prefix matches sibling
+subjects (`users/4` matches `users/42/...`). Supabase Storage has **no
+versioning**, so erasure deletes the current objects under the prefix and
+that is complete — the resolver never calls `ListObjectVersions`. Empty
+listing is `already_absent=True`; partial batch failures retry to
+convergence. See the
+[Supabase guide](https://effaced.dev/effaced/docs/guides/supabase/) for
+the full walkthrough.
 
 ## Service-role key — server-side only
 
