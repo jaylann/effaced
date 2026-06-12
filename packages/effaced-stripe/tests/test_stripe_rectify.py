@@ -15,7 +15,14 @@ import pytest
 from fake_stripe_client import FakeStripeHTTPClient
 from stripe import RateLimitError
 
-from effaced import Correction, PiiCategory, RectifyingResolver, ResolverError, SubjectRef
+from effaced import (
+    Correction,
+    PiiCategory,
+    RectifyingResolver,
+    ResolverError,
+    ResolverRectification,
+    SubjectRef,
+)
 from effaced_stripe import StripeResolver
 
 CUSTOMER_ID = "cus_rect"
@@ -33,7 +40,7 @@ def rectify(
     resolver: StripeResolver,
     corrections: tuple[Correction, ...],
     customer_id: str = CUSTOMER_ID,
-):
+) -> ResolverRectification:
     return asyncio.run(
         resolver.rectify_subject(SubjectRef(kind="stripe", value=customer_id), corrections)
     )
