@@ -197,13 +197,31 @@ rectifier.rectify_subject(session, subject_id, corrections)
 
 `status_counts()[OutboxStatus.SCHEDULED]` is **pending vendor expiry, not a
 fault** (ADR 0018): each entry is an erasure a retention-only system can only
-expire, parked until its horizon and then re-claimed to verify. The horizons
-live in the audit trail — one `ERASURE_EXPIRY_SCHEDULED` event per park,
-carrying `expires_at`. A subject's erasure stays open (no `ERASURE_COMPLETED`)
-until every scheduled entry verifies expiry, so don't expect completion before
-the vendor's retention window lapses. What does deserve attention: repeated
-`ERASURE_EXPIRY_SCHEDULED` events for the same entry — a vendor that keeps
-slipping its horizon re-parks loudly instead of completing or abandoning.
+expire, parked until its horizon and then re-claimed to verify. A subject's
+erasure stays open (no `ERASURE_COMPLETED`) until every scheduled entry verifies
+expiry, so don't expect completion before the vendor's retention window lapses.
+
+The read half is `list_scheduled()` — *which* subject waits on *which* resolver
+until *when*, nearest horizon first (`next_attempt_at` is the gate the runner
+re-claims on):
+
+```python
+counts = outbox.status_counts()
+if counts[OutboxStatus.SCHEDULED]:
+    for entry in outbox.list_scheduled():    # full entries, nearest horizon first
+        # next_attempt_at is the vendor horizon this subject is parked until
+        note_pending_expiry(entry.subject_id, entry.resolver, entry.next_attempt_at)
+```
+
+(Or straight SQL: `SELECT subject_id, resolver, next_attempt_at FROM
+effaced_outbox WHERE status = 'scheduled' ORDER BY next_attempt_at;`)
+
+What does deserve attention: a vendor that keeps **slipping** its horizon. Each
+park re-audits loudly — repeated `ERASURE_EXPIRY_SCHEDULED` events for the same
+`entry_id` instead of a completion or abandonment — and from the row side the
+same entry keeps reappearing in `list_scheduled` with its `next_attempt_at`
+pushed further out. Alert on N parks per entry: the park resets the retry budget,
+so a forever-slipping vendor never abandons, it just holds the erasure open.
 
 The outbox is a mechanism and this is its operating manual — whether an
 abandoned erasure needs escalation under your obligations is a determination
