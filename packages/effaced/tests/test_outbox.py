@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import NamedTuple
 from uuid import UUID
 
@@ -260,3 +260,57 @@ def test_completion_is_scoped_per_subject_and_operation(harness: OutboxHarness) 
         erase_done, on_subject_complete=lambda: completions.append("erase")
     )
     assert completions == ["rectify", "erase"]
+
+
+# --- scheduled parking (ADR 0018) ---------------------------------------------
+
+RESUME_AT = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+
+
+def test_mark_scheduled_parks_with_the_horizon_and_a_fresh_budget(
+    harness: OutboxHarness,
+) -> None:
+    """SCHEDULED carries resume_at as the gate; attempts and last_error reset."""
+    with harness.session_factory() as session:
+        harness.outbox.enqueue(session, [entry(UUID(int=1))])
+        session.commit()
+    (claimed,) = harness.outbox.claim_batch()
+    harness.outbox.mark_failed(claimed, error="TimeoutError", next_attempt_at=ENQUEUED_AT)
+    (reclaimed,) = harness.outbox.claim_batch()
+    assert reclaimed.attempts == 2  # the prior struggle the park must reset
+
+    harness.outbox.mark_scheduled(reclaimed, resume_at=RESUME_AT)
+
+    (row,) = stored_rows(harness)
+    assert row["status"] == OutboxStatus.SCHEDULED.value
+    assert row["next_attempt_at"] == RESUME_AT.replace(tzinfo=None)
+    assert row["attempts"] == 0
+    assert row["last_error"] is None
+
+
+def test_scheduled_entry_is_not_claimable_before_its_horizon(harness: OutboxHarness) -> None:
+    """The horizon rides the next_attempt_at gate — a parked entry stays parked."""
+    with harness.session_factory() as session:
+        harness.outbox.enqueue(session, [entry(UUID(int=1))])
+        session.commit()
+    (claimed,) = harness.outbox.claim_batch()
+    harness.outbox.mark_scheduled(claimed, resume_at=datetime.now(UTC) + timedelta(days=30))
+    assert harness.outbox.claim_batch() == ()
+
+
+def test_scheduled_entry_is_reclaimed_once_the_horizon_passes(harness: OutboxHarness) -> None:
+    """Past the gate, the parked entry re-claims as a fresh first attempt."""
+    with harness.session_factory() as session:
+        harness.outbox.enqueue(session, [entry(UUID(int=1))])
+        session.commit()
+    (claimed,) = harness.outbox.claim_batch()
+    harness.outbox.mark_scheduled(claimed, resume_at=datetime.now(UTC) - timedelta(seconds=1))
+
+    (verified,) = harness.outbox.claim_batch()
+
+    assert verified.entry_id == UUID(int=1)
+    assert verified.status is OutboxStatus.IN_FLIGHT
+    assert verified.attempts == 1  # the park reset the budget; the verify claim is attempt 1
+    (row,) = stored_rows(harness)
+    assert row["status"] == OutboxStatus.IN_FLIGHT.value
+    assert row["attempts"] == 1

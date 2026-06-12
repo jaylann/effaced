@@ -20,6 +20,10 @@ class OutboxStatus(StrEnum):
     FAILED = "failed"
     """Last attempt failed; will be retried with backoff."""
 
+    SCHEDULED = "scheduled"
+    """Erasure scheduled to expire externally (ADR 0018); parked until
+    the retention horizon, then re-claimed to verify the data is gone."""
+
     ABANDONED = "abandoned"
     """Retries exhausted; surfaced loudly for operator action — never
     silently dropped, the audit trail records the abandonment."""

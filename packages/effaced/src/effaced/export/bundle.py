@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
 from effaced.categories import LegalBasis, PiiCategory
 from effaced.manifest.migration import MANIFEST_SCHEMA_VERSION
@@ -21,6 +21,9 @@ class ExportRecord(BaseModel):
         legal_basis: Why the data is held, if declared.
         purpose: Processing purpose, if declared.
         retention_reason: The legal duty keeping the value, if any.
+        expires_at: The instant by which the value is guaranteed to expire
+            at its source, when on-demand erasure there is unavailable
+            (retention-only resolvers, ADR 0018).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -32,6 +35,7 @@ class ExportRecord(BaseModel):
     legal_basis: LegalBasis | None = None
     purpose: str | None = None
     retention_reason: str | None = None
+    expires_at: AwareDatetime | None = None
 
 
 class ExportBundle(BaseModel):

@@ -98,4 +98,28 @@ that notices the lapse and the audited record that it was noticed, never
 the determination.
 :::
 
+## Retention-only erasure
+
+Retention also runs the other way: some external systems hold PII that
+no API can delete on demand — call recordings and transcripts at voice
+vendors, exports inside a partner's retention window. There the only
+honest erasure outcome is *expiry*: "guaranteed gone by T, because the
+vendor's retention clock says so". A
+[`RetentionOnlyResolver`](../resolvers/) *schedules* erasure instead of
+performing it, and the [saga](../saga/) records that schedule as what it
+is — `ERASURE_EXPIRY_SCHEDULED` with the horizon — never as a completed
+erasure. "Scheduled to expire by T" is a different audit fact than
+`ERASURE_COMPLETED`, and conflating them would be exactly the silent lie
+the trail exists to prevent (ADR 0018).
+
+Enforcement is park-and-verify: the outbox entry parks as `SCHEDULED`
+until the horizon, is then re-claimed, and the schedule re-runs. Vendor
+purged means verified expiry — only then can `ERASURE_COMPLETED` fire;
+vendor slipped the horizon means the entry re-parks, loudly re-audited,
+each slip its own evidence.
+
+The report-only sweep above is untouched: it evaluates *your database's*
+declared windows and never consults resolvers. The saga is the
+enforcement clock for external horizons.
+
 Full signatures: [API reference](../../reference/retention/).

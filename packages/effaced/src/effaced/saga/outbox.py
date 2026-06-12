@@ -31,6 +31,7 @@ _CLAIMABLE = (
     OutboxStatus.PENDING.value,
     OutboxStatus.FAILED.value,
     OutboxStatus.IN_FLIGHT.value,
+    OutboxStatus.SCHEDULED.value,
 )
 
 
@@ -100,8 +101,11 @@ class Outbox:
 
         An entry is due when its ``next_attempt_at`` gate is ``NULL`` or in
         the past and it is not terminal: fresh ``PENDING`` entries, ``FAILED``
-        entries whose backoff has elapsed, and ``IN_FLIGHT`` entries whose
-        claim lease has expired (a crashed runner's work, healed here).
+        entries whose backoff has elapsed, ``IN_FLIGHT`` entries whose
+        claim lease has expired (a crashed runner's work, healed here),
+        and ``SCHEDULED`` entries whose retention horizon has passed
+        (parked by :meth:`mark_scheduled`, re-claimed to verify expiry —
+        ADR 0018).
         Claimed entries move to ``IN_FLIGHT`` with ``attempts`` incremented —
         the claim *is* the attempt, so an entry that crashes its runner every
         time still converges to abandonment — and ``next_attempt_at`` set to
@@ -230,6 +234,37 @@ class Outbox:
             next_attempt_at=next_attempt_at,
             clear_payload=False,
         )
+
+    def mark_scheduled(self, entry: OutboxEntry, *, resume_at: datetime) -> None:
+        """Park the entry until its retention horizon (ADR 0018).
+
+        Records that the external system can only *expire* the data: the
+        entry moves to ``SCHEDULED`` with ``next_attempt_at=resume_at``
+        (the same gate that schedules retries), ``attempts=0``, and
+        ``last_error=NULL`` — the verification after the horizon gets the
+        full retry budget, the ADR 0015 requeue precedent; the prior
+        struggle lives in the ``ERASURE_EXPIRY_SCHEDULED`` event the
+        runner appends *before* calling this. A ``SCHEDULED`` entry is not
+        terminal: it blocks ``ERASURE_COMPLETED`` until re-claimed after
+        the horizon and verified gone.
+
+        Args:
+            entry: The claimed entry whose erasure was scheduled.
+            resume_at: When the entry becomes claimable again — the
+                retention horizon (clamped by the runner to at least one
+                backoff step from now).
+        """
+        with self._session_factory() as session, session.begin():
+            session.execute(
+                self._outbox.update()
+                .where(self._outbox.c.entry_id == entry.entry_id)
+                .values(
+                    status=OutboxStatus.SCHEDULED.value,
+                    attempts=0,
+                    next_attempt_at=resume_at,
+                    last_error=None,
+                )
+            )
 
     def mark_abandoned(self, entry: OutboxEntry, *, error: str) -> None:
         """Record a terminal failure; the entry is never retried.

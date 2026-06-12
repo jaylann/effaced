@@ -31,7 +31,11 @@ in async web apps dispatch it via a threadpool (FastAPI:
   `value` itself, and the Art. 15 metadata declared in the annotations —
   `legal_basis`, `purpose`, `retention_reason`. Recording *why* data is
   held is required Art. 15(1)(a) metadata; effaced surfaces exactly what
-  you declared.
+  you declared. Records from
+  [retention-only resolvers](../resolvers/) also carry `expires_at` —
+  the instant the value is guaranteed to expire at its source, where
+  on-demand erasure is unavailable (ADR 0018); it stays `None`
+  everywhere else.
 - `incomplete_sources` — see below.
 
 Group and render `records` however your product needs;

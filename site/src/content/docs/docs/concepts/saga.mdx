@@ -56,6 +56,7 @@ What happens to a claimed entry depends on how the resolver call ends:
 | Outcome | Entry becomes | Audited |
 | --- | --- | --- |
 | `ResolverErasure` (incl. `already_absent=True`) | `SUCCEEDED` | `ERASURE_STEP_SUCCEEDED` |
+| `ResolverScheduledErasure` with a future horizon ([retention-only resolvers](../retention/)) | `SCHEDULED` — parked until the horizon | `ERASURE_EXPIRY_SCHEDULED` with `expires_at` |
 | `ResolverError` (non-retryable by contract, or unknown resolver name) | `ABANDONED` immediately | `ERASURE_STEP_FAILED` with `abandoned: true` |
 | Any other exception, attempts below `max_attempts` | `FAILED`, retried on the backoff schedule | not audited; `last_error` on the row |
 | Any other exception, attempts exhausted | `ABANDONED` | `ERASURE_STEP_FAILED` with `abandoned: true` |
@@ -77,6 +78,26 @@ audit trail and the entry stays visible to operators —
 is ever silently dropped — monitoring abandoned entries is part of
 operating the saga.
 :::
+
+## Scheduled expiry (ADR 0018)
+
+An erase entry routed to a `RetentionOnlyResolver` — an external system
+with no per-subject delete — calls `schedule_erasure` instead of
+`erase_subject`. A reported horizon parks the entry as `SCHEDULED`:
+the audit event lands first (`ERASURE_EXPIRY_SCHEDULED`, carrying
+`expires_at` and the prior attempt count), then `next_attempt_at`
+becomes the horizon (clamped to at least one backoff step) and the retry
+budget resets. After the horizon the entry is re-claimed like any due
+entry and the schedule re-runs: verified absence
+(`already_absent=True`) succeeds the step with `verified_expiry: true`
+and no `strategy` key — effaced deleted nothing, it verified expiry —
+while a slipped horizon re-parks the entry, loudly re-audited, one
+scheduled event per slip.
+
+A `SCHEDULED` entry blocks `ERASURE_COMPLETED` like any unfinished
+entry, and a growing `status_counts()[OutboxStatus.SCHEDULED]` is
+pending vendor expiry, not a fault. See
+[retention-only erasure](../retention/) for the pattern.
 
 ## `ERASURE_COMPLETED`
 

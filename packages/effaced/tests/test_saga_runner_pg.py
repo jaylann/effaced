@@ -11,7 +11,7 @@ from typing import NamedTuple
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import Engine, MetaData, select
+from sqlalchemy import Engine, MetaData, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from effaced import (
@@ -26,9 +26,11 @@ from effaced import (
     OutboxStatus,
     PiiCategory,
     ResolverErasure,
+    ResolverError,
     ResolverExport,
     ResolverRectification,
     ResolverRegistry,
+    ResolverScheduledErasure,
     SagaRunner,
     SubjectRef,
     bind_tables,
@@ -334,3 +336,76 @@ def test_requeue_serializes_against_a_held_row_lock(harness: PgHarness) -> None:
             select(table.c.status).where(table.c.entry_id == item.entry_id)
         ).scalar_one()
     assert status == OutboxStatus.PENDING.value
+
+
+# --- retention-only erasure (ADR 0018) -----------------------------------------
+
+
+class SchedulingResolver:
+    """A retention-only double: schedules a horizon once, then verifies absence."""
+
+    def __init__(self, name: str, horizon: datetime) -> None:
+        self._name = name
+        self._horizon = horizon
+        self._scheduled = False
+
+    @property
+    def name(self) -> str:
+        return self._name
+
+    async def export_subject(self, ref: SubjectRef) -> ResolverExport:
+        raise NotImplementedError
+
+    async def erase_subject(self, ref: SubjectRef) -> ResolverErasure:
+        msg = "retention-only: cannot delete on demand"
+        raise ResolverError(msg)
+
+    async def schedule_erasure(self, ref: SubjectRef) -> ResolverScheduledErasure:
+        if self._scheduled:
+            return ResolverScheduledErasure(resolver=self._name, already_absent=True)
+        self._scheduled = True
+        return ResolverScheduledErasure(resolver=self._name, expires_at=self._horizon)
+
+
+def vendor_entry(subject_id: str, value: str) -> OutboxEntry:
+    return OutboxEntry(
+        entry_id=uuid4(),
+        subject_id=subject_id,
+        resolver="vendor",
+        ref=SubjectRef(kind="vendor", value=value),
+        enqueued_at=datetime.now(UTC),
+    )
+
+
+def test_parked_entry_is_reclaimed_after_the_horizon_and_completes_once(
+    harness: PgHarness,
+) -> None:
+    """Park -> gate -> re-claim through the real FOR UPDATE SKIP LOCKED path (ADR 0018)."""
+    resolver = SchedulingResolver("vendor", datetime.now(UTC) + timedelta(days=30))
+    registry = ResolverRegistry()
+    registry.register(resolver)
+    runner = SagaRunner(registry, harness.outbox, harness.sink)
+    enqueue(harness, [vendor_entry("subject-sched", "rec_1")])
+
+    assert asyncio.run(runner.run_once()) == 1  # schedules and parks
+    table = harness.tables.outbox
+    with harness.session_factory() as session:
+        row = session.execute(select(table)).mappings().one()
+    assert row["status"] == OutboxStatus.SCHEDULED.value
+    assert row["attempts"] == 0  # fresh verification budget
+    assert asyncio.run(runner.run_once()) == 0  # the horizon gates the claim
+
+    with harness.session_factory() as session:
+        session.execute(
+            update(table).values(next_attempt_at=datetime.now(UTC) - timedelta(seconds=1))
+        )
+        session.commit()
+
+    assert asyncio.run(runner.run_once()) == 1  # re-claims and verifies expiry
+    with harness.session_factory() as session:
+        status = session.execute(select(table.c.status)).scalar_one()
+    assert status == OutboxStatus.SUCCEEDED.value
+    events = [str(event.event_type) for event in harness.sink.read("subject-sched")]
+    assert events.count("erasure_expiry_scheduled") == 1
+    assert events.count("erasure_step_succeeded") == 1
+    assert completed_events(harness, "subject-sched") == ["erasure_completed"]

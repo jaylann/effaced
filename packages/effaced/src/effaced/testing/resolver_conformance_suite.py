@@ -21,6 +21,8 @@ from effaced.resolvers import (
     ResolverErasure,
     ResolverExport,
     ResolverRectification,
+    ResolverScheduledErasure,
+    RetentionOnlyResolver,
 )
 
 if TYPE_CHECKING:
@@ -49,6 +51,12 @@ class ResolverConformanceSuite:
     :meth:`make_corrections` to also prove the rectification contract —
     the rectify tests skip while the hook returns ``None`` or the
     resolver lacks ``rectify_subject``.
+
+    Resolvers implementing :class:`~effaced.RetentionOnlyResolver`
+    (ADR 0018) get the scheduled-erasure section instead of the on-demand
+    erase tests, which skip — their ``erase_subject`` raises by contract.
+    Override :meth:`make_expired_resolver` to also prove post-horizon
+    verification; that test skips while the hook returns ``None``.
     """
 
     def make_resolver(self) -> Resolver:
@@ -78,6 +86,16 @@ class ResolverConformanceSuite:
         :meth:`make_resolver` seeds for the present subject — the suite
         proves the first application reports a change
         (``already_consistent=False``) and the second does not.
+        """
+        return None
+
+    def make_expired_resolver(self) -> RetentionOnlyResolver | None:
+        """A retention-only resolver whose present subject's horizon passed.
+
+        Build the system so the subject behind :meth:`make_present_ref`
+        was scheduled and its retention horizon already elapsed — the
+        suite proves the next schedule verifies ``already_absent=True``
+        and the export is empty.
         """
         return None
 
@@ -113,9 +131,16 @@ class ResolverConformanceSuite:
         assert export.resolver == resolver.name
         assert export.records == ()
 
+    def _erasing_resolver(self) -> Resolver:
+        """The on-demand erase tests' resolver, or a skip (ADR 0018)."""
+        resolver = self.make_resolver()
+        if isinstance(resolver, RetentionOnlyResolver):
+            pytest.skip("retention-only resolver: erasure is scheduled, never on demand")
+        return resolver
+
     def test_erase_of_present_subject_succeeds(self) -> None:
         """Erasing a held subject succeeds with ``already_absent=False``."""
-        resolver = self.make_resolver()
+        resolver = self._erasing_resolver()
         erasure = self._run(resolver.erase_subject(self.make_present_ref()))
         assert isinstance(erasure, ResolverErasure)
         assert erasure.resolver == resolver.name
@@ -123,7 +148,7 @@ class ResolverConformanceSuite:
 
     def test_erase_is_idempotent(self) -> None:
         """A second erase of the same subject is success, already absent."""
-        resolver = self.make_resolver()
+        resolver = self._erasing_resolver()
         ref = self.make_present_ref()
         first = self._run(resolver.erase_subject(ref))
         second = self._run(resolver.erase_subject(ref))
@@ -132,16 +157,22 @@ class ResolverConformanceSuite:
 
     def test_erase_of_absent_subject_reports_already_absent(self) -> None:
         """Erasing a never-held subject is success — never an error."""
-        erasure = self._run(self.make_resolver().erase_subject(self.make_absent_ref()))
+        erasure = self._run(self._erasing_resolver().erase_subject(self.make_absent_ref()))
         assert erasure.already_absent is True
 
     def test_export_after_erase_is_empty(self) -> None:
         """Erasure converges: a subsequent export holds nothing."""
-        resolver = self.make_resolver()
+        resolver = self._erasing_resolver()
         ref = self.make_present_ref()
         self._run(resolver.erase_subject(ref))
         export = self._run(resolver.export_subject(ref))
         assert export.records == ()
+
+    def _erase_like(self, resolver: Resolver, ref: SubjectRef) -> object:
+        """The resolver's erasure-shaped call — scheduled when retention-only."""
+        if isinstance(resolver, RetentionOnlyResolver):
+            return self._run(resolver.schedule_erasure(ref))
+        return self._run(resolver.erase_subject(ref))
 
     def test_nonretryable_failure_raises_resolver_error(self) -> None:
         """Non-retryable faults surface as :class:`ResolverError`."""
@@ -152,7 +183,7 @@ class ResolverConformanceSuite:
         with pytest.raises(ResolverError):
             self._run(resolver.export_subject(ref))
         with pytest.raises(ResolverError):
-            self._run(resolver.erase_subject(ref))
+            self._erase_like(resolver, ref)
 
     def test_transient_failure_propagates_for_retry(self) -> None:
         """Transient faults propagate untranslated so the saga retries."""
@@ -164,7 +195,7 @@ class ResolverConformanceSuite:
         with pytest.raises(expected) as export_error:
             self._run(resolver.export_subject(ref))
         with pytest.raises(expected) as erase_error:
-            self._run(resolver.erase_subject(ref))
+            self._erase_like(resolver, ref)
         assert not isinstance(export_error.value, ResolverError)
         assert not isinstance(erase_error.value, ResolverError)
 
@@ -200,3 +231,63 @@ class ResolverConformanceSuite:
         resolver, corrections = self._rectification_hook()
         outcome = self._run(resolver.rectify_subject(self.make_absent_ref(), corrections))
         assert outcome.already_consistent is True
+
+    def _scheduling_resolver(self) -> RetentionOnlyResolver:
+        """The scheduled-erasure tests' resolver, or a skip (ADR 0018)."""
+        resolver = self.make_resolver()
+        if not isinstance(resolver, RetentionOnlyResolver):
+            pytest.skip("resolver does not implement schedule_erasure")
+        return resolver
+
+    def test_retention_only_erase_subject_raises(self) -> None:
+        """On-demand erasure is refused — a schedule is never a deletion."""
+        resolver = self._scheduling_resolver()
+        with pytest.raises(ResolverError):
+            self._run(resolver.erase_subject(self.make_present_ref()))
+
+    def test_schedule_of_present_subject_reports_horizon(self) -> None:
+        """Scheduling a held subject names a timezone-aware horizon."""
+        resolver = self._scheduling_resolver()
+        outcome = self._run(resolver.schedule_erasure(self.make_present_ref()))
+        assert isinstance(outcome, ResolverScheduledErasure)
+        assert outcome.resolver == resolver.name
+        assert outcome.already_absent is False
+        assert outcome.expires_at is not None
+
+    def test_schedule_is_convergent(self) -> None:
+        """Re-scheduling succeeds with the same-or-later horizon."""
+        resolver = self._scheduling_resolver()
+        ref = self.make_present_ref()
+        first = self._run(resolver.schedule_erasure(ref))
+        second = self._run(resolver.schedule_erasure(ref))
+        assert second.already_absent is False
+        assert first.expires_at is not None
+        assert second.expires_at is not None
+        assert second.expires_at >= first.expires_at
+
+    def test_schedule_of_absent_subject_is_already_absent(self) -> None:
+        """Scheduling a never-held subject is success — never an error."""
+        resolver = self._scheduling_resolver()
+        outcome = self._run(resolver.schedule_erasure(self.make_absent_ref()))
+        assert outcome.already_absent is True
+        assert outcome.expires_at is None
+
+    def test_export_after_schedule_carries_expires_at(self) -> None:
+        """Art. 15 honesty: a scheduled subject's records name a horizon."""
+        resolver = self._scheduling_resolver()
+        ref = self.make_present_ref()
+        self._run(resolver.schedule_erasure(ref))
+        export = self._run(resolver.export_subject(ref))
+        assert len(export.records) >= 1
+        assert all(record.expires_at is not None for record in export.records)
+
+    def test_post_horizon_schedule_verifies_absent(self) -> None:
+        """After the horizon, a schedule verifies the data is gone."""
+        resolver = self.make_expired_resolver()
+        if resolver is None:
+            pytest.skip("resolver package provides no expired-horizon hook")
+        ref = self.make_present_ref()
+        outcome = self._run(resolver.schedule_erasure(ref))
+        assert outcome.already_absent is True
+        export = self._run(resolver.export_subject(ref))
+        assert export.records == ()
