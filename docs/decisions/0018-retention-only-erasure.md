@@ -42,7 +42,7 @@ One additive `AuditEventType` member: `ERASURE_EXPIRY_SCHEDULED`, payload `{targ
 
 ### Art. 15: the horizon is exportable metadata
 
-`ExportRecord` gains `expires_at: AwareDatetime | None = None` — "the instant by which this value is guaranteed to expire at its source, when on-demand erasure there is unavailable". Retention-only resolvers stamp it (typically alongside a `retention_reason` naming the vendor's policy); local records and ordinary resolvers leave it `None`. No `MANIFEST_SCHEMA_VERSION` bump: `migrate()` governs serialized *data-map* payloads, while `ExportBundle` is produce-only — nothing in effaced parses bundles back — so a defaulted additive field is MINOR. That precedent is now pinned here.
+`ExportRecord` gains `expires_at: AwareDatetime | None = None` — "the instant by which this value is guaranteed to expire at its source, when on-demand erasure there is unavailable". Retention-only resolvers stamp it (typically alongside a `retention_reason` naming the vendor's policy); local records and ordinary resolvers leave it `None`. No `MANIFEST_SCHEMA_VERSION` bump: `migrate()` governs serialized *data-map* payloads, while `ExportBundle` is produce-only — nothing in effaced parses bundles back — so a defaulted additive field is MINOR. That precedent is now pinned here, and so is its boundary: `ExportBundle` validates with `extra="forbid"`, so the day effaced ships a bundle *reader*, this exemption ends — bundle-shape changes from then on need versioning and a forward path of their own.
 
 ## Consequences
 
