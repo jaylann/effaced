@@ -17,6 +17,7 @@ from stripe import (
 from effaced import PiiCategory
 from effaced.exceptions import ResolverError
 from effaced.resolvers import ResolverErasure, ResolverExport, ResolverRectification
+from effaced_stripe.covered_surface import STRIPE_COVERED_SURFACE
 from effaced_stripe.errors import is_resource_missing
 from effaced_stripe.export_records import customer_records, payment_method_records
 
@@ -24,6 +25,7 @@ if TYPE_CHECKING:
     from stripe import HTTPClient
     from stripe.params._customer_update_params import CustomerUpdateParams
 
+    from effaced import CoveredSurface
     from effaced.annotations import Correction, SubjectRef
     from effaced.export import ExportRecord
 
@@ -92,6 +94,16 @@ class StripeResolver:
     def name(self) -> str:
         """Stable resolver name recorded in manifests and audits."""
         return "stripe"
+
+    @property
+    def covered_surface(self) -> CoveredSurface:
+        """The Stripe PII this resolver claims to reach (:class:`~effaced.AttestingResolver`).
+
+        Returns:
+            :data:`~effaced_stripe.covered_surface.STRIPE_COVERED_SURFACE`,
+            built from the exporter's field tuples so it cannot drift.
+        """
+        return STRIPE_COVERED_SURFACE
 
     async def export_subject(self, ref: SubjectRef) -> ResolverExport:
         """Collect the customer's Stripe-held PII (Art. 15).

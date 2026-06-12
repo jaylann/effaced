@@ -28,6 +28,11 @@ class TestSupabaseAuthResolverConformance(ResolverConformanceSuite):
         fake = FakeGoTrueTransport(users={PRESENT: USER})
         return SupabaseAuthResolver(BASE_URL, KEY, transport=fake)
 
+    def make_fully_populated_resolver(self) -> SupabaseAuthResolver:
+        # USER populates both covered fields: user.email and user.phone.
+        fake = FakeGoTrueTransport(users={PRESENT: USER})
+        return SupabaseAuthResolver(BASE_URL, KEY, transport=fake)
+
     def make_present_ref(self) -> SubjectRef:
         return SubjectRef(kind="supabase_auth", value=PRESENT)
 

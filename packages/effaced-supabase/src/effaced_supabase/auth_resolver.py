@@ -9,10 +9,12 @@ from urllib.parse import quote
 import httpx
 
 from effaced.resolvers import ResolverErasure, ResolverExport
+from effaced_supabase.auth_covered_surface import AUTH_COVERED_SURFACE
 from effaced_supabase.auth_export_records import user_records
 from effaced_supabase.errors import raise_for_taxonomy
 
 if TYPE_CHECKING:
+    from effaced import CoveredSurface
     from effaced.annotations import SubjectRef
 
 _NOT_FOUND = 404
@@ -71,6 +73,16 @@ class SupabaseAuthResolver:
     def name(self) -> str:
         """Stable resolver name recorded in manifests and audits."""
         return "supabase_auth"
+
+    @property
+    def covered_surface(self) -> CoveredSurface:
+        """The GoTrue PII this resolver claims to reach (:class:`~effaced.AttestingResolver`).
+
+        Returns:
+            :data:`~effaced_supabase.auth_covered_surface.AUTH_COVERED_SURFACE`,
+            built from the exporter's field tuple so it cannot drift.
+        """
+        return AUTH_COVERED_SURFACE
 
     async def export_subject(self, ref: SubjectRef) -> ResolverExport:
         """Collect the user's GoTrue-held contact fields (Art. 15).

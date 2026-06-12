@@ -23,6 +23,22 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
     from datetime import datetime
 
+# The per-object export fields, as (suffix, category) pairs — the single
+# source of truth that both :func:`object_records` (below) and the
+# covered-surface declarations build from, so the two cannot drift. The
+# object key is dynamic, so a covered-surface field globs it as
+# ``object.*.<suffix>`` (and ``object.*.metadata.*`` for the open-ended
+# metadata entries). The ``metadata`` suffix here is the *prefix* of those
+# per-entry fields.
+_OBJECT_FIELDS: tuple[tuple[str, PiiCategory], ...] = (
+    ("key", PiiCategory.COMMUNICATION),
+    ("size", PiiCategory.TECHNICAL),
+    ("content_type", PiiCategory.TECHNICAL),
+    ("last_modified", PiiCategory.TECHNICAL),
+    ("metadata", PiiCategory.COMMUNICATION),
+    ("content_base64", PiiCategory.COMMUNICATION),
+)
+
 
 def object_records(
     key: str,

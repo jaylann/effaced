@@ -62,6 +62,9 @@ from effaced.rectification import (
 )
 from effaced.replay import Replayer, ReplayPlan, ReplayPlanEntry, ReplaySource
 from effaced.resolvers import (
+    AttestingResolver,
+    CoveredField,
+    CoveredSurface,
     RectifyingResolver,
     RegistryBuild,
     Resolver,
@@ -73,6 +76,7 @@ from effaced.resolvers import (
     ResolverSpec,
     RetentionOnlyResolver,
     SpecOutcome,
+    SurfaceExclusion,
     registry_from_settings,
 )
 from effaced.restriction import RestrictionLedger, RestrictionRecord
@@ -99,6 +103,7 @@ __all__ = [
     "AbandonedHook",
     "AbandonedSignal",
     "AnonymizationError",
+    "AttestingResolver",
     "AuditEvent",
     "AuditEventType",
     "AuditIntegrityError",
@@ -111,6 +116,8 @@ __all__ = [
     "ConsentLedger",
     "ConsentRecord",
     "Correction",
+    "CoveredField",
+    "CoveredSurface",
     "DataMap",
     "DatabaseAuditSink",
     "EffacedError",
@@ -169,6 +176,7 @@ __all__ = [
     "SubjectLink",
     "SubjectRef",
     "SubjectResolutionError",
+    "SurfaceExclusion",
     "SurrogateRegistry",
     "TableAccessPlan",
     "TableEntry",

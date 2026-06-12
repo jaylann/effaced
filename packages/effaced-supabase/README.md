@@ -100,6 +100,20 @@ Never exported:
 Changing the exported field set is behaviour under effaced's widened
 SemVer: additions are MINOR, removals MAJOR.
 
+## Covered surface
+
+Both resolvers attest a `covered_surface` (the `AttestingResolver`
+capability), built from the same field tuples their exporters use so the
+two cannot drift. `SupabaseAuthResolver` declares `user.email` /
+`user.phone` and excludes `user_metadata` / `app_metadata` /
+`identities` with reasons; `SupabaseStorageResolver` declares the object
+globs and notes the ADR 0016 asymmetry — Supabase Storage has no object
+versioning, so current-object deletion is complete erasure. The shared
+conformance suite proves every export stays within the declared surface
+and never touches an exclusion. A covered surface declares *claimed*
+reach; it cannot prove Supabase holds no personal data elsewhere, and is
+not a compliance determination.
+
 ## Idempotency & error semantics
 
 - Erasing a user GoTrue no longer knows is **success**

@@ -70,6 +70,14 @@ Empty or absent fields are skipped, not exported as noise. The custom
 and unknowable to this resolver — if you push PII into contact
 properties, declare it in your own data map.
 
+`ResendResolver.covered_surface` (the `AttestingResolver` capability)
+declares these four fields — built from the same field tuple the
+exporter uses, so the two cannot drift — and excludes
+`contact.properties.*` with a reason. The shared conformance suite proves
+every export stays within the declared surface and never touches the
+exclusion. It declares *claimed* reach; it cannot prove Resend holds no
+personal data elsewhere, and is not a compliance determination.
+
 ## What erasure does — and does not — cover
 
 `erase_subject` deletes the **contact record**. It does not and cannot
