@@ -6,3 +6,8 @@ packages:
 # error when CI=true) does not fail `pnpm install --frozen-lockfile`.
 allowBuilds:
   esbuild: true
+
+# Force esbuild past the binary-integrity advisory (GHSA-gv7w-rqvm-qjhr, high;
+# patched in 0.28.1) — vite/vitest still resolve an old 0.21.x transitively.
+overrides:
+  esbuild: ">=0.28.1"
