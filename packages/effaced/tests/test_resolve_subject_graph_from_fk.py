@@ -178,11 +178,12 @@ def test_parity_with_orm_resolver() -> None:
     )
     fk_graph = resolve_subject_graph_from_fk(collect_data_map(fk_metadata), fk_metadata)
 
+    posts = Post.__tablename__
     assert fk_graph.subject_table == orm_graph.subject_table
     assert fk_graph.subject_id_column == orm_graph.subject_id_column
     assert fk_graph.deletion_order == orm_graph.deletion_order
-    assert fk_graph.access("posts").hops == orm_graph.access("posts").hops
-    assert fk_graph.access("posts").fully_pii_owned == orm_graph.access("posts").fully_pii_owned
+    assert fk_graph.access(posts).hops == orm_graph.access(posts).hops
+    assert fk_graph.access(posts).fully_pii_owned == orm_graph.access(posts).fully_pii_owned
 
 
 def test_composite_foreign_key_hop_pairs_columns() -> None:
@@ -279,7 +280,6 @@ def test_ownership_classification_matches_orm_resolver_across_strategies() -> No
     )
     fk_graph = resolve_subject_graph_from_fk(collect_data_map(metadata), metadata)
 
-    assert fk_graph.access("profiles").fully_pii_owned is False
-    assert (
-        fk_graph.access("profiles").fully_pii_owned == orm_graph.access("profiles").fully_pii_owned
-    )
+    profiles = Profile.__tablename__
+    assert fk_graph.access(profiles).fully_pii_owned is False
+    assert fk_graph.access(profiles).fully_pii_owned == orm_graph.access(profiles).fully_pii_owned

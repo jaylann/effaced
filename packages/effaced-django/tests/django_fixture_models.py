@@ -10,9 +10,12 @@ from __future__ import annotations
 
 import django_test_setup  # noqa: F401  # configures Django before the models below are defined
 from django.db import models
+from django_test_setup import ensure_configured
 
 from effaced import PiiCategory
 from effaced_django import AnnotationRegistry, effaced_model, pii, subject_link
+
+ensure_configured()  # Django must be set up before the model classes below are defined.
 
 TEST_REGISTRY = AnnotationRegistry()
 """Isolated registry for the fixture models (keeps the default one clean)."""
