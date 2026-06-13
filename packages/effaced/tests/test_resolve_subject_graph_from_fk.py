@@ -13,11 +13,14 @@ from __future__ import annotations
 from typing import Any, ClassVar
 
 import pytest
-from sqlalchemy import Column, ForeignKey, Integer, MetaData, String, Table
+from sqlalchemy import Column, ForeignKey, ForeignKeyConstraint, Integer, MetaData, String, Table
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 from effaced import (
+    ErasureStrategy,
+    LegalBasis,
     PiiCategory,
+    RetentionPolicy,
     collect_data_map,
     pii,
     resolve_subject_graph,
@@ -180,3 +183,103 @@ def test_parity_with_orm_resolver() -> None:
     assert fk_graph.deletion_order == orm_graph.deletion_order
     assert fk_graph.access("posts").hops == orm_graph.access("posts").hops
     assert fk_graph.access("posts").fully_pii_owned == orm_graph.access("posts").fully_pii_owned
+
+
+def test_composite_foreign_key_hop_pairs_columns() -> None:
+    """A multi-column FK becomes one hop with positionally paired columns."""
+    metadata = MetaData()
+    Table(
+        "users",
+        metadata,
+        Column("id", Integer, primary_key=True),
+        Column("email", String, info=pii(PiiCategory.CONTACT)),
+        info=subject_link(""),
+    )
+    Table(
+        "tenants",
+        metadata,
+        Column("id", Integer, primary_key=True),
+        Column("region", Integer, primary_key=True),
+        Column("owner_id", Integer, ForeignKey("users.id")),
+        info=subject_link("users"),
+    )
+    Table(
+        "records",
+        metadata,
+        Column("id", Integer, primary_key=True),
+        Column("tenant_id", Integer),
+        Column("tenant_region", Integer),
+        Column("note", String, info=pii(PiiCategory.BEHAVIORAL)),
+        ForeignKeyConstraint(["tenant_id", "tenant_region"], ["tenants.id", "tenants.region"]),
+        info=subject_link("tenants.users"),
+    )
+    graph = resolve_subject_graph_from_fk(collect_data_map(metadata), metadata)
+    composite_hop = graph.access("records").hops[0]
+    assert composite_hop.source_columns == ("tenant_id", "tenant_region")
+    assert composite_hop.target_columns == ("id", "region")
+
+
+def test_ownership_classification_matches_orm_resolver_across_strategies() -> None:
+    """``fully_pii_owned`` agrees with the ORM resolver for ANONYMIZE/RETAIN/payload.
+
+    The FK resolver carries its own ownership classifier
+    (``_fully_pii_owned_table``); this pins it to the mapper-based one on a
+    table mixing an ANONYMIZE column, a RETAIN column, and an unannotated
+    payload — so a Django/reflected consumer never silently flips a row
+    between deletion and anonymization.
+    """
+    policy = RetentionPolicy(reason="tax", basis=LegalBasis.LEGAL_OBLIGATION)
+
+    class Base(DeclarativeBase):
+        pass
+
+    class User(Base):
+        __tablename__ = "users"
+        __table_args__: ClassVar[dict[str, Any]] = {"info": subject_link("")}
+        id: Mapped[int] = mapped_column(primary_key=True)
+        email: Mapped[str] = mapped_column(info=pii(PiiCategory.CONTACT))
+
+    class Profile(Base):
+        __tablename__ = "profiles"
+        __table_args__: ClassVar[dict[str, Any]] = {"info": subject_link("user")}
+        id: Mapped[int] = mapped_column(primary_key=True)
+        user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+        bio: Mapped[str] = mapped_column(
+            info=pii(PiiCategory.BEHAVIORAL, erasure=ErasureStrategy.ANONYMIZE)
+        )
+        kept: Mapped[str] = mapped_column(
+            info=pii(PiiCategory.FINANCIAL, erasure=ErasureStrategy.RETAIN, retention=policy)
+        )
+        nickname: Mapped[str] = mapped_column()  # unannotated payload -> not fully owned
+        user: Mapped[User] = relationship()
+
+    orm_graph = resolve_subject_graph(collect_data_map(Base.metadata), Base.registry)
+
+    metadata = MetaData()
+    Table(
+        "users",
+        metadata,
+        Column("id", Integer, primary_key=True),
+        Column("email", String, info=pii(PiiCategory.CONTACT)),
+        info=subject_link(""),
+    )
+    Table(
+        "profiles",
+        metadata,
+        Column("id", Integer, primary_key=True),
+        Column("user_id", Integer, ForeignKey("users.id")),
+        Column("bio", String, info=pii(PiiCategory.BEHAVIORAL, erasure=ErasureStrategy.ANONYMIZE)),
+        Column(
+            "kept",
+            String,
+            info=pii(PiiCategory.FINANCIAL, erasure=ErasureStrategy.RETAIN, retention=policy),
+        ),
+        Column("nickname", String),
+        info=subject_link("users"),
+    )
+    fk_graph = resolve_subject_graph_from_fk(collect_data_map(metadata), metadata)
+
+    assert fk_graph.access("profiles").fully_pii_owned is False
+    assert (
+        fk_graph.access("profiles").fully_pii_owned == orm_graph.access("profiles").fully_pii_owned
+    )
