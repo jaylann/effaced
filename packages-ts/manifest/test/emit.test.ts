@@ -29,7 +29,9 @@ function pythonEnumValues(file: string): string[] {
   const text = readFileSync(resolve(categoriesDir, file), "utf8");
   const values: string[] = [];
   for (const line of text.split("\n")) {
-    const match = /^\s+[A-Z_]+\s*=\s*"([^"]+)"\s*$/.exec(line);
+    // tolerate a trailing comment after the value, so a future member written
+    // `MEMBER = "value"  # note` is still captured rather than silently skipped.
+    const match = /^\s+[A-Z_]+\s*=\s*"([^"]+)"\s*(#.*)?$/.exec(line);
     if (match && match[1] !== undefined) values.push(match[1]);
   }
   return values;

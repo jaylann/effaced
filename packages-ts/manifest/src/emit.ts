@@ -65,7 +65,18 @@ type JsonValue =
   | { [key: string]: JsonValue };
 type JsonObject = { [key: string]: JsonValue };
 
+function assertNonEmpty(value: string, field: string): void {
+  if (value.length === 0) {
+    throw new ManifestEmitError(
+      `${field} must be a non-empty string — Python declares it ` +
+        `Field(min_length=1); an empty value would only 422 downstream in ` +
+        `from_payload, not here.`,
+    );
+  }
+}
+
 function emitRetention(policy: RetentionPolicy): JsonObject {
+  assertNonEmpty(policy.reason, "RetentionPolicy.reason");
   const out: JsonObject = { reason: policy.reason };
   if (policy.basis !== undefined) out.basis = policy.basis;
   if (policy.duration !== undefined && policy.duration !== null) {
@@ -105,6 +116,7 @@ function emitColumn(column: ColumnEntry): JsonObject {
 function emitSubjectLink(link: SubjectLink): JsonObject {
   const out: JsonObject = { path: link.path };
   if (link.subjectIdColumn !== undefined) {
+    assertNonEmpty(link.subjectIdColumn, "SubjectLink.subject_id_column");
     out.subject_id_column = link.subjectIdColumn;
   }
   return out;
