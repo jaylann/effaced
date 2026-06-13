@@ -1,0 +1,7 @@
+packages:
+  - "manifest"
+
+# esbuild ships a postinstall that fetches its platform binary; vitest needs it.
+# pnpm 11 reads this allowlist from the workspace file, not package.json.
+onlyBuiltDependencies:
+  - esbuild
