@@ -92,12 +92,15 @@ effaced.saga.runner.xǁSagaRunnerǁrun_once__mutmut_20
 effaced.saga.runner.xǁSagaRunnerǁ_execute__mutmut_5
 effaced.saga.runner.xǁSagaRunnerǁ_execute__mutmut_6
 
-# --- accepted pending #133 (Postgres-only, NOT equivalent) ------------------
-# These saga survivors are genuine gaps whose honest kill needs the Postgres
-# integration suite: the mutations change FOR UPDATE / SKIP LOCKED semantics
-# SQLite compiles away, ordering of tied rows SQLite returns
-# non-deterministically, or an exact time-boundary needing DB-level clock
-# control. Tracked in #133; remove each entry as its PG test lands.
+# --- pinned by the Postgres integration suite (invisible to the SQLite mutation run)
+# These saga survivors are genuine behaviours, killed deterministically (or pinned
+# by a serialization/ordering contract where a deterministic kill is impossible) in
+# the Postgres integration suite — see packages/effaced/tests/test_outbox_pg_survivors.py
+# and PROOFS.md. mutmut runs ONLY the SQLite unit suite, which compiles away
+# FOR UPDATE / SKIP LOCKED and returns tied rows non-deterministically, so these
+# mutants permanently survive the mutation run and MUST stay listed: removing one
+# fails the gate as a stale entry, not pass. Allowlisted as "not killable by the
+# mutated (SQLite) suite", not as equivalent mutants. (#133)
 effaced.saga.outbox.xǁOutboxǁclaim_batch__mutmut_6
 effaced.saga.outbox.xǁOutboxǁclaim_batch__mutmut_9
 effaced.saga.outbox.xǁOutboxǁclaim_batch__mutmut_11
