@@ -1,7 +1,8 @@
 packages:
   - "manifest"
 
-# esbuild ships a postinstall that fetches its platform binary; vitest needs it.
-# pnpm 11 reads this allowlist from the workspace file, not package.json.
-onlyBuiltDependencies:
-  - esbuild
+# vitest pulls esbuild, whose install script pnpm 11 gates behind explicit
+# approval. Approve it here so pnpm's CI-mode ERR_PNPM_IGNORED_BUILDS (a hard
+# error when CI=true) does not fail `pnpm install --frozen-lockfile`.
+allowBuilds:
+  esbuild: true
