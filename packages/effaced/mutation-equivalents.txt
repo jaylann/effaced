@@ -1,0 +1,111 @@
+# Equivalent-mutant allowlist for the weekly mutation hard gate (#124).
+#
+# Each line is a mutmut mutant name (from `uv run mutmut results`) that
+# SURVIVES but provably cannot change observable behaviour — an equivalent
+# mutant. The gate (scripts/check_mutation_gate.py) lets exactly these
+# survive; ANY other surviving / "no tests" mutant fails the weekly job, and
+# any line here that is NOT a current survivor fails it too (stale entries are
+# loud — the floor must track reality). Comments (`#`) and blank lines ignored.
+#
+# Adding an entry: include the equivalence argument as a `#` comment above it.
+# Re-baselining after sibling PRs land code in these modules: run
+# `just mutmut && just mutmut-results`, then add/remove entries the gate names.
+
+# --- erasure ---------------------------------------------------------------
+# `_check_conflicts` only inspects RETAIN columns, and the PiiSpec validator
+# forces every RETAIN column to carry a RetentionPolicy — so
+# `retained.spec.retention` is never falsy here and the `else "unspecified"`
+# literal is unreachable dead code. Mutating that literal changes nothing.
+effaced.erasure.planner.x__check_conflicts__mutmut_20
+effaced.erasure.planner.x__check_conflicts__mutmut_21
+
+# --- manifest --------------------------------------------------------------
+# `retention.setdefault("anchor", None)` → `setdefault("anchor")`: dict.setdefault
+# defaults its second argument to None, so single-arg setdefault sets exactly
+# the same value (and adds the key identically). Observationally identical.
+effaced.manifest.migration.x_migrate__mutmut_43
+
+# --- consent ---------------------------------------------------------------
+# `_latest_granted` returns only the latest row's `granted` bool. limit(1) vs
+# limit(None)/limit(2) under `.first()` returns the same first row; dropping the
+# `record_id` desc tiebreaker only reorders rows that already tie on
+# `recorded_at` AND `granted`, so the returned bool is unchanged. All four are
+# equivalent for the boolean result.
+effaced.consent.ledger.xǁConsentLedgerǁ_latest_granted__mutmut_3
+effaced.consent.ledger.xǁConsentLedgerǁ_latest_granted__mutmut_6
+effaced.consent.ledger.xǁConsentLedgerǁ_latest_granted__mutmut_9
+effaced.consent.ledger.xǁConsentLedgerǁ_latest_granted__mutmut_16
+
+# --- audit -----------------------------------------------------------------
+# `since.tzinfo.utcoffset(since)` → `utcoffset(None)`: this branch is reached
+# only for tz-aware `since` (the first `or` operand catches naive), and effaced
+# stamps trail timestamps with `datetime.timezone` (fixed-offset) tzinfo, whose
+# utcoffset ignores its argument. So both forms return the same offset.
+effaced.audit.database_sink.xǁDatabaseAuditSinkǁread_since__mutmut_3
+
+# --- saga ------------------------------------------------------------------
+# `delay >= self.max_delay` → `delay > self.max_delay`: this guard only breaks
+# the doubling loop early; the function returns `min(delay, self.max_delay)`,
+# which clamps the at-equality and past-equality cases identically. The extra
+# loop turns do not change the returned (clamped) delay.
+effaced.saga.backoff_policy.xǁBackoffPolicyǁdelay__mutmut_9
+
+# Correction's fields are str/StrEnum only, and Python's json encoder emits a
+# StrEnum as its string value regardless of model_dump's mode (an unrecognized
+# mode falls back to python-mode, whose StrEnum members still json-encode to
+# the value). The stored payload JSON is byte-identical for mode=None /
+# mode="JSON" / mode="json".
+effaced.saga._row_mapping.x__row__mutmut_20
+effaced.saga._row_mapping.x__row__mutmut_21
+effaced.saga._row_mapping.x__row__mutmut_22
+
+# `_requeued_entry` copies the row entry with next_attempt_at=None — but
+# requeue only touches ABANDONED rows, and mark_abandoned already wrote
+# next_attempt_at=NULL, so the field is None before the copy. A wrong update
+# key (extra keys are ignored by model_copy) leaves it None all the same.
+effaced.saga._row_mapping.x__requeued_entry__mutmut_8
+effaced.saga._row_mapping.x__requeued_entry__mutmut_9
+
+# `clear_payload=None` is falsy like `clear_payload=False`: `_mark` only acts
+# on truthiness (`if clear_payload:`), so mark_failed still preserves the
+# payload for the retry either way.
+effaced.saga.outbox.xǁOutboxǁmark_failed__mutmut_5
+
+# Removing `next_attempt_at=None` from the requeue UPDATE changes nothing:
+# the rows being flipped are ABANDONED, and mark_abandoned already set the
+# column to NULL — the UPDATE omission leaves it NULL, and the returned
+# entries read the same NULL.
+effaced.saga.outbox.xǁOutboxǁrequeue__mutmut_31
+
+# `zip(entries, outcomes, strict=True)` weakened to non-strict/None:
+# `asyncio.gather(*tasks, return_exceptions=True)` returns exactly one outcome
+# per task by contract, so the lengths always match and strictness can never
+# raise. The zip output is identical.
+effaced.saga.runner.xǁSagaRunnerǁrun_once__mutmut_16
+effaced.saga.runner.xǁSagaRunnerǁrun_once__mutmut_19
+effaced.saga.runner.xǁSagaRunnerǁrun_once__mutmut_20
+
+# The non-rectifying-resolver ResolverError raised inside _execute is consumed
+# by gather(return_exceptions=True) and recorded as its class name only
+# (`type(exc).__name__`) — the message is never read by any observable path,
+# so mutating the message (or passing None) cannot change behaviour.
+effaced.saga.runner.xǁSagaRunnerǁ_execute__mutmut_5
+effaced.saga.runner.xǁSagaRunnerǁ_execute__mutmut_6
+
+# --- accepted pending #133 (Postgres-only, NOT equivalent) ------------------
+# These saga survivors are genuine gaps whose honest kill needs the Postgres
+# integration suite: the mutations change FOR UPDATE / SKIP LOCKED semantics
+# SQLite compiles away, ordering of tied rows SQLite returns
+# non-deterministically, or an exact time-boundary needing DB-level clock
+# control. Tracked in #133; remove each entry as its PG test lands.
+effaced.saga.outbox.xǁOutboxǁclaim_batch__mutmut_6
+effaced.saga.outbox.xǁOutboxǁclaim_batch__mutmut_9
+effaced.saga.outbox.xǁOutboxǁclaim_batch__mutmut_11
+effaced.saga.outbox.xǁOutboxǁclaim_batch__mutmut_18
+effaced.saga.outbox.xǁOutboxǁclaim_batch__mutmut_19
+effaced.saga.outbox.xǁOutboxǁmark_succeeded__mutmut_3
+effaced.saga.outbox.xǁOutboxǁlist_abandoned__mutmut_6
+effaced.saga.outbox.xǁOutboxǁlist_abandoned__mutmut_8
+effaced.saga.outbox.xǁOutboxǁlist_scheduled__mutmut_6
+effaced.saga.outbox.xǁOutboxǁlist_scheduled__mutmut_8
+effaced.saga.outbox.xǁOutboxǁrequeue__mutmut_13

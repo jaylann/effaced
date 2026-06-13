@@ -157,6 +157,21 @@ def test_read_since_returns_the_window_across_subjects_oldest_first(
     assert [read.event_id for read in window] == [at_boundary.event_id, after.event_id]
 
 
+def test_read_since_orders_by_occurred_at_before_event_id(harness: SinkHarness) -> None:
+    """``occurred_at`` is the primary sort; ``event_id`` only breaks ties.
+
+    Event ids are chosen to run *opposite* to chronological order, so a
+    read that sorted by ``event_id`` alone (dropping the ``occurred_at``
+    key) would return them reversed — pinning ``occurred_at`` as primary.
+    """
+    earlier = event("subject-1", at=AWARE_T1, event_id=UUID(int=9))
+    later = event("subject-2", at=AWARE_T3, event_id=UUID(int=1))
+    for appended in (later, earlier):
+        harness.sink.append(appended)
+    window = harness.sink.read_since(AWARE_T1)
+    assert [read.event_id for read in window] == [UUID(int=9), UUID(int=1)]
+
+
 def test_read_since_breaks_occurred_at_ties_by_event_id(harness: SinkHarness) -> None:
     tied_second = event("subject-2", at=AWARE_T1, event_id=UUID(int=9))
     tied_first = event("subject-1", at=AWARE_T1, event_id=UUID(int=4))
@@ -192,7 +207,11 @@ def test_read_since_rejects_a_naive_bound(harness: SinkHarness) -> None:
     shifts by the session offset, dropping events without an error.
     """
     harness.sink.append(event("subject-1", at=AWARE_T1))
-    with pytest.raises(ConfigurationError, match="timezone-aware"):
+    with pytest.raises(
+        ConfigurationError,
+        match="since must be timezone-aware; the audit trail's timestamps "
+        "are UTC and a naive bound can silently shift the window",
+    ):
         harness.sink.read_since(T1)  # T1 is naive
 
 

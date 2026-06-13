@@ -105,7 +105,11 @@ Hypothesis profiles (workspace `conftest.py`): dev default 100 examples,
 `schema_strategies.scaled_examples(n)` — a fraction of the profile budget,
 because each example builds metadata, ORM mappers, and an in-memory
 database. Mutation testing (mutmut, weekly) backstops assertions the line
-coverage cannot see.
+coverage cannot see — and over `audit/consent/erasure/manifest/saga` it is a
+**hard gate** (#124): every surviving mutant must either be killed by a test
+or be a named equivalent in `packages/effaced/mutation-equivalents.txt`, so
+mutation survival on those modules is CI-enforced down to that documented
+equivalent floor.
 
 ## SQLite vs Postgres caveat
 

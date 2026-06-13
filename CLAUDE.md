@@ -68,3 +68,7 @@ Append non-obvious discoveries to `## Learnings` below as you work. `/commit` di
 ## Learnings
 
 <!-- Append discoveries here; /commit migrates them into rules. -->
+
+- mutmut's per-mutant verdicts were non-deterministic until #124: the copied-tree run never loads the workspace-root conftest, so property tests ran on hypothesis defaults (200ms deadline → spurious kills under load; random seeds → kill status oscillating between full runs). Fixed by the `mutation` profile (`deadline=None, derandomize=True`) that `packages/effaced/tests/conftest.py` self-activates under a `mutants/` path. Distilled into testing.md.
+- A targeted `mutmut run <name>` can disagree with the full run's verdict for hypothesis-covered mutants AND resets every other mutant to "not checked" — only full-run results feed the gate.
+- `model_dump(mode=...)`: an unrecognized mode string falls back to python-mode; for models whose fields are all str/StrEnum the JSON serialization is identical either way (made `mode="JSON"` mutants equivalent rather than killable).
