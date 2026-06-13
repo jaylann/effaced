@@ -147,7 +147,7 @@ def test_database_sink_satisfies_protocol(harness: SinkHarness) -> None:
 def test_read_since_returns_the_window_across_subjects_oldest_first(
     harness: SinkHarness,
 ) -> None:
-    """read_since spans all subjects, inclusive at the boundary (ADR 0018)."""
+    """read_since spans all subjects, inclusive at the boundary (ADR 0023)."""
     before = event("subject-1", at=AWARE_T1)
     at_boundary = event("subject-2", at=AWARE_T2)
     after = event("subject-1", at=AWARE_T3)

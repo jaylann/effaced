@@ -43,7 +43,7 @@ class ReplayPlanEntry(BaseModel):
 class ReplayPlan(BaseModel):
     """What one surviving trail says must be replayed after a restore.
 
-    Derived purely from audit events (ADR 0018): same events in, equal plan
+    Derived purely from audit events (ADR 0023): same events in, equal plan
     out — no clock, no database. Subjects whose post-backup window shows a
     committed local erasure are replayable; everything the trail cannot
     settle is surfaced, never guessed, in the same counted-never-guessed

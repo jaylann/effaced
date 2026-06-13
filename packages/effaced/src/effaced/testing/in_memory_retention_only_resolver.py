@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 
 class InMemoryRetentionOnlyResolver:
-    """A dict-backed :class:`~effaced.RetentionOnlyResolver` for tests (ADR 0018).
+    """A dict-backed :class:`~effaced.RetentionOnlyResolver` for tests (ADR 0022).
 
     Executable documentation of the scheduled-erasure contract:
     ``schedule_erasure`` reports a retention horizon instead of deleting
@@ -112,7 +112,7 @@ class InMemoryRetentionOnlyResolver:
 
         Raises:
             ResolverError: Always; erasure is scheduled via
-                :meth:`schedule_erasure` (ADR 0018).
+                :meth:`schedule_erasure` (ADR 0022).
         """
         msg = f"resolver {self._name!r} cannot delete on demand; use schedule_erasure"
         raise ResolverError(msg)

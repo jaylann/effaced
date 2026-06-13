@@ -1,4 +1,4 @@
-"""Retention-only erasure through the saga: park until horizon, verify, complete (ADR 0018)."""
+"""Retention-only erasure through the saga: park until horizon, verify, complete (ADR 0022)."""
 
 from __future__ import annotations
 

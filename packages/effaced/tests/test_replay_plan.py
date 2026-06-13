@@ -1,4 +1,4 @@
-"""ReplayPlan.derive — pure classification of the surviving trail (ADR 0018)."""
+"""ReplayPlan.derive — pure classification of the surviving trail (ADR 0023)."""
 
 from __future__ import annotations
 

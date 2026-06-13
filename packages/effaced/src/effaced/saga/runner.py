@@ -40,7 +40,7 @@ class SagaRunner:
 
     Entries are dispatched by their ``operation``: erase entries call
     ``Resolver.erase_subject`` — or ``RetentionOnlyResolver.schedule_erasure``
-    when the resolver can only schedule expiry (ADR 0018) — and rectify
+    when the resolver can only schedule expiry (ADR 0022) — and rectify
     entries call ``RectifyingResolver.rectify_subject`` with the entry's
     corrections. A scheduled erasure parks its entry until the retention
     horizon, then re-verifies; it never counts as a completed erasure.
@@ -113,7 +113,7 @@ class SagaRunner:
 
         A retention-only resolver reporting a future horizon appends
         ``ERASURE_EXPIRY_SCHEDULED`` and parks the entry ``SCHEDULED``
-        until the horizon (ADR 0018); the parked entry blocks
+        until the horizon (ADR 0022); the parked entry blocks
         ``ERASURE_COMPLETED`` until a later claim verifies the data gone
         (``already_absent=True``), which succeeds the step with
         ``verified_expiry``. A vendor that keeps reporting fresh horizons
@@ -149,7 +149,7 @@ class SagaRunner:
         unknown resolver name. An erase entry routed to a
         :class:`~effaced.RetentionOnlyResolver` calls ``schedule_erasure``
         instead of ``erase_subject`` — such a resolver cannot delete on
-        demand (ADR 0018).
+        demand (ADR 0022).
         """
         resolver = self._registry.get(entry.resolver)
         if entry.operation is OutboxOperation.RECTIFY:

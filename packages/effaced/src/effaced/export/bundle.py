@@ -23,7 +23,7 @@ class ExportRecord(BaseModel):
         retention_reason: The legal duty keeping the value, if any.
         expires_at: The instant by which the value is guaranteed to expire
             at its source, when on-demand erasure there is unavailable
-            (retention-only resolvers, ADR 0018).
+            (retention-only resolvers, ADR 0022).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")

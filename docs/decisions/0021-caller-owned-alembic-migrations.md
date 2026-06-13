@@ -1,4 +1,4 @@
-# 0018. Caller-owned Alembic migrations for the effaced-owned tables
+# 0021. Caller-owned Alembic migrations for the effaced-owned tables
 
 - **Status:** accepted
 - **Date:** 2026-06-12

@@ -1,4 +1,4 @@
-"""Replay proofs on arbitrary schemas and event orderings (ADR 0018)."""
+"""Replay proofs on arbitrary schemas and event orderings (ADR 0023)."""
 
 from __future__ import annotations
 

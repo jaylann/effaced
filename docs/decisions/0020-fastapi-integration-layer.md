@@ -36,7 +36,7 @@ SQLAlchemy, so adapters is its sanctioned home — and performs exactly
 the quickstart sequence, returning every wired engine as a named handle.
 It adds no behaviour: each handle is the component you could have
 constructed by hand, and construction executes no SQL (the owned tables
-still ride the caller's migrations, ADR 0018). A future Django/Flask
+still ride the caller's migrations, ADR 0021). A future Django/Flask
 layer reuses the same facade instead of forking twelve constructor
 calls. Additive, so an `effaced` MINOR.
 

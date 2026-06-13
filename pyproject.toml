@@ -12,7 +12,7 @@ dev = [
     "pre-commit>=4.0",
     "psycopg[binary]>=3.3.4",
     "mutmut>=3.6",
-    # autogenerate-coexistence proofs for the owned tables (ADR 0018)
+    # autogenerate-coexistence proofs for the owned tables (ADR 0021)
     "alembic>=1.13",
     # typed boto3 client + type_defs for effaced-s3 (boto3 ships no types)
     "types-boto3[s3]>=1.35",

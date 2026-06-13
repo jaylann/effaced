@@ -1,4 +1,4 @@
-# 0018. Backup replay of committed erasures
+# 0023. Backup replay of committed erasures
 
 - **Status:** accepted
 - **Date:** 2026-06-12

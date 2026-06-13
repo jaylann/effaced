@@ -184,7 +184,7 @@ def test_list_scheduled_round_trips_the_full_entry(harness: ReadHarness) -> None
     """A parked entry comes back carrying its horizon and a reset budget.
 
     ``mark_scheduled`` resets ``attempts``/``last_error`` and stamps
-    ``next_attempt_at`` with the horizon (ADR 0018); the read surface must
+    ``next_attempt_at`` with the horizon (ADR 0022); the read surface must
     surface exactly that, plus the untouched identity fields.
     """
     original = OutboxEntry(

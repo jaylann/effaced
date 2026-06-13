@@ -262,7 +262,7 @@ def test_completion_is_scoped_per_subject_and_operation(harness: OutboxHarness) 
     assert completions == ["rectify", "erase"]
 
 
-# --- scheduled parking (ADR 0018) ---------------------------------------------
+# --- scheduled parking (ADR 0022) ---------------------------------------------
 
 RESUME_AT = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
 

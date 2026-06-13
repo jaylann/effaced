@@ -7,7 +7,7 @@ sidebar:
 
 effaced mounts four tables onto your `MetaData` — `effaced_audit_events`,
 `effaced_consent_records`, `effaced_outbox`, `effaced_restriction_records`
-— and from there **you own the migrations** (ADR 0018). effaced never ships
+— and from there **you own the migrations** (ADR 0021). effaced never ships
 Alembic revision scripts, never depends on Alembic at runtime, and never
 touches your `alembic_version` table. In exchange, the library commits to a
 contract that keeps caller-owned migrations safe: owned-table DDL only ever
