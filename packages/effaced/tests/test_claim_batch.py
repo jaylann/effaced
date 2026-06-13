@@ -137,5 +137,36 @@ def test_terminal_entries_are_never_claimed(harness: ClaimHarness) -> None:
     assert harness.outbox.claim_batch(lease=LEASE) == ()
 
 
+def test_an_entry_due_at_exactly_now_is_claimable(
+    harness: ClaimHarness, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The ``next_attempt_at <= now`` gate is inclusive at the exact instant.
+
+    Freezes the claim clock and parks a FAILED entry whose gate equals that
+    instant to the microsecond: it claims under ``<=`` and would be excluded
+    under ``<`` (where the unpack below raises). The boundary needs no real
+    locking, so this lives in the SQLite suite — it kills the inclusive-bound
+    mutant directly in the mutation run.
+    """
+    frozen = datetime(2026, 6, 1, 12, 0, 0, 500000, tzinfo=UTC)
+
+    class FrozenDatetime(datetime):
+        @classmethod
+        def now(cls, tz: object = None) -> datetime:
+            return frozen
+
+    monkeypatch.setattr("effaced.saga.outbox.datetime", FrozenDatetime)
+    seed(harness, entry(1))
+    set_row(
+        harness,
+        UUID(int=1),
+        status=OutboxStatus.FAILED.value,
+        attempts=1,
+        next_attempt_at=frozen,
+    )
+    (claimed,) = harness.outbox.claim_batch(lease=LEASE)
+    assert claimed.entry_id == UUID(int=1)
+
+
 def test_empty_outbox_claims_nothing(harness: ClaimHarness) -> None:
     assert harness.outbox.claim_batch(lease=LEASE) == ()
