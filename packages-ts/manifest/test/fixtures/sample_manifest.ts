@@ -54,3 +54,37 @@ export const sampleManifest: DataMapManifest = {
     },
   ],
 };
+
+/**
+ * Every optional field set to a non-default value, so a Python round-trip
+ * (from_payload → to_payload) re-serializes to a byte-identical payload — the
+ * fidelity check that acceptance (exit 0) alone cannot give. The duration
+ * `P10Y` is in pydantic's canonical ISO-8601 form (preserved verbatim, unlike
+ * e.g. `P365D`, which normalizes to `P1Y`).
+ */
+export const fullyPopulatedManifest: DataMapManifest = {
+  tables: [
+    {
+      name: "users",
+      subjectLink: { path: "", subjectIdColumn: "id" },
+      columns: [
+        {
+          name: "ledger_note",
+          spec: {
+            category: "financial",
+            erasure: "retain",
+            legalBasis: "legal_obligation",
+            purpose: "statutory retention",
+            description: "kept under tax law",
+            retention: {
+              reason: "section 147 AO",
+              basis: "legal_obligation",
+              duration: "P10Y",
+              anchor: "created_at",
+            },
+          },
+        },
+      ],
+    },
+  ],
+};
