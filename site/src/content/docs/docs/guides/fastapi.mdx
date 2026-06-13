@@ -1,0 +1,114 @@
+---
+title: FastAPI integration
+description: Mount the data-subject endpoints — consent, export, erasure — as one router with the effaced-fastapi package.
+sidebar:
+  order: 1
+---
+
+`effaced-fastapi` compresses the integration to its irreducible parts:
+your annotated models, your auth, and one `include_router` call. The
+mechanical wiring — data map, subject graph, owned tables, audit sink,
+outbox, engines — happens once, inside
+[`EffacedStack`](../../reference/sqlalchemy-adapter/#effacedstack).
+
+## Install
+
+```bash
+uv add effaced effaced-fastapi
+```
+
+## The five lines
+
+```python
+from effaced_fastapi import EffacedFastAPI, Subject
+
+gdpr = EffacedFastAPI(base=Base, session_factory=session_factory,
+                      resolvers=[StripeResolver(api_key=os.environ["STRIPE_API_KEY"])])
+
+def current_subject(user: Annotated[User, Depends(current_user)]) -> Subject:
+    return Subject(subject_id=str(user.id),
+                   refs=(SubjectRef(kind="stripe", value=user.stripe_customer_id),))
+
+app = FastAPI(lifespan=gdpr.lifespan())
+app.include_router(gdpr.router(subject=current_subject), prefix="/me")
+```
+
+That mounts:
+
+| Route | Article | Engine behind it |
+|---|---|---|
+| `POST /me/consent` | Art. 7 | [`ConsentLedger.record`](../../reference/consent/#consentledgerrecord) — grant and withdrawal, same call |
+| `GET /me/consent/{purpose}` | Art. 7 | [`ConsentLedger.status`](../../reference/consent/#consentledgerstatus) |
+| `GET /me/export` | Art. 15 | [`Exporter.export_subject`](../../reference/export/#exporterexport_subject) |
+| `DELETE /me` | Art. 17 | [`ErasurePlanner.erase_subject`](../../reference/erasure/#erasureplannererase_subject) |
+
+`router(restriction=True)` adds `POST /me/restriction` and
+`GET /me/restriction` (Art. 18 [flag-keeping, never
+enforcement](../../concepts/restriction/)).
+
+Annotating your models with `pii()` / `subject_link()` stays your job —
+that declaration *is* the integration. The runnable
+[quickstart](https://github.com/jaylann/effaced/tree/main/examples/fastapi-quickstart)
+shows the whole thing end to end.
+
+## Your auth stays yours
+
+The router never authenticates. The `subject` dependency you pass — sync
+or async, chained on your real auth — answers two questions per request:
+*who is the subject* (the id your models key on) and *where else do they
+live* (the external refs whose `kind` routes to a
+[resolver](../../concepts/resolvers/)). A subject with no Stripe customer
+simply carries no `stripe` ref.
+
+## Sessions and transactions
+
+Each request runs in one transaction (`session_factory.begin()`): the
+local erasure phase and its outbox enqueue commit or roll back together —
+the atomicity the [saga](../../concepts/saga/) depends on. Override the
+session dependency per router (`router(session=...)`) or globally:
+
+```python
+app.dependency_overrides[gdpr.session_dependency] = my_session_dependency
+```
+
+Routes are plain `def` functions: FastAPI runs the sync engines
+([ADR 0006](https://github.com/jaylann/effaced/blob/main/docs/decisions/0006-session-strategy.md))
+on its threadpool, so the event loop never blocks.
+
+## Draining the outbox
+
+`gdpr.lifespan()` starts a `SagaWorker` — a daemon thread driving
+[`SagaRunner.run_once`](../../reference/saga/#sagarunnerrun_once) on its
+own private event loop, the pattern from the [saga-runner
+guide](../saga-runner-wiring/) — and stops it on shutdown. FastAPI takes
+a single lifespan: if your app already has one, construct `SagaWorker`
+inside it instead. Dedicated worker processes and cron remain just as
+valid; the worker is a packaged default, not a requirement.
+
+## Custom wiring
+
+A custom audit sink or a [settings-driven
+registry](../settings-registration/) means building the stack yourself
+and handing it over:
+
+```python
+from effaced import EffacedStack, registry_from_settings
+
+build = registry_from_settings(specs)
+stack = EffacedStack.from_base(Base, session_factory, registry=build.registry)
+gdpr = EffacedFastAPI(stack=stack)
+```
+
+Every wired engine stays reachable at `gdpr.stack` — e.g.
+`gdpr.stack.rectifier` for an Art. 16 route of your own. There is
+deliberately no built-in rectification endpoint: which corrections a
+subject may self-serve is an authorization decision your application
+owns ([ADR 0020](https://github.com/jaylann/effaced/blob/main/docs/decisions/0020-fastapi-integration-layer.md)).
+
+## Stability
+
+Route paths and response shapes are public API. Responses are the
+engines' own result models (`ExportBundle`, `ErasureResult`,
+`ConsentRecord`), so endpoint payloads change only when engine behaviour
+does — and that is governed by [widened
+SemVer](../../project/stability/).

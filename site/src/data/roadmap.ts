@@ -183,6 +183,13 @@ export const tiers: RoadmapTier[] = [
         docsPath: 'concepts/retention/',
       },
       {
+        name: 'FastAPI integration layer',
+        scope:
+          'The data-subject endpoints as one router over an app-supplied auth dependency — the starter wiring compressed from fifty lines to five, per ADR 0020.',
+        status: 'shipped',
+        docsPath: 'guides/fastapi/',
+      },
+      {
         name: 'Versioned docs + custom domain',
         scope: 'Docs that match the release you actually run; custom domain still ahead.',
         status: 'in-progress',

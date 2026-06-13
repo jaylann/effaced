@@ -47,7 +47,7 @@ def _assert_consent_recorded(client: TestClient, module: ModuleType) -> None:
     """Trigger point 1: consent (Art. 7)."""
     response = client.post(
         "/me/consent",
-        params={"purpose": "newsletter", "granted": "true"},
+        json={"purpose": "newsletter", "granted": True, "policy_version": "2026-06"},
         headers={"X-User-Id": "1"},
     )
     assert response.status_code == 200

@@ -45,6 +45,12 @@
       "package-name": "effaced-resend",
       "component": "effaced-resend",
       "changelog-path": "CHANGELOG.md"
+    },
+    "packages/effaced-fastapi": {
+      "release-type": "python",
+      "package-name": "effaced-fastapi",
+      "component": "effaced-fastapi",
+      "changelog-path": "CHANGELOG.md"
     }
   }
 }

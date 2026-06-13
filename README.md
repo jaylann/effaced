@@ -145,6 +145,7 @@ Full docs live at **[jaylann.github.io/effaced](https://jaylann.github.io/efface
 | [`effaced-supabase`](packages/effaced-supabase) | First-party Supabase resolvers (Auth today) | `uv add effaced-supabase` (unreleased — from git until its first release: `uv add "effaced-supabase @ git+https://github.com/jaylann/effaced#subdirectory=packages/effaced-supabase"`) |
 | [`effaced-s3`](packages/effaced-s3) | First-party S3 resolver — subject-owned objects (avatars, uploads, attachments) | `uv add effaced-s3` (from git until its first release, see quickstart) |
 | [`effaced-resend`](packages/effaced-resend) | First-party Resend resolver — the subject's email contact record | `uv add effaced-resend` (from git until its first release, see quickstart) |
+| [`effaced-fastapi`](packages/effaced-fastapi) | FastAPI integration — the data-subject endpoints as one router | `uv add effaced-fastapi` (from git until its first release, see quickstart) |
 
 Write your own resolver by implementing the small [`Resolver` protocol](packages/effaced/src/effaced/resolvers/base.py) — it is public API with the strictest stability promise in the library.
 

@@ -13,6 +13,7 @@ Everything else is bookkeeping the library does between those calls.
 from importlib.metadata import PackageNotFoundError, version
 
 from effaced.adapters.sqlalchemy import (
+    EffacedStack,
     EffacedTables,
     ErasureExecutor,
     ErasureVerifier,
@@ -129,6 +130,7 @@ __all__ = [
     "DataMap",
     "DatabaseAuditSink",
     "EffacedError",
+    "EffacedStack",
     "EffacedTables",
     "ErasureExecutor",
     "ErasurePlan",

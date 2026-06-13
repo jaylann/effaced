@@ -1,8 +1,9 @@
 # FastAPI quickstart
 
-The smallest complete integration: annotated models (`models.py`) and the
-three trigger points (`app.py`) — record consent, export a subject, erase a
-subject. Everything else is bookkeeping effaced does between those calls.
+The smallest complete integration: annotated models (`models.py`) and one
+router (`app.py`, via `effaced-fastapi`) exposing the trigger points —
+record consent, export a subject, erase a subject. Everything else is
+bookkeeping effaced does between those calls.
 
 ## Run it
 
@@ -17,20 +18,21 @@ cd examples/fastapi-quickstart
 uv run uvicorn app:app --reload
 ```
 
-In your own project the install line is (`effaced` isn't on PyPI yet — until
-0.1.0 ships, take it from git):
+In your own project the install line is (`effaced-fastapi` is unreleased —
+take it from git until its first release):
 
 ```bash
-uv add "effaced @ git+https://github.com/jaylann/effaced#subdirectory=packages/effaced" \
-       "effaced-stripe @ git+https://github.com/jaylann/effaced#subdirectory=packages/effaced-stripe" \
-       fastapi uvicorn "psycopg[binary]"
+uv add effaced effaced-stripe uvicorn "psycopg[binary]" \
+       "effaced-fastapi @ git+https://github.com/jaylann/effaced#subdirectory=packages/effaced-fastapi"
 ```
 
 Startup creates the tables (your migrations would normally own that) and
 seeds one demo user, so the three trigger points work immediately:
 
 ```bash
-curl -X POST 'localhost:8000/me/consent?purpose=newsletter&granted=true' -H 'X-User-Id: 1'
+curl -X POST 'localhost:8000/me/consent' -H 'X-User-Id: 1' \
+  -H 'Content-Type: application/json' \
+  -d '{"purpose": "newsletter", "granted": true, "policy_version": "2026-06"}'
 curl 'localhost:8000/me/export' -H 'X-User-Id: 1'
 curl -X DELETE 'localhost:8000/me' -H 'X-User-Id: 1'
 ```
@@ -59,8 +61,9 @@ erasure record Stripe as a skipped resolver instead of reaching it.
 
 ## Notes
 
-The effaced engines are sync by design — async routes dispatch them via
-`run_in_threadpool`, plain `def` routes call them directly (FastAPI
-threadpools sync routes automatically). Rationale and the full
-integration story:
-[ADR 0006](../../docs/decisions/0006-session-strategy.md).
+The routes come from `effaced-fastapi`: plain `def` endpoints, so the
+sync engines (by design — [ADR
+0006](../../docs/decisions/0006-session-strategy.md)) run on FastAPI's
+threadpool, while your auth dependency may be `async`. The integration
+layer's shape — what it mounts, what stays yours — is [ADR
+0020](../../docs/decisions/0020-fastapi-integration-layer.md).
