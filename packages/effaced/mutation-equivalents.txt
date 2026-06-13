@@ -93,18 +93,25 @@ effaced.saga.runner.xǁSagaRunnerǁ_execute__mutmut_5
 effaced.saga.runner.xǁSagaRunnerǁ_execute__mutmut_6
 
 # --- pinned by the Postgres integration suite (invisible to the SQLite mutation run)
-# These saga survivors are genuine behaviours, killed deterministically (or pinned
-# by a serialization/ordering contract where a deterministic kill is impossible) in
-# the Postgres integration suite — see packages/effaced/tests/test_outbox_pg_survivors.py
-# and PROOFS.md. mutmut runs ONLY the SQLite unit suite, which compiles away
-# FOR UPDATE / SKIP LOCKED and returns tied rows non-deterministically, so these
-# mutants permanently survive the mutation run and MUST stay listed: removing one
+# These saga survivors are genuine behaviours the mutated (SQLite) suite cannot
+# kill — see packages/effaced/tests/test_outbox_pg_survivors.py and PROOFS.md.
+# mutmut runs ONLY the SQLite unit suite, which compiles away FOR UPDATE /
+# SKIP LOCKED entirely and is free to return tied rows in any order. Two kinds
+# live here: lock-order/skip contracts SQLite cannot express at all, and the
+# tie-break mutants — for a *dropped* ORDER BY entry_id the tied rows have no
+# total order, so the mutant is not killable deterministically anywhere (the PG
+# test pins the contract the tie-broken query upholds); the *reversed* tie-break
+# is killed on PG. Either way the SQLite mutation run never executes these tests,
+# so these mutants permanently survive it and MUST stay listed: removing one
 # fails the gate as a stale entry, not pass. Allowlisted as "not killable by the
 # mutated (SQLite) suite", not as equivalent mutants. (#133)
+#
+# NOTE: the inclusive `next_attempt_at <= now` claim boundary (claim_batch
+# mutmut_18) is deliberately NOT here — it needs no locking and is killed in the
+# SQLite suite by test_claim_batch.py::test_an_entry_due_at_exactly_now_is_claimable.
 effaced.saga.outbox.xǁOutboxǁclaim_batch__mutmut_6
 effaced.saga.outbox.xǁOutboxǁclaim_batch__mutmut_9
 effaced.saga.outbox.xǁOutboxǁclaim_batch__mutmut_11
-effaced.saga.outbox.xǁOutboxǁclaim_batch__mutmut_18
 effaced.saga.outbox.xǁOutboxǁclaim_batch__mutmut_19
 effaced.saga.outbox.xǁOutboxǁmark_succeeded__mutmut_3
 effaced.saga.outbox.xǁOutboxǁlist_abandoned__mutmut_6

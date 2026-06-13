@@ -1,14 +1,22 @@
 """Postgres-only Outbox behaviours that the SQLite mutation run cannot kill.
 
-Eleven saga ``Outbox`` mutants survive the weekly mutmut hard gate because
+Ten saga ``Outbox`` mutants survive the weekly mutmut hard gate because
 mutmut runs only the SQLite unit suite, which compiles away
-``FOR UPDATE`` / ``SKIP LOCKED`` and returns tied rows non-deterministically.
-The tests here pin each behaviour deterministically on real Postgres — a
-``SKIP LOCKED`` skip that does not block, an inclusive ``<= now`` boundary,
-the ``(enqueued_at, entry_id)`` / ``(next_attempt_at, entry_id)`` tie-breaks,
-and the ``mark_succeeded`` sibling lock order — so the contract is evidenced
-even though the mutants stay on the allowlist by design (the mutation run
-never executes these tests; see ``mutation-equivalents.txt`` and PROOFS.md).
+``FOR UPDATE`` / ``SKIP LOCKED`` and returns tied rows in an order Postgres
+is free to choose. The tests here pin each behaviour on real Postgres — a
+``SKIP LOCKED`` skip that does not block, the ``(enqueued_at, entry_id)`` /
+``(next_attempt_at, entry_id)`` tie-breaks, and the ``mark_succeeded``
+sibling lock order — so the contract is evidenced even though the mutants
+stay on the allowlist by design (the mutation run never executes these
+tests; see ``mutation-equivalents.txt`` and PROOFS.md).
+
+A dropped ``ORDER BY entry_id`` tie-break leaves tied rows with no total
+order, so its mutant cannot be killed *deterministically* anywhere — these
+tests pin the contract the real (tie-broken) query upholds; the reversed
+tie-break is a clean kill. The inclusive ``<= now`` claim boundary is **not**
+Postgres-only — it is killed in the SQLite suite
+(``test_claim_batch.py::test_an_entry_due_at_exactly_now_is_claimable``) and
+is not allowlisted.
 """
 
 from __future__ import annotations
@@ -141,37 +149,6 @@ def test_claim_batch_skips_locked_rows_without_blocking(harness: PgHarness) -> N
     # Lock released before assertions, mirroring the requeue lock-hold test.
     assert returned.is_set()  # non-blocking: the claim returned despite the held lock
     assert set(claimed_ids) == {UUID(int=2), UUID(int=3), UUID(int=4)}
-
-
-def test_claim_includes_an_entry_due_at_exactly_now(
-    harness: PgHarness, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """An entry whose gate equals ``now`` to the microsecond is claimable.
-
-    Kills ``claim_batch__mutmut_18`` (the inclusive ``next_attempt_at <= now``
-    weakened to ``<``): with a frozen clock and a gate set to the exact same
-    instant (non-zero microseconds to prove timestamptz fidelity), the
-    boundary row claims under ``<=`` and is excluded under ``<``, where the
-    unpack below would raise.
-    """
-    frozen = datetime(2026, 6, 1, 12, 0, 0, 500000, tzinfo=UTC)
-
-    class FrozenDatetime(datetime):
-        @classmethod
-        def now(cls, tz: object = None) -> datetime:
-            return frozen
-
-    monkeypatch.setattr("effaced.saga.outbox.datetime", FrozenDatetime)
-    enqueue(harness, entry(1))
-    set_row(
-        harness,
-        UUID(int=1),
-        status=OutboxStatus.FAILED.value,
-        attempts=1,
-        next_attempt_at=frozen,
-    )
-    (claimed,) = harness.outbox.claim_batch()
-    assert claimed.entry_id == UUID(int=1)
 
 
 def test_claim_orders_tied_enqueued_at_by_entry_id(harness: PgHarness) -> None:
