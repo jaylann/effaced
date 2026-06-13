@@ -1,4 +1,10 @@
-"""Resolve subject-link paths against SQLAlchemy ORM mappers."""
+"""Resolve subject-link paths against SQLAlchemy ORM mappers.
+
+The private walk helpers (``_find_subject``, ``_mappers_by_table``,
+``_resolve_path``) are co-consumed by ``reachability_linter.py`` in this same
+package: the linter probes them per table to collect findings rather than
+raising on the first failure, so the two must share one walk — never fork it.
+"""
 
 from __future__ import annotations
 

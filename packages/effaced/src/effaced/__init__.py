@@ -17,6 +17,7 @@ from effaced.adapters.sqlalchemy import (
     EffacedTables,
     ErasureExecutor,
     ErasureVerifier,
+    LintTarget,
     RectificationExecutor,
     SqlStatusCountsSource,
     SurrogateRegistry,
@@ -24,6 +25,8 @@ from effaced.adapters.sqlalchemy import (
     collect_data_map,
     default_surrogate_registry,
     lint_completeness,
+    lint_reachability,
+    load_lint_target,
     pii,
     resolve_subject_graph,
     subject_link,
@@ -52,7 +55,7 @@ from effaced.exceptions import (
     SubjectResolutionError,
 )
 from effaced.export import ExportBundle, Exporter, ExportRecord
-from effaced.lint import CompletenessFinding
+from effaced.lint import CompletenessFinding, ReachabilityFinding
 from effaced.manifest import (
     MANIFEST_SCHEMA_VERSION,
     ColumnEntry,
@@ -145,6 +148,7 @@ __all__ = [
     "Exporter",
     "JoinHop",
     "LegalBasis",
+    "LintTarget",
     "ManifestError",
     "Outbox",
     "OutboxEntry",
@@ -152,6 +156,7 @@ __all__ = [
     "OutboxStatus",
     "PiiCategory",
     "PiiSpec",
+    "ReachabilityFinding",
     "RectificationExecutor",
     "RectificationResult",
     "RectificationStep",
@@ -198,6 +203,8 @@ __all__ = [
     "default_surrogate_registry",
     "fk_safe_deletion_order",
     "lint_completeness",
+    "lint_reachability",
+    "load_lint_target",
     "pii",
     "registry_from_settings",
     "resolve_subject_graph",

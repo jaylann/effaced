@@ -7,7 +7,8 @@ resolver that turns subject-link paths into a subject graph, the
 anonymizer surrogate registry, the erasure executor that runs local steps,
 the erasure verifier that reads the annotated surface back afterwards, the
 completeness linter that flags what the manifest does not cover, the
-effaced-owned storage tables mounted via :func:`bind_tables`, and the
+reachability linter that flags annotated tables the planner cannot reach,
+the effaced-owned storage tables mounted via :func:`bind_tables`, and the
 :class:`EffacedStack` facade that wires every engine from one base.
 """
 
@@ -18,6 +19,8 @@ from effaced.adapters.sqlalchemy.effaced_stack import EffacedStack
 from effaced.adapters.sqlalchemy.erasure_executor import ErasureExecutor
 from effaced.adapters.sqlalchemy.erasure_verifier import ErasureVerifier
 from effaced.adapters.sqlalchemy.info import INFO_KEY, pii, subject_link
+from effaced.adapters.sqlalchemy.lint_target import LintTarget, load_lint_target
+from effaced.adapters.sqlalchemy.reachability_linter import lint_reachability
 from effaced.adapters.sqlalchemy.rectification_executor import RectificationExecutor
 from effaced.adapters.sqlalchemy.resolution import resolve_subject_graph
 from effaced.adapters.sqlalchemy.sql_status_counts_source import SqlStatusCountsSource
@@ -29,6 +32,7 @@ __all__ = [
     "EffacedTables",
     "ErasureExecutor",
     "ErasureVerifier",
+    "LintTarget",
     "RectificationExecutor",
     "SqlStatusCountsSource",
     "SurrogateRegistry",
@@ -36,6 +40,8 @@ __all__ = [
     "collect_data_map",
     "default_surrogate_registry",
     "lint_completeness",
+    "lint_reachability",
+    "load_lint_target",
     "pii",
     "resolve_subject_graph",
     "subject_link",
