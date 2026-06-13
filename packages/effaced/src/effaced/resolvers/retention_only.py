@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 @runtime_checkable
 class RetentionOnlyResolver(Resolver, Protocol):
-    """A :class:`~effaced.resolvers.Resolver` that can only *schedule* erasure (ADR 0018).
+    """A :class:`~effaced.resolvers.Resolver` that can only *schedule* erasure (ADR 0022).
 
     For external systems with no per-subject delete — call recordings,
     transcripts, vendors with fixed retention windows — the only honest

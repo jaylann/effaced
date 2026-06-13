@@ -98,7 +98,7 @@ class DatabaseAuditSink:
     def read_since(self, since: datetime) -> Sequence[AuditEvent]:
         """Read every subject's events from ``since`` onward, oldest first.
 
-        The :class:`~effaced.ReplaySource` capability (ADR 0018): the
+        The :class:`~effaced.ReplaySource` capability (ADR 0023): the
         window a backup-replay derivation consumes. The boundary is
         inclusive (``occurred_at >= since``) — matching the replay rule
         that an erasure at exactly the backup instant is replayed — and

@@ -1,4 +1,4 @@
-"""The owned tables ride a host Alembic setup cleanly (ADR 0018).
+"""The owned tables ride a host Alembic setup cleanly (ADR 0021).
 
 Three proofs against a real Postgres: autogenerate discovers the owned
 tables like first-party models, a re-run after applying is diff-free (no

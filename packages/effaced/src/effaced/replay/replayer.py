@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 
 class Replayer:
-    """Replays the erasures a backup restore resurrected (ADR 0018).
+    """Replays the erasures a backup restore resurrected (ADR 0023).
 
     A restore brings back every subject whose erasure was committed after
     the backup point. The surviving audit trail says exactly which those

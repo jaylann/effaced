@@ -46,7 +46,7 @@ def bind_tables(metadata: MetaData) -> EffacedTables:
     in MINOR versions — re-run autogenerate after upgrading. Owned-table
     changes are additive-only, and additive columns backfill populated
     tables via server defaults — the caller-owned migration contract is
-    ADR 0018 (see the Alembic guide on the docs site). Without a
+    ADR 0021 (see the Alembic guide on the docs site). Without a
     migration tool, ``metadata.create_all(engine)`` creates them directly.
 
     Example:

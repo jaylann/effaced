@@ -338,7 +338,7 @@ def test_requeue_serializes_against_a_held_row_lock(harness: PgHarness) -> None:
     assert status == OutboxStatus.PENDING.value
 
 
-# --- retention-only erasure (ADR 0018) -----------------------------------------
+# --- retention-only erasure (ADR 0022) -----------------------------------------
 
 
 class SchedulingResolver:
@@ -380,7 +380,7 @@ def vendor_entry(subject_id: str, value: str) -> OutboxEntry:
 def test_parked_entry_is_reclaimed_after_the_horizon_and_completes_once(
     harness: PgHarness,
 ) -> None:
-    """Park -> gate -> re-claim through the real FOR UPDATE SKIP LOCKED path (ADR 0018)."""
+    """Park -> gate -> re-claim through the real FOR UPDATE SKIP LOCKED path (ADR 0022)."""
     resolver = SchedulingResolver("vendor", datetime.now(UTC) + timedelta(days=30))
     registry = ResolverRegistry()
     registry.register(resolver)

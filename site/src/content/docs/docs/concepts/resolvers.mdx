@@ -84,7 +84,7 @@ never broken by a new capability:
 - **`RectifyingResolver`** adds `rectify_subject` for Art. 16
   [rectification](../rectification/); resolvers without it are skipped
   and recorded, never errored.
-- **`RetentionOnlyResolver`** (ADR 0018) is for systems with **no
+- **`RetentionOnlyResolver`** (ADR 0022) is for systems with **no
   per-subject delete** — call recordings, transcripts, vendors with
   fixed retention windows. Its `schedule_erasure(ref)` performs whatever
   marking the system supports and returns a `ResolverScheduledErasure`:

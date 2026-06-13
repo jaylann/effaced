@@ -391,7 +391,7 @@ def test_completion_isolation_per_operation(
         assert rectify_completions == (1 if rectifies and not rectify_poisoned else 0)
 
 
-# --- retention-only erasure honesty (ADR 0018) ---------------------------------
+# --- retention-only erasure honesty (ADR 0022) ---------------------------------
 
 RETENTION_OUTCOMES = ("transient", "future", "past", "absent")
 
@@ -510,7 +510,7 @@ def test_completion_honesty_for_any_retention_only_script(
 ) -> None:
     """ERASURE_COMPLETED iff every entry reached SUCCEEDED — never while parked.
 
-    The honesty property of ADR 0018: a SCHEDULED entry blocks completion,
+    The honesty property of ADR 0022: a SCHEDULED entry blocks completion,
     completion fires at most once per subject, every park leaves an
     ERASURE_EXPIRY_SCHEDULED event, and any script — exhaustion defaults to
     verified absence — converges to a terminal outbox.

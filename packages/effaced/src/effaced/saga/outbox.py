@@ -108,7 +108,7 @@ class Outbox:
         claim lease has expired (a crashed runner's work, healed here),
         and ``SCHEDULED`` entries whose retention horizon has passed
         (parked by :meth:`mark_scheduled`, re-claimed to verify expiry —
-        ADR 0018).
+        ADR 0022).
         Claimed entries move to ``IN_FLIGHT`` with ``attempts`` incremented —
         the claim *is* the attempt, so an entry that crashes its runner every
         time still converges to abandonment — and ``next_attempt_at`` set to
@@ -239,7 +239,7 @@ class Outbox:
         )
 
     def mark_scheduled(self, entry: OutboxEntry, *, resume_at: datetime) -> None:
-        """Park the entry until its retention horizon (ADR 0018).
+        """Park the entry until its retention horizon (ADR 0022).
 
         Records that the external system can only *expire* the data: the
         entry moves to ``SCHEDULED`` with ``next_attempt_at=resume_at``
@@ -321,7 +321,7 @@ class Outbox:
     def list_scheduled(self, *, limit: int = 100) -> Sequence[OutboxEntry]:
         """Return entries parked for vendor expiry, nearest horizon first.
 
-        The read half of retention-only erasure (ADR 0018): every erase
+        The read half of retention-only erasure (ADR 0022): every erase
         entry a retention-only resolver could only *schedule* sits
         ``SCHEDULED`` until its vendor horizon, then re-claims to verify the
         data is gone. This shows *which* subject waits on *which* resolver

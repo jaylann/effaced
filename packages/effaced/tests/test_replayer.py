@@ -1,4 +1,4 @@
-"""Replayer.replay — re-applying committed erasures after a restore (ADR 0018)."""
+"""Replayer.replay — re-applying committed erasures after a restore (ADR 0023)."""
 
 from __future__ import annotations
 

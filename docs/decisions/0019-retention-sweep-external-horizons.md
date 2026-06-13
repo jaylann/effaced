@@ -5,11 +5,11 @@
 
 ## Context
 
-ADR 0018 (retention-only erasure) parks an erase entry a vendor can only *expire*
+ADR 0022 (retention-only erasure) parks an erase entry a vendor can only *expire*
 as `OutboxStatus.SCHEDULED` until its horizon, then re-verifies. Those external
 horizons live in two places: the outbox row (`next_attempt_at` is the horizon
 gate) and the audit trail (`ERASURE_EXPIRY_SCHEDULED`, carrying `expires_at`).
-ADR 0018 closed by deferring two follow-ups to their own decisions — one of them
+ADR 0022 closed by deferring two follow-ups to their own decisions — one of them
 verbatim: "resolver-aware horizons in the retention sweep (own ADR — the sweeper
 stays DB-only today)" (issue #114).
 
@@ -52,7 +52,7 @@ Two surfaces, each with one honest meaning:
 - **Provenance.** `RETENTION_EXPIRED` is a per-row anchor lapse computed from user
   rows (ADR 0012, which deliberately excludes per-row anchor timestamps from
   payloads as subject data). `ERASURE_EXPIRY_SCHEDULED` carries a *vendor policy*
-  instant, explicitly not subject data (ADR 0018). They are different facts with
+  instant, explicitly not subject data (ADR 0022). They are different facts with
   different provenance; one report listing both invites a reader to treat a vendor
   horizon as a per-row retention duty, or vice versa.
 - **Time-free planner stays time-free (ADR 0007).** Nothing here touches `plan()`;
@@ -70,5 +70,5 @@ Two surfaces, each with one honest meaning:
 - No `MANIFEST_SCHEMA_VERSION` bump, no enum or public-API change — a decision doc
   only.
 
-See also: ADR 0012 (retention-expiry sweep, database-only), ADR 0018
+See also: ADR 0012 (retention-expiry sweep, database-only), ADR 0022
 (retention-only erasure), issues #113 and #114.

@@ -1,4 +1,4 @@
-# 0018. Retention-only erasure: scheduled expiry, parked outbox entries, verified completion
+# 0022. Retention-only erasure: scheduled expiry, parked outbox entries, verified completion
 
 - **Status:** accepted
 - **Date:** 2026-06-12

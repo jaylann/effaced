@@ -110,7 +110,7 @@ performing it, and the [saga](../saga/) records that schedule as what it
 is — `ERASURE_EXPIRY_SCHEDULED` with the horizon — never as a completed
 erasure. "Scheduled to expire by T" is a different audit fact than
 `ERASURE_COMPLETED`, and conflating them would be exactly the silent lie
-the trail exists to prevent (ADR 0018).
+the trail exists to prevent (ADR 0022).
 
 Enforcement is park-and-verify: the outbox entry parks as `SCHEDULED`
 until the horizon, is then re-claimed, and the schedule re-runs. Vendor

@@ -196,7 +196,7 @@ rectifier.rectify_subject(session, subject_id, corrections)
 ## Operating scheduled expiry
 
 `status_counts()[OutboxStatus.SCHEDULED]` is **pending vendor expiry, not a
-fault** (ADR 0018): each entry is an erasure a retention-only system can only
+fault** (ADR 0022): each entry is an erasure a retention-only system can only
 expire, parked until its horizon and then re-claimed to verify. A subject's
 erasure stays open (no `ERASURE_COMPLETED`) until every scheduled entry verifies
 expiry, so don't expect completion before the vendor's retention window lapses.

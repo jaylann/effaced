@@ -32,7 +32,7 @@ class ReplaySource(Protocol):
         """Read every subject's events from ``since`` onward, oldest first.
 
         The boundary is inclusive (``occurred_at >= since``), matching the
-        replay window rule (ADR 0018); ordering ties in ``occurred_at``
+        replay window rule (ADR 0023); ordering ties in ``occurred_at``
         resolve by ``event_id`` so repeated reads agree. ``since`` must be
         timezone-aware — implementations reject a naive bound rather than
         let it silently shift the window.

@@ -6,7 +6,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validato
 
 
 class ResolverScheduledErasure(BaseModel):
-    """Outcome of one external erasure that can only be *scheduled* (ADR 0018).
+    """Outcome of one external erasure that can only be *scheduled* (ADR 0022).
 
     Returned by
     :meth:`~effaced.RetentionOnlyResolver.schedule_erasure` for systems

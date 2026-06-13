@@ -186,7 +186,7 @@ def test_fan_out_on_a_loop_thread_raises_runtime_error(sqlite_engine: Engine) ->
 
 
 def test_retention_only_records_carry_the_schedule_horizon(sqlite_engine: Engine) -> None:
-    """Art. 15 honesty (ADR 0018): scheduled records name their expiry, local rows don't."""
+    """Art. 15 honesty (ADR 0022): scheduled records name their expiry, local rows don't."""
     held = ExportRecord(
         source="retention_memory",
         field="recording",

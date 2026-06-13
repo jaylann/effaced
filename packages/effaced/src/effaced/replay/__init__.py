@@ -7,7 +7,7 @@ in that window; this package derives a :class:`ReplayPlan` from a
 window) and re-runs each erasure through the existing
 :class:`~effaced.ErasurePlanner` — a mechanism for converging after a
 restore, never a determination that anything is compliant. Semantics are
-pinned in ADR 0018.
+pinned in ADR 0023.
 """
 
 from effaced.replay.plan import ReplayPlan, ReplayPlanEntry

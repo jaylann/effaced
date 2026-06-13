@@ -177,7 +177,7 @@ export const tiers: RoadmapTier[] = [
       {
         name: 'Retention-only erasure',
         scope:
-          'Systems with no per-subject delete (recordings, transcripts, vendor retention windows): schedule expiry, audit the horizon honestly, verify after it passes — per ADR 0018.',
+          'Systems with no per-subject delete (recordings, transcripts, vendor retention windows): schedule expiry, audit the horizon honestly, verify after it passes — per ADR 0022.',
         status: 'shipped',
         ref: { kind: 'issue', number: 107 },
         docsPath: 'concepts/retention/',
