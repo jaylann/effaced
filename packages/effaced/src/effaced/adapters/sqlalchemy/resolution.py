@@ -244,3 +244,171 @@ def _fk_edges(metadata: MetaData, graph_tables: frozenset[str]) -> Iterable[tupl
             parent = constraint.referred_table.name
             if parent in graph_tables:
                 yield (table.name, parent)
+
+
+def resolve_subject_graph_from_fk(data_map: DataMap, metadata: MetaData) -> SubjectGraph:
+    """Resolve a subject graph from foreign-key constraints, without ORM mappers.
+
+    The mapper-free sibling of :func:`resolve_subject_graph`. Where that
+    function walks ORM relationships keyed by attribute name, this one walks
+    the foreign-key constraints on the bound :class:`~sqlalchemy.MetaData`
+    directly: each segment of a table's dotted ``subject_link`` path names
+    the **next table** on the chain to the subject, and the single foreign
+    key between the current table and that target supplies the join columns.
+    It is the resolver an adapter reaches for when it has table metadata but
+    no ORM registry — reflected schemas, hand-built metadata, or non-ORM
+    layers such as the Django adapter (which translates ``Model._meta`` into
+    annotated tables and FK constraints).
+
+    The produced graph is identical in shape and guarantees to the
+    ORM-resolved one — same FK-safe deletion order, same hop chains, same
+    ``fully_pii_owned`` classification — so every downstream engine behaves
+    identically regardless of which resolver built it.
+
+    Args:
+        data_map: The collected manifest (see
+            :func:`~effaced.adapters.sqlalchemy.collect_data_map`).
+        metadata: The ``MetaData`` holding the annotated tables, with the
+            foreign-key constraints that link them.
+
+    Returns:
+        The resolved, FK-safely ordered :class:`SubjectGraph`.
+
+    Raises:
+        SubjectResolutionError: If no (or more than one) table declares
+            ``subject_link("")``, a table holds personal data without a
+            subject link, a table is absent from the metadata, the declared
+            subject id column does not exist, a path segment names a table
+            not in the metadata, the current table has no single foreign key
+            to the next path segment (none, or an ambiguous several), a path
+            does not end at the subject table, or the foreign keys between
+            resolved tables form a cycle.
+    """
+    subject = _find_subject(data_map)
+    subject_table = _table_for(subject.name, metadata)
+    subject_id_column = subject.subject_link.subject_id_column  # type: ignore[union-attr]  # _find_subject only returns entries that carry a subject_link
+    if subject_id_column not in subject_table.columns:
+        msg = (
+            f"subject table {subject.name!r} has no column "
+            f"{subject_id_column!r} (declared subject_id_column)"
+        )
+        raise SubjectResolutionError(msg)
+    plans = {
+        entry.name: TableAccessPlan(
+            table=entry.name,
+            hops=_resolve_path_fk(entry, metadata, subject.name),
+            fully_pii_owned=_fully_pii_owned_table(entry, _table_for(entry.name, metadata)),
+        )
+        for entry in data_map.tables
+    }
+    order = fk_safe_deletion_order(tuple(plans), _fk_edges(metadata, frozenset(plans)))
+    return SubjectGraph(
+        subject_table=subject.name,
+        subject_id_column=subject_id_column,
+        accesses=tuple(plans[name] for name in order),
+    )
+
+
+def _table_for(name: str, metadata: MetaData) -> Table:
+    """Return one table from the metadata, or fail loudly."""
+    table = metadata.tables.get(name)
+    if table is None:
+        msg = (
+            f"table {name!r} is in the data map but not present in the given "
+            f"metadata; FK resolution needs the table and its constraints"
+        )
+        raise SubjectResolutionError(msg)
+    return table
+
+
+def _fully_pii_owned_table(entry: TableEntry, table: Table) -> bool:
+    """Whether the row holds nothing but annotated PII and structural keys.
+
+    The mapper-free counterpart of :func:`_fully_pii_owned`: true when every
+    physical column is PII-annotated, a primary-key member, or a foreign-key
+    member, so deleting the whole row erases no more than the manifest
+    declares (ADR 0007). Anything else forces column-level anonymization.
+    """
+    annotated = {column.name for column in entry.columns}
+    key_members = {
+        column.name for constraint in table.foreign_key_constraints for column in constraint.columns
+    }
+    return all(
+        column.name in annotated or column.primary_key or column.name in key_members
+        for column in table.columns
+    )
+
+
+def _resolve_path_fk(
+    entry: TableEntry,
+    metadata: MetaData,
+    subject_table: str,
+) -> tuple[JoinHop, ...]:
+    """Flatten one entry's dotted table-name path into join hops via FKs."""
+    link = entry.subject_link
+    if link is None:
+        msg = (
+            f"table {entry.name!r} holds personal data but declares no "
+            f"subject_link; declare how its rows reach the subject"
+        )
+        raise SubjectResolutionError(msg)
+    if not link.is_subject_table and link.subject_id_column != "id":
+        msg = (
+            f"table {entry.name!r}: subject_id_column "
+            f"{link.subject_id_column!r} is only meaningful on the subject "
+            f'table itself (subject_link("")); it would be silently ignored here'
+        )
+        raise SubjectResolutionError(msg)
+    current = _table_for(entry.name, metadata)
+    hops: list[JoinHop] = []
+    for segment in link.path.split(".") if link.path else ():
+        hop = _fk_hop(entry, link.path, current, segment, metadata)
+        hops.append(hop)
+        current = _table_for(segment, metadata)
+    if hops and hops[-1].target_table != subject_table:
+        msg = (
+            f"table {entry.name!r}: subject link path {link.path!r} ends at "
+            f"{hops[-1].target_table!r}, not at the subject table {subject_table!r}"
+        )
+        raise SubjectResolutionError(msg)
+    return tuple(hops)
+
+
+def _fk_hop(
+    entry: TableEntry,
+    path: str,
+    source: Table,
+    segment: str,
+    metadata: MetaData,
+) -> JoinHop:
+    """Resolve one path segment into a hop via the FK to the named table."""
+    if segment not in metadata.tables:
+        msg = (
+            f"table {entry.name!r}: subject link path {path!r} names "
+            f"{segment!r}, which is not a table in the metadata"
+        )
+        raise SubjectResolutionError(msg)
+    matches = [
+        constraint
+        for constraint in source.foreign_key_constraints
+        if constraint.referred_table.name == segment
+    ]
+    if not matches:
+        msg = (
+            f"table {entry.name!r}: subject link path {path!r} — {source.name!r} "
+            f"has no foreign key to {segment!r}"
+        )
+        raise SubjectResolutionError(msg)
+    if len(matches) > 1:
+        msg = (
+            f"table {entry.name!r}: subject link path {path!r} — {source.name!r} "
+            f"has {len(matches)} foreign keys to {segment!r}; the hop is ambiguous"
+        )
+        raise SubjectResolutionError(msg)
+    constraint = matches[0]
+    return JoinHop(
+        source_table=source.name,
+        source_columns=tuple(column.name for column in constraint.columns),
+        target_table=segment,
+        target_columns=tuple(element.column.name for element in constraint.elements),
+    )

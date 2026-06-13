@@ -22,7 +22,10 @@ from effaced.adapters.sqlalchemy.info import INFO_KEY, pii, subject_link
 from effaced.adapters.sqlalchemy.lint_target import LintTarget, load_lint_target
 from effaced.adapters.sqlalchemy.reachability_linter import lint_reachability
 from effaced.adapters.sqlalchemy.rectification_executor import RectificationExecutor
-from effaced.adapters.sqlalchemy.resolution import resolve_subject_graph
+from effaced.adapters.sqlalchemy.resolution import (
+    resolve_subject_graph,
+    resolve_subject_graph_from_fk,
+)
 from effaced.adapters.sqlalchemy.sql_status_counts_source import SqlStatusCountsSource
 from effaced.adapters.sqlalchemy.storage import EffacedTables, bind_tables
 
@@ -44,5 +47,6 @@ __all__ = [
     "load_lint_target",
     "pii",
     "resolve_subject_graph",
+    "resolve_subject_graph_from_fk",
     "subject_link",
 ]

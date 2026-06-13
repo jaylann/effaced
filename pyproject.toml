@@ -20,6 +20,9 @@ dev = [
     "fastapi>=0.116",
     "httpx>=0.28",
     "uvicorn>=0.30",
+    # Django adapter (effaced-django) + its type stubs for mypy --strict
+    "django>=4.2",
+    "django-stubs>=5.0",
 ]
 docs = [
     "griffe>=1.5",
@@ -41,6 +44,7 @@ src = [
     "packages/effaced-s3/src",
     "packages/effaced-resend/src",
     "packages/effaced-fastapi/src",
+    "packages/effaced-django/src",
 ]
 
 [tool.ruff.lint]
@@ -136,6 +140,7 @@ files = [
     "packages/effaced-s3/src",
     "packages/effaced-resend/src",
     "packages/effaced-fastapi/src",
+    "packages/effaced-django/src",
     "scripts",
     "examples/fastapi-quickstart/app.py",
     "examples/fastapi-quickstart/models.py",
@@ -161,6 +166,7 @@ testpaths = [
     "packages/effaced-s3/tests",
     "packages/effaced-resend/tests",
     "packages/effaced-fastapi/tests",
+    "packages/effaced-django/tests",
     "examples/fastapi-quickstart",
 ]
 addopts = "-ra --strict-markers"
@@ -177,6 +183,7 @@ source = [
     "effaced_s3",
     "effaced_resend",
     "effaced_fastapi",
+    "effaced_django",
 ]
 branch = true
 

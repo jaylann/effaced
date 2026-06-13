@@ -233,8 +233,8 @@ export const tiers: RoadmapTier[] = [
       {
         name: 'Second ORM adapter',
         scope:
-          'The core is already storage-agnostic; a second adapter proves it. Prisma/Drizzle or Django — demand decides which.',
-        status: 'planned',
+          'The core is already storage-agnostic; a second adapter proves it. A Django adapter authors PII on Django models and runs the same engine, resolving the subject graph from foreign keys.',
+        status: 'in-progress',
         ref: { kind: 'issue', number: 62 },
       },
       {

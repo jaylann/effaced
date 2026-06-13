@@ -29,6 +29,7 @@ from effaced.adapters.sqlalchemy import (
     load_lint_target,
     pii,
     resolve_subject_graph,
+    resolve_subject_graph_from_fk,
     subject_link,
 )
 from effaced.annotations import Correction, PiiSpec, RetentionPolicy, SubjectLink, SubjectRef
@@ -208,5 +209,6 @@ __all__ = [
     "pii",
     "registry_from_settings",
     "resolve_subject_graph",
+    "resolve_subject_graph_from_fk",
     "subject_link",
 ]
