@@ -1,0 +1,12 @@
+{
+  "name": "@effaced/ts-spike",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.5.2",
+  "description": "TypeScript spike root for the cross-language manifest wire-contract exploration (issue #62). Not published; not part of the uv workspace.",
+  "scripts": {
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint"
+  }
+}
