@@ -8,7 +8,6 @@ two-hop path resolved through foreign keys.
 
 from __future__ import annotations
 
-import django_test_setup  # noqa: F401  # configures Django before the models below are defined
 from django.db import models
 from django_test_setup import ensure_configured
 
