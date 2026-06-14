@@ -226,8 +226,8 @@ export const tiers: RoadmapTier[] = [
       },
       {
         name: 'Intercom resolver',
-        scope: 'User profiles and conversation history, built on Intercom’s own deletion endpoint.',
-        status: 'planned',
+        scope: 'Contact profile and conversation metadata, built on Intercom’s own deletion endpoint.',
+        status: 'shipped',
         ref: { kind: 'issue', number: 61 },
       },
       {
