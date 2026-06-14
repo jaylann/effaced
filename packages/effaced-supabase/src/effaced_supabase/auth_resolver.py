@@ -102,7 +102,7 @@ class SupabaseAuthResolver:
         response = await asyncio.to_thread(self._request, "GET", ref.value)
         if response.status_code == _NOT_FOUND:
             return ResolverExport(resolver=self.name)
-        raise_for_taxonomy(response, "export")
+        raise_for_taxonomy(response, "export", system="supabase auth")
         return ResolverExport(resolver=self.name, records=user_records(response.json()))
 
     async def erase_subject(self, ref: SubjectRef) -> ResolverErasure:
@@ -126,7 +126,7 @@ class SupabaseAuthResolver:
                 already_absent=True,
                 detail="user already absent in supabase auth",
             )
-        raise_for_taxonomy(response, "erasure")
+        raise_for_taxonomy(response, "erasure", system="supabase auth")
         return ResolverErasure(resolver=self.name, detail="user deleted in supabase auth")
 
     def _request(self, method: str, user_id: str) -> httpx.Response:
