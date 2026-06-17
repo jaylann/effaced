@@ -45,6 +45,7 @@ src = [
     "packages/effaced-resend/src",
     "packages/effaced-fastapi/src",
     "packages/effaced-django/src",
+    "packages/effaced-intercom/src",
 ]
 
 [tool.ruff.lint]
@@ -141,6 +142,7 @@ files = [
     "packages/effaced-resend/src",
     "packages/effaced-fastapi/src",
     "packages/effaced-django/src",
+    "packages/effaced-intercom/src",
     "scripts",
     "examples/fastapi-quickstart/app.py",
     "examples/fastapi-quickstart/models.py",
@@ -184,6 +186,7 @@ source = [
     "effaced_resend",
     "effaced_fastapi",
     "effaced_django",
+    "effaced_intercom",
 ]
 branch = true
 

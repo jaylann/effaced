@@ -14,6 +14,7 @@ members = [
     "effaced",
     "effaced-django",
     "effaced-fastapi",
+    "effaced-intercom",
     "effaced-resend",
     "effaced-s3",
     "effaced-stripe",
@@ -532,6 +533,21 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.116" },
     { name = "pydantic", specifier = ">=2.7" },
     { name = "sqlalchemy", specifier = ">=2.0" },
+]
+
+[[package]]
+name = "effaced-intercom"
+version = "0.0.0"
+source = { editable = "packages/effaced-intercom" }
+dependencies = [
+    { name = "effaced" },
+    { name = "httpx" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "effaced", editable = "packages/effaced" },
+    { name = "httpx", specifier = ">=0.27" },
 ]
 
 [[package]]
