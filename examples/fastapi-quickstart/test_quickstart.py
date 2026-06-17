@@ -27,7 +27,7 @@ def test_quickstart_imports_and_exposes_the_three_trigger_points(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     module = _fresh_import(monkeypatch)
-    paths = {getattr(route, "path", None) for route in module.app.routes}
+    paths = set(module.app.openapi()["paths"])
     assert {"/me/consent", "/me/export", "/me"} <= paths
 
 
