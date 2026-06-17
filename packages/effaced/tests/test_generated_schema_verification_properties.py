@@ -108,17 +108,27 @@ def _resurrected_row(schema: GeneratedSchema, table: str) -> dict[str, object]:
     """A fresh subject-1 row for a row-deleted table, mirroring the seeder.
 
     A row-deleted table is fully PII-owned but may carry annotated (all
-    ``DELETE``) NOT NULL columns, so the row needs its id, a parent pointer
-    back toward the subject (absent on the subject table itself), and a value
-    for every annotated column.
+    ``DELETE``) NOT NULL columns, plus the structural keys the subject graph
+    joins on: its own id (and composite ``id2``), a parent pointer back toward
+    the subject (with composite ``pid2`` when the parent's key is composite),
+    and nullable self-FK columns — without the composite halves the resurrected
+    row never links to subject 1 and the verifier can't see it.
     """
     columns = schema.metadata.tables[table].c
+    structural = {"id", "id2", "pid", "pid2", "self_id", "self_id2"}
     values: dict[str, object] = {"id": schema.row_id(table, 1, 99)}
+    if table in schema.composite_tables:
+        values["id2"] = 1
     if table in schema.parents:
-        values["pid"] = schema.row_id(schema.parents[table], 1, 0)
+        parent = schema.parents[table]
+        values["pid"] = schema.row_id(parent, 1, 0)
+        if parent in schema.composite_tables:
+            values["pid2"] = 1
     if "self_id" in columns:
         values["self_id"] = None
+    if "self_id2" in columns:
+        values["self_id2"] = None
     for column in columns:
-        if column.name not in {"id", "pid", "self_id"}:
+        if column.name not in structural:
             values[column.name] = f"resurrected:{table}.{column.name}"
     return values
