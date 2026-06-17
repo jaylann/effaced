@@ -15,7 +15,7 @@ dev = [
     # autogenerate-coexistence proofs for the owned tables (ADR 0021)
     "alembic>=1.13",
     # typed boto3 client + type_defs for effaced-s3 (boto3 ships no types)
-    "types-boto3[s3]>=1.35",
+    "types-boto3[s3]>=1.43.32",
     # the runnable FastAPI example + its tests (examples/fastapi-quickstart)
     "fastapi>=0.137.1",
     "httpx>=0.28",
