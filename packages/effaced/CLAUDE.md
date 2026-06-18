@@ -8,7 +8,7 @@ Storage-agnostic core. **No module outside `adapters/` may import SQLAlchemy or 
 |---|---|---|
 | `categories/` | `PiiCategory`, `LegalBasis`, `ErasureStrategy` enums | members are manifest format — removal/rename = MAJOR |
 | `annotations/` | `PiiSpec`, `RetentionPolicy`, `SubjectLink`, `SubjectRef` (frozen pydantic) | `RETAIN` requires a `RetentionPolicy` (validator) |
-| `manifest/` | `DataMap`, `TableEntry`, `ColumnEntry`, `migration.py` | format change ⇒ bump `MANIFEST_SCHEMA_VERSION` + migration branch; old payloads never rejected |
+| `manifest/` | `DataMap`, `TableEntry`, `ColumnEntry`, `migration.py` | derived or authored — the serialized payload is a supported authoring/import format, not only a snapshot (ADR 0024); format change ⇒ bump `MANIFEST_SCHEMA_VERSION` + migration branch; old payloads never rejected |
 | `manifest/resolution/` | `JoinHop`, `TableAccessPlan`, `SubjectGraph`, `fk_safe_deletion_order()` | pure data + stdlib graphlib, runtime-only (never serialized); incoherent graphs are unrepresentable |
 | `lint/` | `CompletenessFinding` (frozen pydantic; `column=None` ⇒ whole table unannotated), `ReachabilityFinding` (frozen pydantic; `table=None` ⇒ graph-level finding — no anchor or FK cycle) | findings are questions, not verdicts — never a compliance determination; storage-agnostic, linters live in adapters |
 | `cli/` | `main(argv)` — the `effaced lint <module:attr>` console script (argparse, stdlib only) | core (not adapters): imports public re-exports from `effaced.adapters.sqlalchemy`, NEVER `import sqlalchemy`; kept OUT of root `__all__` (entry point, not library API); exit 0 clean / 1 findings / 2 usage-or-load error; never prints "compliant" |

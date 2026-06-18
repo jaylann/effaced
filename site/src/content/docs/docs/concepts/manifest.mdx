@@ -1,17 +1,24 @@
 ---
 title: The manifest
-description: DataMap and the subject graph — the derived, versioned picture of where personal data lives, with forward migrations and no rejected history.
+description: DataMap and the subject graph — the versioned picture of where personal data lives (derived or authored), with forward migrations and no rejected history.
 ---
 
 The manifest is effaced's answer to "where is the personal data?": a
-complete, versioned `DataMap` of every annotated store. It is **derived,
-never authored** — adapters walk your models and build it from the
-[annotations](../annotations/) they find, so it cannot drift from the
+complete, versioned `DataMap` of every annotated store. It is **derived or
+authored**. The derived path has adapters walk your models and build it from
+the [annotations](../annotations/) they find, so it cannot drift from the
 schema the way a hand-maintained config file would:
 
 ```python
 data_map = collect_data_map(Base.metadata)
 ```
+
+The authored path loads a hand-written or externally-generated payload with
+`DataMap.from_payload(...)` — the serialized manifest is a supported
+authoring/import format, not only a derived snapshot. Both produce the same
+shape and drive the engines identically; an authored manifest reaches
+execution through `resolve_subject_graph_from_fk(data_map, metadata)` over a
+reflected or hand-built `MetaData`, no ORM registry required.
 
 ## Structure
 
