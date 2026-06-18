@@ -1,6 +1,8 @@
-"""EffacedStack.from_base wires every component correctly."""
+"""EffacedStack.from_base and from_manifest wire every component correctly."""
 
 from __future__ import annotations
+
+from typing import Any
 
 import pytest
 from conftest import Base, RecordingAuditSink, StatefulResolver, seed_two_subjects
@@ -16,7 +18,34 @@ from effaced import (
     OutboxStatus,
     ResolverRegistry,
     SubjectRef,
+    collect_data_map,
 )
+
+# Each conftest table's parent on the path to the subject, for rewriting the
+# manifest's relationship-name subject paths into the FK resolver's table-name
+# form (``order.user`` -> ``orders.users``).
+_PARENTS = {"invoices": "users", "orders": "users", "order_items": "orders", "comments": "users"}
+
+
+def _table_name_path(table: str, parents: dict[str, str]) -> str:
+    """The dotted table-name path from one table up to the subject table."""
+    segments: list[str] = []
+    name = table
+    while name in parents:
+        parent = parents[name]
+        segments.append(parent)
+        name = parent
+    return ".".join(segments)
+
+
+def _manifest_payload() -> dict[str, Any]:
+    """The conftest schema's manifest, with subject paths as target-table names."""
+    payload: dict[str, Any] = collect_data_map(Base.metadata).to_payload()
+    for entry in payload["tables"]:
+        link = entry["subject_link"]
+        if link is not None and link["path"]:
+            link["path"] = _table_name_path(entry["name"], _PARENTS)
+    return payload
 
 
 def _stack(engine: Engine, **kwargs: object) -> EffacedStack:
@@ -106,3 +135,80 @@ def test_from_base_executes_no_ddl() -> None:
     assert "effaced_outbox" in Base.metadata.tables  # mounted on the metadata...
     assert not inspect(empty_engine).has_table("effaced_outbox")  # ...but no DDL ran
     empty_engine.dispose()
+
+
+def _manifest_stack(engine: Engine, **kwargs: object) -> EffacedStack:
+    return EffacedStack.from_manifest(
+        sessionmaker(engine),
+        engine,
+        _manifest_payload(),
+        audit_sink=RecordingAuditSink(),
+        **kwargs,  # type: ignore[arg-type]  # kwargs forwarded verbatim in tests
+    )
+
+
+def test_from_manifest_wires_all_handles(sqlite_engine: Engine) -> None:
+    stack = _manifest_stack(sqlite_engine)
+    assert {entry.name for entry in stack.data_map.tables} >= {"users", "invoices"}
+    assert stack.tables.audit_events.name == "effaced_audit_events"
+    assert stack.registry.all() == ()
+
+
+def test_from_manifest_reflects_only_the_manifest_tables(sqlite_engine: Engine) -> None:
+    """Reflection is scoped to the manifest — unannotated tables stay out of the graph."""
+    stack = _manifest_stack(sqlite_engine)
+    reflected = set(stack.metadata.tables)
+    # app_settings and tags hold no PII and are absent from the manifest, so
+    # they are never reflected into the graph.
+    assert "app_settings" not in reflected
+    assert "tags" not in reflected
+    assert {"users", "invoices", "orders", "order_items", "comments"} <= reflected
+
+
+def test_from_manifest_engines_share_the_wiring(sqlite_engine: Engine) -> None:
+    """The handles are live: export and erase run end-to-end, audited."""
+    stack = _manifest_stack(sqlite_engine)
+    with stack.session_factory() as session:
+        seed_two_subjects(session)
+    with stack.session_factory.begin() as session:
+        bundle = stack.exporter.export_subject(session, "1")
+        assert any(record.value == "alice@example.com" for record in bundle.records)
+    with stack.session_factory.begin() as session:
+        result = stack.planner.erase_subject(session, "1")
+        assert result.anonymized.get("users") == 1
+    sink = stack.audit_sink
+    assert isinstance(sink, RecordingAuditSink)
+    event_types = {event.event_type for event in sink.events}
+    assert AuditEventType.EXPORT_COMPLETED in event_types
+    assert AuditEventType.ERASURE_LOCAL_COMPLETED in event_types
+
+
+def test_from_manifest_matches_from_base(sqlite_engine: Engine) -> None:
+    """The same schema yields identical erasure plans through either entry point."""
+    base_stack = _stack(sqlite_engine)
+    manifest_stack = _manifest_stack(sqlite_engine)
+    assert (
+        manifest_stack.planner.plan("1").model_dump() == base_stack.planner.plan("1").model_dump()
+    )
+
+
+def test_from_manifest_rejects_resolvers_and_registry_together(sqlite_engine: Engine) -> None:
+    with pytest.raises(ConfigurationError):
+        _manifest_stack(
+            sqlite_engine,
+            resolvers=(StatefulResolver("crm", set()),),
+            registry=ResolverRegistry(),
+        )
+
+
+def test_from_manifest_registers_resolvers(sqlite_engine: Engine) -> None:
+    resolver = StatefulResolver("crm", {"c-1"})
+    stack = _manifest_stack(sqlite_engine, resolvers=(resolver,))
+    assert stack.registry.get("crm") is resolver
+
+
+def test_from_manifest_default_audit_sink_is_database_backed(sqlite_engine: Engine) -> None:
+    stack = EffacedStack.from_manifest(
+        sessionmaker(sqlite_engine), sqlite_engine, _manifest_payload()
+    )
+    assert isinstance(stack.audit_sink, DatabaseAuditSink)
