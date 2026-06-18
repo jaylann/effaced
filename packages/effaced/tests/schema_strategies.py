@@ -23,9 +23,15 @@ foreign-key hops. Both the subject table and non-subject tables may carry a
 depth 4 within one subject. A composite table has an ``(id, id2)`` primary
 key and its children reference both columns through a
 ``ForeignKeyConstraint`` — exercising :class:`JoinHop` column tuples and the
-``scoping.grouped`` row-value tuples in every shared invariant. Composite
-*subject* keys are out of scope: :class:`SubjectGraph` carries a single
-``subject_id_column``.
+``scoping.grouped`` row-value tuples in every shared invariant.
+
+The subject table itself may be drawn with a composite ``(id, id2)``
+identity (``SubjectGraph.subject_id_columns`` of length two, ADR 0025): its
+children then reach it over both key columns and
+:meth:`GeneratedSchema.subject_identity` returns a
+:class:`~effaced.CompositeSubjectId`, so every shared invariant runs against
+the whole-ordered-key matching path. ``id2`` is seeded deterministically as
+the subject id, keeping the owner recoverable from ``id`` alone.
 
 Scope: generated schemas are local-database-only — no resolvers, refs, or
 outbox legs. Saga re-execution and external-failure semantics are proven
@@ -51,6 +57,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import registry, relationship
 
 from effaced import (
+    CompositeSubjectId,
     DataMap,
     ErasureStrategy,
     LegalBasis,
@@ -66,6 +73,8 @@ from effaced import (
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
+
+    from effaced import SubjectIdentifier
 
 SUBJECT_TABLE = "t0"
 """Name of the generated subject table; non-subject tables are ``t1``, ``t2``, …"""
@@ -116,6 +125,21 @@ class GeneratedSchema(NamedTuple):
     composite_tables: frozenset[str]
     """Tables with a composite ``(id, id2)`` primary key — their children
     join on both columns, exercising composite ``JoinHop`` pairs."""
+    composite_subject: bool
+    """Whether the subject table carries a composite ``(id, id2)`` identity
+    (``SubjectGraph.subject_id_columns`` of length two, ADR 0025)."""
+
+    def subject_identity(self, subject_id: int) -> SubjectIdentifier:
+        """The identifier to hand the engines for one seeded subject.
+
+        A single-column schema uses the bare ``str`` id (byte-identical to
+        the pre-composite suite); a composite-subject schema returns a
+        :class:`~effaced.CompositeSubjectId` whose second component is the
+        deterministically seeded ``id2`` (also the subject id).
+        """
+        if not self.composite_subject:
+            return str(subject_id)
+        return CompositeSubjectId(values=(str(subject_id), str(subject_id)))
 
     @property
     def pii_columns(self) -> dict[str, dict[str, PiiSpec]]:
@@ -209,9 +233,13 @@ def annotated_schemas(
     # carries a null self_id, exercising the self-referential hop chain on
     # the subject table itself without changing its one-row-per-subject seed.
     with_self_fk = {name for name in names if draw(st.booleans())}
-    # Composite (id, id2) primary keys only on non-subject tables: the
-    # subject identity stays a single column (SubjectGraph.subject_id_column).
+    # Composite (id, id2) primary keys on non-subject tables, and — when
+    # drawn — on the subject table itself, giving it a composite identity
+    # (SubjectGraph.subject_id_columns of length two, ADR 0025).
+    composite_subject = draw(st.booleans())
     composite = {name for name in names[1:] if draw(st.booleans())}
+    if composite_subject:
+        composite.add(SUBJECT_TABLE)
     rows = {name: _row_count(draw, name, has_children, with_self_fk) for name in names}
     metadata = MetaData()
     for name in names:
@@ -239,6 +267,7 @@ def annotated_schemas(
         parents=parents,
         row_deleted_tables=row_deleted,
         composite_tables=frozenset(composite),
+        composite_subject=composite_subject,
     )
 
 
@@ -320,7 +349,22 @@ def _build_table(
         composite=shape.composite,
         parent_composite=parent_composite,
     )
-    return Table(name, metadata, *columns, *constraints, info=subject_link(_path(name, parents)))
+    link = _subject_link_info(name, parents, composite_subject=shape.composite)
+    return Table(name, metadata, *columns, *constraints, info=link)
+
+
+def _subject_link_info(
+    name: str, parents: dict[str, str], *, composite_subject: bool
+) -> dict[str, object]:
+    """The ``subject_link`` info dict for one table.
+
+    The subject table declares its identity columns — ``("id", "id2")`` when
+    drawn composite (ADR 0025), the default single ``id`` otherwise; non-
+    subject tables name their dotted path.
+    """
+    if name == SUBJECT_TABLE and composite_subject:
+        return subject_link("", subject_id_columns=("id", "id2"))
+    return subject_link(_path(name, parents))
 
 
 def _parent_fk_columns(

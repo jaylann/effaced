@@ -22,7 +22,7 @@ from effaced.manifest.resolution import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping
+    from collections.abc import Container, Iterable, Mapping
 
     from sqlalchemy import MetaData
     from sqlalchemy.orm import RelationshipProperty, registry
@@ -53,21 +53,18 @@ def resolve_subject_graph(data_map: DataMap, orm_registry: registry) -> SubjectG
             ``subject_link("")``, a table holds personal data without a
             subject link, a table is not ORM-mapped, a path segment is not
             a relationship, a path joins through a many-to-many secondary
-            table, a path does not end at the subject table, the declared
-            subject id column does not exist or is declared on a
-            non-subject table, or the foreign keys between resolved
-            tables form a cycle.
+            table, a path does not end at the subject table, a declared
+            subject id column does not exist or the subject-id columns are
+            declared on a non-subject table, or the foreign keys between
+            resolved tables form a cycle.
     """
     subject = _find_subject(data_map)
     mappers = _mappers_by_table(orm_registry)
     subject_mapper = _mapper_for(subject, mappers)
-    subject_id_column = subject.subject_link.subject_id_column  # type: ignore[union-attr]  # _find_subject only returns entries that carry a subject_link
-    if subject_id_column not in subject_mapper.local_table.columns:
-        msg = (
-            f"subject table {subject.name!r} has no column "
-            f"{subject_id_column!r} (declared subject_id_column)"
-        )
-        raise SubjectResolutionError(msg)
+    subject_id_columns = subject.subject_link.subject_id_columns  # type: ignore[union-attr]  # _find_subject only returns entries that carry a subject_link
+    _require_subject_columns(
+        subject.name, subject_id_columns, set(subject_mapper.local_table.columns.keys())
+    )
     plans = {
         entry.name: TableAccessPlan(
             table=entry.name,
@@ -79,9 +76,32 @@ def resolve_subject_graph(data_map: DataMap, orm_registry: registry) -> SubjectG
     order = fk_safe_deletion_order(tuple(plans), _fk_edges(orm_registry.metadata, frozenset(plans)))
     return SubjectGraph(
         subject_table=subject.name,
-        subject_id_column=subject_id_column,
+        subject_id_columns=subject_id_columns,
         accesses=tuple(plans[name] for name in order),
     )
+
+
+def _require_subject_columns(
+    subject_name: str,
+    subject_id_columns: tuple[str, ...],
+    columns: Container[str],
+) -> None:
+    """Every declared subject-id column must exist on the subject table.
+
+    effaced matches the whole ordered key; a column missing from the
+    subject table would silently drop a key element and scope on a partial
+    identity, so every one is checked (ADR 0025).
+
+    Raises:
+        SubjectResolutionError: If any declared column is absent.
+    """
+    missing = [name for name in subject_id_columns if name not in columns]
+    if missing:
+        msg = (
+            f"subject table {subject_name!r} has no column(s) {missing!r} "
+            f"(declared subject_id_columns)"
+        )
+        raise SubjectResolutionError(msg)
 
 
 def _find_subject(data_map: DataMap) -> TableEntry:
@@ -164,11 +184,12 @@ def _resolve_path(
             f"subject_link; declare how its rows reach the subject"
         )
         raise SubjectResolutionError(msg)
-    if not link.is_subject_table and link.subject_id_column != "id":
+    if not link.is_subject_table and link.subject_id_columns != ("id",):
         msg = (
-            f"table {entry.name!r}: subject_id_column "
-            f"{link.subject_id_column!r} is only meaningful on the subject "
-            f'table itself (subject_link("")); it would be silently ignored here'
+            f"table {entry.name!r}: subject_id_columns "
+            f"{list(link.subject_id_columns)!r} are only meaningful on the "
+            f'subject table itself (subject_link("")); they would be silently '
+            f"ignored here"
         )
         raise SubjectResolutionError(msg)
     mapper = _mapper_for(entry, mappers)
@@ -277,7 +298,7 @@ def resolve_subject_graph_from_fk(data_map: DataMap, metadata: MetaData) -> Subj
     Raises:
         SubjectResolutionError: If no (or more than one) table declares
             ``subject_link("")``, a table holds personal data without a
-            subject link, a table is absent from the metadata, the declared
+            subject link, a table is absent from the metadata, a declared
             subject id column does not exist, a path segment names a table
             not in the metadata, the current table has no single foreign key
             to the next path segment (none, or an ambiguous several), a path
@@ -286,13 +307,8 @@ def resolve_subject_graph_from_fk(data_map: DataMap, metadata: MetaData) -> Subj
     """
     subject = _find_subject(data_map)
     subject_table = _table_for(subject.name, metadata)
-    subject_id_column = subject.subject_link.subject_id_column  # type: ignore[union-attr]  # _find_subject only returns entries that carry a subject_link
-    if subject_id_column not in subject_table.columns:
-        msg = (
-            f"subject table {subject.name!r} has no column "
-            f"{subject_id_column!r} (declared subject_id_column)"
-        )
-        raise SubjectResolutionError(msg)
+    subject_id_columns = subject.subject_link.subject_id_columns  # type: ignore[union-attr]  # _find_subject only returns entries that carry a subject_link
+    _require_subject_columns(subject.name, subject_id_columns, set(subject_table.columns.keys()))
     plans = {
         entry.name: TableAccessPlan(
             table=entry.name,
@@ -304,7 +320,7 @@ def resolve_subject_graph_from_fk(data_map: DataMap, metadata: MetaData) -> Subj
     order = fk_safe_deletion_order(tuple(plans), _fk_edges(metadata, frozenset(plans)))
     return SubjectGraph(
         subject_table=subject.name,
-        subject_id_column=subject_id_column,
+        subject_id_columns=subject_id_columns,
         accesses=tuple(plans[name] for name in order),
     )
 
@@ -352,11 +368,12 @@ def _resolve_path_fk(
             f"subject_link; declare how its rows reach the subject"
         )
         raise SubjectResolutionError(msg)
-    if not link.is_subject_table and link.subject_id_column != "id":
+    if not link.is_subject_table and link.subject_id_columns != ("id",):
         msg = (
-            f"table {entry.name!r}: subject_id_column "
-            f"{link.subject_id_column!r} is only meaningful on the subject "
-            f'table itself (subject_link("")); it would be silently ignored here'
+            f"table {entry.name!r}: subject_id_columns "
+            f"{list(link.subject_id_columns)!r} are only meaningful on the "
+            f'subject table itself (subject_link("")); they would be silently '
+            f"ignored here"
         )
         raise SubjectResolutionError(msg)
     current = _table_for(entry.name, metadata)

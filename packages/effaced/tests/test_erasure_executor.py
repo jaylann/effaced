@@ -169,7 +169,7 @@ def composite() -> Iterator[HandBuilt]:
     )
     graph = SubjectGraph(
         subject_table="tenants",
-        subject_id_column="number",
+        subject_id_columns=("number",),
         accesses=(
             TableAccessPlan(
                 table="devices",
@@ -222,7 +222,7 @@ def notes() -> Iterator[HandBuilt]:
     )
     graph = SubjectGraph(
         subject_table="people",
-        subject_id_column="id",
+        subject_id_columns=("id",),
         accesses=(
             TableAccessPlan(
                 table="notes",
@@ -265,7 +265,7 @@ def keyless() -> Iterator[HandBuilt]:
     Table("scratch", metadata, Column("person_id", Integer), Column("blob", String(64)))
     graph = SubjectGraph(
         subject_table="people",
-        subject_id_column="id",
+        subject_id_columns=("id",),
         accesses=(
             TableAccessPlan(
                 table="scratch",

@@ -6,6 +6,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from effaced.annotations.subject_identifier import ValidatedSubjectId
+
 
 class ErasureVerification(BaseModel):
     """The verdict of reading the annotated surface back after an erasure.
@@ -33,7 +35,9 @@ class ErasureVerification(BaseModel):
     and retain tables keep rows by design — and never flips ``verified``.
 
     Attributes:
-        subject_id: The subject whose surface was read back.
+        subject_id: The subject whose surface was read back — echoed back
+            from the call (single-column ``str`` or composite
+            :class:`~effaced.CompositeSubjectId`).
         verified_at: When the read-back ran (UTC).
         verified: ``True`` iff every row-deleted table is empty for this
             subject (``residual`` is all zero).
@@ -47,7 +51,7 @@ class ErasureVerification(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    subject_id: str = Field(min_length=1)
+    subject_id: ValidatedSubjectId
     verified_at: datetime
     verified: bool
     residual: dict[str, int] = Field(default_factory=dict)

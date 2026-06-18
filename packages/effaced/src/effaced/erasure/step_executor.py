@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
+    from effaced.annotations import SubjectIdentifier
     from effaced.erasure.plan import ErasureStep
     from effaced.manifest import SubjectGraph
 
@@ -27,7 +28,7 @@ class StepExecutor(Protocol):
         session: Session,
         graph: SubjectGraph,
         step: ErasureStep,
-        subject_id: str,
+        subject_id: SubjectIdentifier,
     ) -> int:
         """Run one local step scoped to one subject.
 
@@ -41,7 +42,8 @@ class StepExecutor(Protocol):
             session: The caller's open session.
             graph: Resolved hop chains from each table to the subject.
             step: The local step to run.
-            subject_id: Identifier on the subject table.
+            subject_id: The subject identifier (single-column ``str`` or
+                composite :class:`~effaced.CompositeSubjectId`).
 
         Returns:
             The number of rows the step covered (deleted, anonymized, or

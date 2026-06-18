@@ -21,7 +21,7 @@ class SubjectGraph(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     subject_table: str = Field(min_length=1)
-    subject_id_column: str = Field(min_length=1)
+    subject_id_columns: tuple[str, ...] = Field(min_length=1)
     accesses: tuple[TableAccessPlan, ...] = Field(min_length=1)
 
     @model_validator(mode="after")

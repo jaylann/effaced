@@ -13,6 +13,7 @@ if TYPE_CHECKING:
     from sqlalchemy import MetaData
     from sqlalchemy.orm import Session
 
+    from effaced.annotations import SubjectIdentifier
     from effaced.manifest import SubjectGraph
     from effaced.rectification.step import RectificationStep
 
@@ -49,7 +50,7 @@ class RectificationExecutor:
         session: Session,
         graph: SubjectGraph,
         step: RectificationStep,
-        subject_id: str,
+        subject_id: SubjectIdentifier,
         value: str | int | float | bool,
     ) -> int:
         """Run one local step scoped to one subject.
@@ -58,8 +59,10 @@ class RectificationExecutor:
             session: The caller's open session; never committed here.
             graph: Resolved hop chains from each table to the subject.
             step: The value-free local step to run.
-            subject_id: Identifier on the subject table, coerced to the
-                subject column's python type for typed-parameter drivers.
+            subject_id: The subject identifier — a single-column ``str`` or a
+                composite :class:`~effaced.CompositeSubjectId`; each
+                component is coerced to its subject column's python type for
+                typed-parameter drivers.
             value: The corrected value, written into every step column.
 
         Returns:

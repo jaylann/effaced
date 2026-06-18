@@ -27,7 +27,7 @@ def export_bundle(schema: GeneratedSchema, subject_id: int) -> ExportBundle:
         session.commit()
     exporter = Exporter(schema.data_map, schema.graph, schema.metadata, RecordingAuditSink())
     with session_factory() as session:
-        bundle = exporter.export_subject(session, str(subject_id))
+        bundle = exporter.export_subject(session, schema.subject_identity(subject_id))
     engine.dispose()
     return bundle
 

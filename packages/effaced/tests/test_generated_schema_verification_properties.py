@@ -65,10 +65,10 @@ def test_erase_then_verify_is_verified_on_any_schema(schema: GeneratedSchema) ->
     world = build_world(schema)
     seed_two_subjects(world, schema)
     with world.session_factory() as session:
-        world.planner.erase_subject(session, "1")
+        world.planner.erase_subject(session, schema.subject_identity(1))
         session.commit()
     with world.session_factory() as session:
-        verification = world.verifier.verify_subject_erased(session, "1")
+        verification = world.verifier.verify_subject_erased(session, schema.subject_identity(1))
     assert verification.verified is True
     assert set(verification.residual) == schema.row_deleted_tables
     assert all(count == 0 for count in verification.residual.values())
@@ -89,7 +89,7 @@ def test_resurrecting_a_row_deleted_row_flips_verified(schema: GeneratedSchema) 
         return
     seed_two_subjects(world, schema)
     with world.session_factory() as session:
-        world.planner.erase_subject(session, "1")
+        world.planner.erase_subject(session, schema.subject_identity(1))
         session.commit()
     target = min(schema.row_deleted_tables)
     with world.session_factory() as session:
@@ -98,7 +98,7 @@ def test_resurrecting_a_row_deleted_row_flips_verified(schema: GeneratedSchema) 
         )
         session.commit()
     with world.session_factory() as session:
-        verification = world.verifier.verify_subject_erased(session, "1")
+        verification = world.verifier.verify_subject_erased(session, schema.subject_identity(1))
     assert verification.verified is False
     assert verification.residual[target] >= 1
     world.engine.dispose()

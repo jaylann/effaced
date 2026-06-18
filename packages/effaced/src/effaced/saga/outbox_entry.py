@@ -8,6 +8,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from effaced.annotations import Correction, SubjectRef
+from effaced.annotations.subject_identifier import StoredSubjectId
 from effaced.saga.outbox_operation import OutboxOperation
 from effaced.saga.outbox_status import OutboxStatus
 
@@ -50,7 +51,7 @@ class OutboxEntry(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     entry_id: UUID
-    subject_id: str = Field(min_length=1, max_length=255)
+    subject_id: StoredSubjectId
     resolver: str = Field(min_length=1, max_length=255)
     ref: SubjectRef
     operation: OutboxOperation = OutboxOperation.ERASE

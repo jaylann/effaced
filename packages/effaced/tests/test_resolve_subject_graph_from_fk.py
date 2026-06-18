@@ -63,7 +63,7 @@ def test_resolves_chain_with_fk_safe_order() -> None:
     metadata = _three_level_metadata()
     graph = resolve_subject_graph_from_fk(collect_data_map(metadata), metadata)
     assert graph.subject_table == "users"
-    assert graph.subject_id_column == "id"
+    assert graph.subject_id_columns == ("id",)
     # children before parents, subject last
     assert graph.deletion_order == ("comments", "posts", "users")
 
@@ -180,7 +180,7 @@ def test_parity_with_orm_resolver() -> None:
 
     posts = Post.__tablename__
     assert fk_graph.subject_table == orm_graph.subject_table
-    assert fk_graph.subject_id_column == orm_graph.subject_id_column
+    assert fk_graph.subject_id_columns == orm_graph.subject_id_columns
     assert fk_graph.deletion_order == orm_graph.deletion_order
     assert fk_graph.access(posts).hops == orm_graph.access(posts).hops
     assert fk_graph.access(posts).fully_pii_owned == orm_graph.access(posts).fully_pii_owned

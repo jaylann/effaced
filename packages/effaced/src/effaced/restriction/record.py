@@ -6,6 +6,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from effaced.annotations.subject_identifier import StoredSubjectId
+
 
 class RestrictionRecord(BaseModel):
     """One restriction placement or lift (Art. 18), as it happened.
@@ -21,7 +23,9 @@ class RestrictionRecord(BaseModel):
     record touches only that purpose.
 
     Attributes:
-        subject_id: Whose restriction this is.
+        subject_id: Whose restriction this is — a single-column ``str`` or a
+            composite :class:`~effaced.CompositeSubjectId`, stored as its
+            canonical string (ADR 0025).
         purpose: The processing purpose restricted (e.g. ``"ads"``);
             ``None`` means all processing.
         restricted: ``True`` places a restriction, ``False`` lifts one.
@@ -33,7 +37,7 @@ class RestrictionRecord(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    subject_id: str = Field(min_length=1, max_length=255)
+    subject_id: StoredSubjectId
     purpose: str | None = Field(default=None, min_length=1, max_length=255)
     restricted: bool
     reason: str | None = Field(default=None, max_length=255)

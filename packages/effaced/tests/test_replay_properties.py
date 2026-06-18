@@ -24,6 +24,7 @@ from effaced import (
     Replayer,
     ReplayPlan,
     bind_tables,
+    canonical_subject_id,
 )
 from effaced.adapters.sqlalchemy import ErasureExecutor
 
@@ -177,14 +178,18 @@ def test_replay_on_any_schema_restores_the_post_erasure_state(
     seed_both(world, schema)
     backup_taken_at = datetime.now(UTC)
     with world.session_factory() as session:
-        world.planner.erase_subject(session, "1")
+        world.planner.erase_subject(session, schema.subject_identity(1))
         session.commit()
     with world.session_factory() as session:
         erased_shape = state_shape(session, schema)
     surviving_trail = tuple(world.sink.events)
     restore_backup(world, schema)
     plan = world.replayer.plan(surviving_trail, backup_taken_at=backup_taken_at)
-    assert [entry.subject_id for entry in plan.entries] == ["1"]
+    # The trail holds the canonical subject reference; the replay re-feeds it
+    # to erase_subject, which re-decomposes a composite key (ADR 0025).
+    assert [entry.subject_id for entry in plan.entries] == [
+        canonical_subject_id(schema.subject_identity(1))
+    ]
     with world.session_factory() as session:
         (first,) = world.replayer.replay(session, plan)
         session.commit()

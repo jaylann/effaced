@@ -5,6 +5,7 @@ from __future__ import annotations
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from effaced.annotations import SubjectRef
+from effaced.annotations.subject_identifier import ValidatedSubjectId
 from effaced.categories import ErasureStrategy
 
 
@@ -59,7 +60,9 @@ class ErasurePlan(BaseModel):
     erasure will touch *before* anything happens.
 
     Attributes:
-        subject_id: The subject being erased.
+        subject_id: The subject being erased — a single-column ``str`` or a
+            composite :class:`~effaced.CompositeSubjectId`, echoed back from
+            the call.
         steps: All steps in execution order (local first, then external).
         refs: The external-system references the erasure will hand to
             resolvers — recorded for inspectability; the executor matches
@@ -68,7 +71,7 @@ class ErasurePlan(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    subject_id: str = Field(min_length=1)
+    subject_id: ValidatedSubjectId
     steps: tuple[ErasureStep, ...] = ()
     refs: tuple[SubjectRef, ...] = ()
 

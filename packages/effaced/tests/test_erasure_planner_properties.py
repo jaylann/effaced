@@ -95,7 +95,9 @@ def planner_inputs(draw: st.DrawFn) -> tuple[DataMap, SubjectGraph]:
             TableAccessPlan(table=name, hops=chains[name], fully_pii_owned=draw(st.booleans()))
         )
     accesses.sort(key=lambda access: len(access.hops), reverse=True)
-    graph = SubjectGraph(subject_table=subject, subject_id_column="id", accesses=tuple(accesses))
+    graph = SubjectGraph(
+        subject_table=subject, subject_id_columns=("id",), accesses=tuple(accesses)
+    )
     return DataMap(tables=tuple(entries)), graph
 
 

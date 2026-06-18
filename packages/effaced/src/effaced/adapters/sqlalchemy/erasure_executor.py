@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from sqlalchemy import Column, MetaData, Table
     from sqlalchemy.orm import Session
 
+    from effaced.annotations import SubjectIdentifier
     from effaced.erasure.plan import ErasureStep
     from effaced.manifest import SubjectGraph
 
@@ -56,7 +57,7 @@ class ErasureExecutor:
         session: Session,
         graph: SubjectGraph,
         step: ErasureStep,
-        subject_id: str,
+        subject_id: SubjectIdentifier,
     ) -> int:
         """Run one local step scoped to one subject (see :class:`StepExecutor`).
 
@@ -64,8 +65,10 @@ class ErasureExecutor:
             session: The caller's open session; never committed here.
             graph: Resolved hop chains from each table to the subject.
             step: The local step to run.
-            subject_id: Identifier on the subject table, coerced to the
-                subject column's python type for typed-parameter drivers.
+            subject_id: The subject identifier — a single-column ``str`` or a
+                composite :class:`~effaced.CompositeSubjectId`; each
+                component is coerced to its subject column's python type for
+                typed-parameter drivers.
 
         Returns:
             The number of rows deleted, anonymized, or counted as retained.

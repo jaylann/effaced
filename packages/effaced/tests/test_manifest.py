@@ -95,7 +95,7 @@ def test_migrate_writes_anchor_into_each_v1_retention_dict() -> None:
         ],
     }
     migrated = migrate(payload)
-    assert migrated["schema_version"] == 2
+    assert migrated["schema_version"] == MANIFEST_SCHEMA_VERSION  # lifted all the way forward
     amount_retention = migrated["tables"][0]["columns"][0]["spec"]["retention"]
     assert "anchor" in amount_retention  # the key is added, not merely defaulted on read
     assert amount_retention["anchor"] is None
@@ -109,17 +109,17 @@ def test_migrate_tolerates_a_sparse_v1_payload() -> None:
 
     A v1 manifest may legitimately omit ``tables`` entirely, hold a table
     with no ``columns``, or a column with no ``spec``. The migration must
-    treat each missing level as empty and still bump ``schema_version`` —
-    pinning the ``.get(..., ())`` / ``.get(..., {})`` defaults against a
-    payload that actually exercises them.
+    treat each missing level as empty and still lift ``schema_version`` to
+    the current version — pinning the ``.get(..., ())`` / ``.get(..., {})``
+    defaults against a payload that actually exercises them.
     """
-    assert migrate({"schema_version": 1}) == {"schema_version": 2}
+    assert migrate({"schema_version": 1}) == {"schema_version": MANIFEST_SCHEMA_VERSION}
     assert migrate({"schema_version": 1, "tables": [{"name": "t"}]}) == {
-        "schema_version": 2,
+        "schema_version": MANIFEST_SCHEMA_VERSION,
         "tables": [{"name": "t"}],
     }
     spec_less = {"schema_version": 1, "tables": [{"name": "t", "columns": [{"name": "c"}]}]}
-    assert migrate(spec_less)["schema_version"] == 2
+    assert migrate(spec_less)["schema_version"] == MANIFEST_SCHEMA_VERSION
 
 
 def test_migrate_preserves_an_existing_v1_anchor() -> None:
@@ -140,6 +140,47 @@ def test_migrate_preserves_an_existing_v1_anchor() -> None:
     }
     migrated = migrate(payload)
     assert migrated["tables"][0]["columns"][0]["spec"]["retention"]["anchor"] == "created"
+
+
+def test_migrate_lifts_v2_subject_id_column_into_subject_id_columns() -> None:
+    """A v2 manifest's singular ``subject_id_column`` becomes the v3 tuple.
+
+    ADR 0025: the v2→v3 branch lifts each ``tables[].subject_link.
+    subject_id_column`` (a ``str``) into ``subject_id_columns`` (a one-element
+    list); a link without the singular key (default ``id``) is untouched.
+    The whole payload loads as a current :class:`~effaced.DataMap`.
+    """
+    payload = {
+        "schema_version": 2,
+        "tables": [
+            {"name": "users", "subject_link": {"path": "", "subject_id_column": "uuid"}},
+            {"name": "invoices", "subject_link": {"path": "user"}},
+        ],
+    }
+    migrated = migrate(payload)
+    assert migrated["schema_version"] == MANIFEST_SCHEMA_VERSION
+    users_link = migrated["tables"][0]["subject_link"]
+    assert "subject_id_column" not in users_link  # the singular key is removed
+    assert users_link["subject_id_columns"] == ["uuid"]
+    # A link that never carried the singular key keeps the model default.
+    assert "subject_id_column" not in migrated["tables"][1]["subject_link"]
+    loaded = DataMap.from_payload(payload)
+    assert loaded.tables[0].subject_link is not None
+    assert loaded.tables[0].subject_link.subject_id_columns == ("uuid",)
+    assert loaded.tables[1].subject_link is not None
+    assert loaded.tables[1].subject_link.subject_id_columns == ("id",)
+
+
+def test_migrate_lifts_an_old_v1_manifest_all_the_way_to_v3() -> None:
+    """A v1 manifest migrates 1→2→3 and is never rejected (ADR 0003/0025)."""
+    payload = {
+        "schema_version": 1,
+        "tables": [{"name": "users", "subject_link": {"path": "", "subject_id_column": "id"}}],
+    }
+    loaded = DataMap.from_payload(payload)
+    assert loaded.schema_version == MANIFEST_SCHEMA_VERSION
+    assert loaded.tables[0].subject_link is not None
+    assert loaded.tables[0].subject_link.subject_id_columns == ("id",)
 
 
 def test_future_schema_version_is_rejected_loudly(metadata: MetaData) -> None:

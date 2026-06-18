@@ -63,7 +63,7 @@ def pii(
     )
 
 
-def subject_link(path: str, *, subject_id_column: str = "id") -> SubjectLink:
+def subject_link(path: str, *, subject_id_columns: tuple[str, ...] | str = "id") -> SubjectLink:
     """Declare how a Django model reaches the data subject.
 
     Pass the result to :func:`~effaced_django.effaced_model`. The subject
@@ -77,9 +77,12 @@ def subject_link(path: str, *, subject_id_column: str = "id") -> SubjectLink:
 
     Args:
         path: Dotted chain of target table names to the subject table.
-        subject_id_column: Identifier column on the subject table.
+        subject_id_columns: Ordered identifier column(s) on the subject
+            table. A bare ``str`` is the single-column case (the default);
+            a tuple declares a composite subject key (ADR 0025).
 
     Returns:
         The :class:`~effaced.SubjectLink`.
     """
-    return SubjectLink(path=path, subject_id_column=subject_id_column)
+    columns = (subject_id_columns,) if isinstance(subject_id_columns, str) else subject_id_columns
+    return SubjectLink(path=path, subject_id_columns=columns)

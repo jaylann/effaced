@@ -7,20 +7,24 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
+from effaced.adapters.sqlalchemy.scoping import (
+    coerce_subject_values,
+    subject_scope,
+    subject_values,
+)
+from effaced.annotations import canonical_subject_id
 from effaced.audit.event import AuditEvent
 from effaced.audit.event_type import AuditEventType
-from effaced.exceptions import ManifestError, ResolverError, SubjectResolutionError
+from effaced.exceptions import ManifestError, ResolverError
 from effaced.export.bundle import ExportBundle, ExportRecord
 
 if TYPE_CHECKING:
-    from sqlalchemy import Column, MetaData, Select
+    from sqlalchemy import MetaData, Select
     from sqlalchemy.orm import Session
-    from sqlalchemy.sql.elements import ColumnElement
-    from sqlalchemy.sql.expression import FromClause
 
-    from effaced.annotations import SubjectRef
+    from effaced.annotations import SubjectIdentifier, SubjectRef
     from effaced.audit.sink import AuditSink
-    from effaced.manifest import DataMap, SubjectGraph, TableAccessPlan, TableEntry
+    from effaced.manifest import DataMap, SubjectGraph, TableEntry
     from effaced.resolvers import Resolver, ResolverExport, ResolverRegistry
 
 
@@ -69,7 +73,7 @@ class Exporter:
     def export_subject(
         self,
         session: Session,
-        subject_id: str,
+        subject_id: SubjectIdentifier,
         *,
         refs: tuple[SubjectRef, ...] = (),
     ) -> ExportBundle:
@@ -95,8 +99,12 @@ class Exporter:
 
         Args:
             session: An open database session; reads only, never writes.
-            subject_id: Identifier on the subject table (see
-                :class:`~effaced.annotations.SubjectLink`).
+            subject_id: The subject identifier — a single-column ``str`` or
+                a composite :class:`~effaced.CompositeSubjectId` aligned to
+                the subject's
+                :attr:`~effaced.SubjectLink.subject_id_columns`. It is
+                stored in the audit trail as its canonical string and echoed
+                back unchanged on the bundle.
             refs: External-system references for resolver fan-out.
 
         Returns:
@@ -104,24 +112,30 @@ class Exporter:
             legal bases, retention reasons).
 
         Raises:
-            SubjectResolutionError: If ``subject_id`` cannot be coerced to
-                the subject id column's type.
+            SubjectResolutionError: If ``subject_id``'s arity disagrees with
+                the declared subject-id columns, or a component cannot be
+                coerced to its column's type.
             ResolverError: If a ref's ``kind`` matches no registered
                 resolver — a typo must not silently drop an external
                 source from the answer.
         """
-        subject_column = self._metadata.tables[self._graph.subject_table].c[
-            self._graph.subject_id_column
-        ]
-        coerced_id = _coerce_subject_id(subject_column, subject_id)
+        ref = canonical_subject_id(subject_id)
+        # Validate the identifier (arity + per-component coercion) before the
+        # request is recorded: a malformed call never became a request.
+        subject_table = self._metadata.tables[self._graph.subject_table]
+        columns = self._graph.subject_id_columns
+        coerce_subject_values(
+            (subject_table.c[name] for name in columns),
+            subject_values(columns, subject_id),
+        )
         resolvers = self._registry.all() if self._registry is not None else ()
         jobs = _match_refs(resolvers, refs)
         self._append_event(
             AuditEventType.EXPORT_REQUESTED,
-            subject_id,
+            ref,
             {"ref_count": len(refs), "resolver_count": len(resolvers)},
         )
-        local = _local_records(session, self._data_map, self._graph, self._metadata, coerced_id)
+        local = _local_records(session, self._data_map, self._graph, self._metadata, subject_id)
         external, incomplete = _collect_external(jobs)
         matched = {resolver.name for resolver, _ in jobs}
         skipped = tuple(resolver.name for resolver in resolvers if resolver.name not in matched)
@@ -133,7 +147,7 @@ class Exporter:
         )
         self._append_event(
             AuditEventType.EXPORT_COMPLETED,
-            subject_id,
+            ref,
             {
                 "record_count": len(bundle.records),
                 "incomplete_source_count": len(incomplete),
@@ -178,44 +192,19 @@ def _check_agreement(data_map: DataMap, graph: SubjectGraph, metadata: MetaData)
         raise ManifestError(msg)
 
 
-def _coerce_subject_id(column: Column[Any], subject_id: str) -> object:
-    """Coerce the string subject id to the subject id column's type.
-
-    SQLite compares ``users.id = '42'`` happily; stricter dialects
-    (Postgres) refuse to compare an integer column with a text parameter,
-    so the comparison value must carry the column's Python type.
-    """
-    try:
-        python_type = column.type.python_type
-    except NotImplementedError:
-        # The type is one effaced cannot interpret (e.g. a UserDefinedType);
-        # pass the string through and let the dialect be the authority.
-        return subject_id
-    if python_type is str:
-        return subject_id
-    try:
-        return python_type(subject_id)
-    except (TypeError, ValueError) as exc:
-        msg = (
-            f"subject id {subject_id!r} cannot be interpreted as the subject "
-            f"column's type ({python_type.__name__})"
-        )
-        raise SubjectResolutionError(msg) from exc
-
-
 def _local_records(
     session: Session,
     data_map: DataMap,
     graph: SubjectGraph,
     metadata: MetaData,
-    coerced_id: object,
+    subject_id: SubjectIdentifier,
 ) -> tuple[ExportRecord, ...]:
     """Collect every annotated value reachable from the subject."""
     records: list[ExportRecord] = []
     for entry in data_map.tables:
         if not entry.columns:
             continue
-        statement = _statement_for(entry, graph.access(entry.name), graph, metadata, coerced_id)
+        statement = _statement_for(entry, graph, metadata, subject_id)
         for row in session.execute(statement).mappings():
             records.extend(_row_records(entry, dict(row)))
     return tuple(records)
@@ -223,39 +212,21 @@ def _local_records(
 
 def _statement_for(
     entry: TableEntry,
-    plan: TableAccessPlan,
     graph: SubjectGraph,
     metadata: MetaData,
-    coerced_id: object,
+    subject_id: SubjectIdentifier,
 ) -> Select[Any]:
     """One SELECT of the entry's annotated columns for one subject.
 
-    Linked tables filter through a single EXISTS whose inner select walks
-    the hop chain over a fresh alias per hop target — aliasing keeps
-    self-referential hops unambiguous.
+    The rows-belong-to-this-subject filter is the shared
+    :func:`~effaced.adapters.sqlalchemy.scoping.subject_scope` predicate —
+    the same composite-key-aware hop-chain matching the erasure executor and
+    verifier use, never a fork (ADR 0025).
     """
     table = metadata.tables[entry.name]
     selected = tuple(table.c[column.name] for column in entry.columns)
-    if plan.is_subject_table:
-        return (
-            table.select()
-            .with_only_columns(*selected)
-            .where(table.c[graph.subject_id_column] == coerced_id)
-        )
-    aliases = tuple(metadata.tables[hop.target_table].alias() for hop in plan.hops)
-    conditions: list[ColumnElement[bool]] = []
-    outer: FromClause = table
-    for hop, target in zip(plan.hops, aliases, strict=True):
-        conditions.extend(
-            outer.c[source_column] == target.c[target_column]
-            for source_column, target_column in zip(
-                hop.source_columns, hop.target_columns, strict=True
-            )
-        )
-        outer = target
-    conditions.append(outer.c[graph.subject_id_column] == coerced_id)
-    inner = aliases[0].select().where(*conditions)
-    return table.select().with_only_columns(*selected).where(inner.exists())
+    predicate = subject_scope(metadata, graph, entry.name, subject_id)
+    return table.select().with_only_columns(*selected).where(predicate)
 
 
 def _row_records(entry: TableEntry, row: dict[str, object]) -> tuple[ExportRecord, ...]:

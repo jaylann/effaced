@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
+from effaced.annotations import canonical_subject_id
 from effaced.audit.event import AuditEvent
 from effaced.audit.event_type import AuditEventType
 from effaced.consent.record import ConsentRecord
@@ -15,6 +16,7 @@ if TYPE_CHECKING:
     from sqlalchemy import Table
     from sqlalchemy.orm import Session
 
+    from effaced.annotations import SubjectIdentifier
     from effaced.audit.sink import AuditSink
 
 
@@ -64,13 +66,13 @@ class ConsentLedger:
             AuditEvent(
                 event_id=uuid4(),
                 event_type=event_type,
-                subject_ref=record.subject_id,
+                subject_ref=canonical_subject_id(record.subject_id),
                 occurred_at=record.recorded_at,
                 payload={"purpose": record.purpose, "policy_version": record.policy_version},
             )
         )
 
-    def status(self, session: Session, subject_id: str, purpose: str) -> bool:
+    def status(self, session: Session, subject_id: SubjectIdentifier, purpose: str) -> bool:
         """Whether the subject currently consents to a purpose.
 
         Derived from the latest record for (subject, purpose); ``False``
@@ -89,7 +91,9 @@ class ConsentLedger:
         """
         return self._latest_granted(session, subject_id, purpose)
 
-    def status_as_of(self, session: Session, subject_id: str, purpose: str, at: datetime) -> bool:
+    def status_as_of(
+        self, session: Session, subject_id: SubjectIdentifier, purpose: str, at: datetime
+    ) -> bool:
         """Whether the subject consented to a purpose as of an instant ``at``.
 
         The point-in-time read a DPA actually asks for — "prove what this
@@ -114,7 +118,12 @@ class ConsentLedger:
         return self._latest_granted(session, subject_id, purpose, at=at)
 
     def _latest_granted(
-        self, session: Session, subject_id: str, purpose: str, *, at: datetime | None = None
+        self,
+        session: Session,
+        subject_id: SubjectIdentifier,
+        purpose: str,
+        *,
+        at: datetime | None = None,
     ) -> bool:
         """The latest record's ``granted`` flag for (subject, purpose).
 
@@ -122,12 +131,15 @@ class ConsentLedger:
         optional upper bound on ``recorded_at`` that turns the current read
         into a point-in-time one. The ordering — newest first, withdrawal
         before grant on a tie, then highest ``record_id`` — is the single
-        source of truth for both reads.
+        source of truth for both reads. The subject id is canonicalized so a
+        composite key reads back the rows its canonical string was stored
+        under (ADR 0025).
         """
+        ref = canonical_subject_id(subject_id)
         columns = self._consent_records.c
         statement = (
             self._consent_records.select()
-            .where(columns.subject_id == subject_id, columns.purpose == purpose)
+            .where(columns.subject_id == ref, columns.purpose == purpose)
             .order_by(columns.recorded_at.desc(), columns.granted.asc(), columns.record_id.desc())
             .limit(1)
         )
@@ -136,12 +148,13 @@ class ConsentLedger:
         row = session.execute(statement).mappings().first()
         return False if row is None else bool(row["granted"])
 
-    def history(self, session: Session, subject_id: str) -> tuple[ConsentRecord, ...]:
+    def history(self, session: Session, subject_id: SubjectIdentifier) -> tuple[ConsentRecord, ...]:
         """Every consent event for one subject, oldest first.
 
         Args:
             session: An open database session.
-            subject_id: Whose history to read.
+            subject_id: Whose history to read (single-column ``str`` or
+                composite :class:`~effaced.CompositeSubjectId`).
 
         Returns:
             The full, unredacted event sequence — this is the Art. 5(2)
@@ -150,7 +163,7 @@ class ConsentLedger:
         columns = self._consent_records.c
         statement = (
             self._consent_records.select()
-            .where(columns.subject_id == subject_id)
+            .where(columns.subject_id == canonical_subject_id(subject_id))
             .order_by(columns.recorded_at.asc(), columns.record_id.asc())
         )
         rows = session.execute(statement).mappings()

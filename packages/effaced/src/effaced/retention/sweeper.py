@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
+from effaced.annotations import CompositeSubjectId, canonical_subject_id
 from effaced.audit.event import AuditEvent
 from effaced.audit.event_type import AuditEventType
 from effaced.exceptions import ManifestError
@@ -147,7 +148,10 @@ class RetentionSweeper:
             # Naive column: strip the offset so the comparison is portable.
             cutoff = cutoff.replace(tzinfo=None)
         statement = self._attribution_statement(table, anchor_column <= cutoff)
-        expired = Counter(str(row[0]) for row in session.execute(statement).all())
+        columns = self._graph.subject_id_columns
+        expired = Counter(
+            _subject_ref(tuple(row[: len(columns)])) for row in session.execute(statement).all()
+        )
         null_statement = (
             table.select().with_only_columns(anchor_column).where(anchor_column.is_(None))
         )
@@ -169,13 +173,16 @@ class RetentionSweeper:
 
         Linked tables walk the hop chain over a fresh alias per hop target
         (the exporter's technique) and select the final alias's subject-id
-        column — only subject ids ever leave the database, never values.
+        columns — only subject ids ever leave the database, never values. The
+        *whole* ordered key is selected so composite subjects are attributed
+        to one subject, never split or merged (ADR 0025).
         """
         plan: TableAccessPlan = self._graph.access(table.name)
+        columns = self._graph.subject_id_columns
         if plan.is_subject_table:
             return (
                 table.select()
-                .with_only_columns(table.c[self._graph.subject_id_column])
+                .with_only_columns(*(table.c[name] for name in columns))
                 .where(predicate)
             )
         aliases = tuple(self._metadata.tables[hop.target_table].alias() for hop in plan.hops)
@@ -191,7 +198,7 @@ class RetentionSweeper:
             outer = target
         return (
             table.select()
-            .with_only_columns(outer.c[self._graph.subject_id_column])
+            .with_only_columns(*(outer.c[name] for name in columns))
             .where(*conditions, predicate)
         )
 
@@ -211,6 +218,20 @@ class RetentionSweeper:
                     },
                 )
             )
+
+
+def _subject_ref(values: tuple[object, ...]) -> str:
+    """Canonical subject reference for one attributed row's key columns.
+
+    A single column is its own canonical string (byte-identical to before
+    composite keys); several columns join through the collision-free
+    composite serialization, so two subjects sharing one key element never
+    collapse into one expiry group (ADR 0025).
+    """
+    components = tuple(str(value) for value in values)
+    if len(components) == 1:
+        return canonical_subject_id(components[0])
+    return canonical_subject_id(CompositeSubjectId(values=components))
 
 
 def _all_rows_statement(table: Table) -> Select[Any]:
