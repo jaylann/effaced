@@ -14,11 +14,15 @@ from effaced.manifest.table_entry import TableEntry
 class DataMap(BaseModel):
     """The complete, versioned manifest for one application.
 
-    The manifest is *derived*, never authored: adapters (e.g.
-    :func:`effaced.adapters.sqlalchemy.collect_data_map`) walk your models
-    and build it from the annotations they find. Serialize with
-    :meth:`to_payload` for audit snapshots, diffing, and tooling; load with
-    :meth:`from_payload`, which migrates old versions forward.
+    The manifest is *derived* **or** *authored*. The derived path has
+    adapters (e.g. :func:`effaced.adapters.sqlalchemy.collect_data_map`)
+    walk your models and build it from the annotations they find. The
+    authored path loads a hand-written or externally-generated payload via
+    :meth:`from_payload` — the serialized manifest is a supported
+    authoring/import format, not only a derived snapshot (see ADR 0024).
+    Both produce the same shape and drive the engines identically. Serialize
+    with :meth:`to_payload` for audit snapshots, diffing, and tooling; load
+    with :meth:`from_payload`, which migrates old versions forward.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
