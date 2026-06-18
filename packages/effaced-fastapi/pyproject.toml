@@ -25,7 +25,7 @@ classifiers = [
 ]
 dependencies = [
     "effaced",
-    "fastapi>=0.116",
+    "fastapi>=0.137.1",
     "pydantic>=2.7",
     "sqlalchemy>=2.0",
 ]

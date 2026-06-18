@@ -530,7 +530,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "effaced", editable = "packages/effaced" },
-    { name = "fastapi", specifier = ">=0.116" },
+    { name = "fastapi", specifier = ">=0.137.1" },
     { name = "pydantic", specifier = ">=2.7" },
     { name = "sqlalchemy", specifier = ">=2.0" },
 ]
