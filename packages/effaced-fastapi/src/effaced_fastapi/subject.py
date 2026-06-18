@@ -7,12 +7,16 @@ from typing import TypeAlias
 
 from pydantic import BaseModel, ConfigDict
 
-# SubjectIdentifier is imported at runtime (not under TYPE_CHECKING) because
+from effaced import SubjectRef
+
+# ValidatedSubjectId is imported at runtime (not under TYPE_CHECKING) because
 # Subject appears in FastAPI route/dependency signatures: every type there must
 # resolve at runtime, not only for the type checker (python.md FastAPI rule).
-# The alias is str | CompositeSubjectId, so the composite class resolves through
-# it without a second import.
-from effaced import SubjectIdentifier, SubjectRef
+# It is the str | CompositeSubjectId alias plus the shared validator that
+# rejects an empty or over-255 (canonical) id, restoring the constraint the
+# bare-str field carried before the widening (ADR 0025); a composite is
+# preserved (not collapsed) so it reaches the engine for SQL decomposition.
+from effaced.annotations.subject_identifier import ValidatedSubjectId
 
 __all__ = ["Subject", "SubjectProvider"]
 
@@ -38,7 +42,7 @@ class Subject(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    subject_id: SubjectIdentifier
+    subject_id: ValidatedSubjectId
     refs: tuple[SubjectRef, ...] = ()
 
 

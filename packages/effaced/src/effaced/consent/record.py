@@ -3,12 +3,10 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field
 
-from effaced.annotations import SubjectIdentifier
-from effaced.annotations.subject_identifier import normalize_subject_id
+from effaced.annotations.subject_identifier import StoredSubjectId
 
 
 class ConsentRecord(BaseModel):
@@ -32,11 +30,7 @@ class ConsentRecord(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    subject_id: Annotated[
-        SubjectIdentifier,
-        BeforeValidator(normalize_subject_id),
-        Field(min_length=1, max_length=255),
-    ]
+    subject_id: StoredSubjectId
     purpose: str = Field(min_length=1, max_length=255)
     policy_version: str = Field(min_length=1, max_length=255)
     granted: bool

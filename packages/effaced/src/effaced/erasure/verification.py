@@ -6,7 +6,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from effaced.annotations import SubjectIdentifier
+from effaced.annotations.subject_identifier import ValidatedSubjectId
 
 
 class ErasureVerification(BaseModel):
@@ -51,7 +51,7 @@ class ErasureVerification(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    subject_id: SubjectIdentifier
+    subject_id: ValidatedSubjectId
     verified_at: datetime
     verified: bool
     residual: dict[str, int] = Field(default_factory=dict)

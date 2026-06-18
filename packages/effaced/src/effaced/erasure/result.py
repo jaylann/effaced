@@ -6,7 +6,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from effaced.annotations import SubjectIdentifier
+from effaced.annotations.subject_identifier import ValidatedSubjectId
 
 
 class ErasureResult(BaseModel):
@@ -29,7 +29,7 @@ class ErasureResult(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    subject_id: SubjectIdentifier
+    subject_id: ValidatedSubjectId
     completed_at: datetime
     deleted: dict[str, int] = Field(default_factory=dict)
     anonymized: dict[str, int] = Field(default_factory=dict)

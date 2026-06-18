@@ -17,6 +17,7 @@ from collections.abc import Iterator
 from typing import NamedTuple
 
 import pytest
+from pydantic import ValidationError
 from sqlalchemy import (
     Column,
     ForeignKeyConstraint,
@@ -33,6 +34,8 @@ from sqlalchemy.pool import StaticPool
 from effaced import (
     AuditEvent,
     CompositeSubjectId,
+    ErasurePlan,
+    ErasurePlanner,
     ErasureStep,
     ErasureStrategy,
     PiiCategory,
@@ -49,6 +52,7 @@ from effaced.adapters.sqlalchemy import ErasureExecutor, ErasureVerifier
 from effaced.adapters.sqlalchemy.scoping import subject_scope, subject_values
 from effaced.exceptions import SubjectResolutionError
 from effaced.export.exporter import Exporter
+from effaced_fastapi.subject import Subject as FastapiSubject
 
 
 class CompositeHarness(NamedTuple):
@@ -261,3 +265,57 @@ def test_arity_mismatch_fails_loudly() -> None:
         subject_values(("tenant", "user_id"), "just-one")
     with pytest.raises(SubjectResolutionError, match="matches the whole ordered key"):
         subject_values(("tenant", "user_id"), CompositeSubjectId(values=("only-one",)))
+
+
+def _single_column_planner() -> ErasurePlanner:
+    """A planner over a one-column subject schema (no executor — plan only)."""
+    metadata = MetaData()
+    Table(
+        "users",
+        metadata,
+        Column("id", Integer, primary_key=True, autoincrement=False),
+        Column("email", String(64), nullable=False, info=pii(PiiCategory.CONTACT)),
+        info=subject_link(""),
+    )
+    data_map = collect_data_map(metadata)
+    return ErasurePlanner(data_map, resolve_subject_graph_from_fk(data_map, metadata))
+
+
+def test_empty_subject_id_is_rejected_before_any_dml() -> None:
+    """Widening ``subject_id`` did not drop the non-empty constraint (ADR 0025).
+
+    On the erasure path an empty id must raise at plan construction — BEFORE
+    any executor runs — exactly as the pre-widening ``min_length=1`` field
+    did, so ``erase_subject(session, "")`` can never scope ``col == ''`` and
+    delete. ``plan()`` builds the validated :class:`~effaced.ErasurePlan`, so
+    the rejection is pre-DML by construction (no session is even touched).
+    """
+    with pytest.raises(ValidationError):
+        _single_column_planner().plan("")
+
+
+def test_over_long_subject_id_is_rejected() -> None:
+    """A subject id whose canonical form exceeds the stored column width raises.
+
+    The bare-``str`` arm restores the old ``max_length=255``; the composite
+    arm rejects when the *escaped canonical* form overflows 255 — the bound
+    only the canonical string can check.
+    """
+    with pytest.raises(ValidationError):
+        _single_column_planner().plan("x" * 256)
+    over_long_composite = CompositeSubjectId(values=("a" * 200, "b" * 200))
+    with pytest.raises(ValidationError):
+        ErasurePlan(subject_id=over_long_composite)
+
+
+def test_fastapi_subject_rejects_empty_and_over_long_ids() -> None:
+    """effaced-fastapi ``Subject`` keeps the pre-widening id constraints.
+
+    A composite is preserved (passed through to the engine), but an empty or
+    >255-character id is rejected at the boundary as it always was.
+    """
+    composite = CompositeSubjectId(values=("9", "42"))
+    assert FastapiSubject(subject_id=composite).subject_id == composite  # preserved
+    for bad in ("", "x" * 256):
+        with pytest.raises(ValidationError):
+            FastapiSubject(subject_id=bad)

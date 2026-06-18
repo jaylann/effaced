@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from effaced.annotations import SubjectIdentifier, SubjectRef
+from effaced.annotations import SubjectRef
+from effaced.annotations.subject_identifier import ValidatedSubjectId
 from effaced.categories import ErasureStrategy
 
 
@@ -70,7 +71,7 @@ class ErasurePlan(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    subject_id: SubjectIdentifier
+    subject_id: ValidatedSubjectId
     steps: tuple[ErasureStep, ...] = ()
     refs: tuple[SubjectRef, ...] = ()
 

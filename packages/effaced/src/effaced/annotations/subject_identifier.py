@@ -9,6 +9,10 @@ column schemas stay byte-identical (ADR 0025).
 
 from __future__ import annotations
 
+from typing import Annotated
+
+from pydantic import AfterValidator, BeforeValidator, Field
+
 from effaced.annotations.composite_subject_id import CompositeSubjectId
 
 SubjectIdentifier = str | CompositeSubjectId
@@ -19,6 +23,9 @@ A bare ``str`` for a single-column subject, or a
 form is the one-element canonical case, so passing a string behaves exactly
 as it always has (ADR 0025).
 """
+
+SUBJECT_ID_MAX_LENGTH = 255
+"""Width of the stored subject-id/ref columns; the canonical form must fit."""
 
 _SEPARATOR = "\x1f"
 """ASCII unit separator joining the escaped elements of a composite key."""
@@ -84,6 +91,61 @@ def normalize_subject_id(value: object) -> object:
     if isinstance(value, CompositeSubjectId):
         return canonical_subject_id(value)
     return value
+
+
+def validate_subject_identifier(value: SubjectIdentifier) -> SubjectIdentifier:
+    """Reject a subject identifier whose canonical form cannot be stored.
+
+    Restores the constraints the single-column ``str`` field carried before
+    the widening to :data:`SubjectIdentifier` (ADR 0025), applied to BOTH
+    arms via the canonical form: a subject id was always non-empty and at most
+    :data:`SUBJECT_ID_MAX_LENGTH` characters, because that is the width of the
+    stored ``subject_id``/``subject_ref`` columns. A composite key whose
+    escaped serialization overflows that width is rejected here rather than
+    truncated downstream. ``CompositeSubjectId`` already rejects empty
+    ``values`` and empty-string elements in its own validator; this adds the
+    stored-width bound that only the canonical form can check.
+
+    Args:
+        value: The identifier to validate — passed through unchanged so
+            models that echo a :data:`SubjectIdentifier` keep the original
+            (composite stays composite).
+
+    Returns:
+        ``value`` unchanged.
+
+    Raises:
+        ValueError: If the canonical form is empty or longer than
+            :data:`SUBJECT_ID_MAX_LENGTH`.
+    """
+    canonical = canonical_subject_id(value)
+    if not canonical:
+        msg = "subject id must not be empty"
+        raise ValueError(msg)
+    if len(canonical) > SUBJECT_ID_MAX_LENGTH:
+        msg = (
+            f"subject id canonical form is {len(canonical)} characters; the "
+            f"stored column holds at most {SUBJECT_ID_MAX_LENGTH}"
+        )
+        raise ValueError(msg)
+    return value
+
+
+ValidatedSubjectId = Annotated[SubjectIdentifier, AfterValidator(validate_subject_identifier)]
+"""A :data:`SubjectIdentifier` field that keeps its original value but rejects
+an empty or over-long (canonical > 255) identifier — for models that echo the
+identifier back to the caller (a composite stays a ``CompositeSubjectId``)."""
+
+StoredSubjectId = Annotated[
+    SubjectIdentifier,
+    BeforeValidator(normalize_subject_id),
+    AfterValidator(validate_subject_identifier),
+    Field(max_length=SUBJECT_ID_MAX_LENGTH),
+]
+"""A :data:`SubjectIdentifier` field that stores the canonical ``str`` — for
+domain/storage models keying a subject by one column. The before-validator
+collapses a composite to its canonical string; the after-validator rejects an
+empty or over-long id; the ``Field`` width mirrors the column."""
 
 
 def parse_canonical(serialized: str) -> CompositeSubjectId:

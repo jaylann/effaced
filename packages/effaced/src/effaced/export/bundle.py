@@ -6,7 +6,7 @@ from datetime import datetime
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
-from effaced.annotations import SubjectIdentifier
+from effaced.annotations.subject_identifier import ValidatedSubjectId
 from effaced.categories import LegalBasis, PiiCategory
 from effaced.manifest.migration import MANIFEST_SCHEMA_VERSION
 
@@ -55,7 +55,7 @@ class ExportBundle(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    subject_id: SubjectIdentifier
+    subject_id: ValidatedSubjectId
     generated_at: datetime
     schema_version: int = MANIFEST_SCHEMA_VERSION
     records: tuple[ExportRecord, ...] = ()

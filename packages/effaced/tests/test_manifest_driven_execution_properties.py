@@ -55,7 +55,13 @@ if TYPE_CHECKING:
 
 pytestmark = pytest.mark.property
 
-_SUBJECT_ID = "1"
+_SUBJECT_SEED = 1
+"""The integer subject seeded and erased/exported in every parity example.
+
+``schema.subject_identity`` maps it to the identifier the drawn schema needs —
+a bare ``str`` for a single-column subject, a
+:class:`~effaced.CompositeSubjectId` for a composite-subject draw (ADR 0025) —
+so the parity comparison holds for both shapes."""
 
 
 def _table_name_path(table: str, parents: dict[str, str]) -> str:
@@ -133,8 +139,9 @@ def test_manifest_plan_is_byte_identical_to_annotation_plan(schema: GeneratedSch
     schema.metadata.create_all(engine)
     manifest_map, manifest_graph = _manifest_path(schema, engine)
 
-    annotation_plan = ErasurePlanner(schema.data_map, annotation_graph).plan(_SUBJECT_ID)
-    manifest_plan = ErasurePlanner(manifest_map, manifest_graph).plan(_SUBJECT_ID)
+    subject_id = schema.subject_identity(_SUBJECT_SEED)
+    annotation_plan = ErasurePlanner(schema.data_map, annotation_graph).plan(subject_id)
+    manifest_plan = ErasurePlanner(manifest_map, manifest_graph).plan(subject_id)
 
     assert manifest_plan.model_dump() == annotation_plan.model_dump()
     # The deletion order itself matches, not merely the step set.
@@ -156,19 +163,20 @@ def test_manifest_export_is_byte_identical_to_annotation_export(schema: Generate
     manifest_map, manifest_graph = _manifest_path(schema, engine)
     session_factory = sessionmaker(engine)
     with session_factory() as session:
-        schema.seed(session, int(_SUBJECT_ID))
+        schema.seed(session, _SUBJECT_SEED)
         session.commit()
 
+    subject_id = schema.subject_identity(_SUBJECT_SEED)
     with session_factory() as session:
         annotation_bundle = Exporter(
             schema.data_map, annotation_graph, schema.metadata, RecordingAuditSink()
-        ).export_subject(session, _SUBJECT_ID)
+        ).export_subject(session, subject_id)
         manifest_metadata = reflect_metadata(
             engine, only=[entry.name for entry in manifest_map.tables]
         )
         manifest_bundle = Exporter(
             manifest_map, manifest_graph, manifest_metadata, RecordingAuditSink()
-        ).export_subject(session, _SUBJECT_ID)
+        ).export_subject(session, subject_id)
 
     assert manifest_bundle.model_dump(exclude={"generated_at"}) == annotation_bundle.model_dump(
         exclude={"generated_at"}
