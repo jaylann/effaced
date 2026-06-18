@@ -9,6 +9,7 @@ from sqlalchemy import Column, ForeignKey, Integer, MetaData, String, Table, cre
 from sqlalchemy.pool import StaticPool
 
 from effaced import reflect_metadata
+from effaced.exceptions import ManifestError
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -66,3 +67,12 @@ def test_returns_a_fresh_metadata_each_call(engine: Engine) -> None:
     first = reflect_metadata(engine, only=["users"])
     second = reflect_metadata(engine, only=["users"])
     assert first is not second
+
+
+def test_only_naming_a_missing_table_raises_manifest_error(engine: Engine) -> None:
+    """A manifest table absent from the database fails loudly, naming the table."""
+    with pytest.raises(ManifestError, match="'ghost'") as excinfo:
+        reflect_metadata(engine, only=["users", "ghost"])
+    assert "not found in the reflected database" in str(excinfo.value)
+    # The present table is not falsely reported missing.
+    assert "'users'" not in str(excinfo.value)

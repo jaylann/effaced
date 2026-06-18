@@ -201,6 +201,37 @@ def test_from_manifest_rejects_resolvers_and_registry_together(sqlite_engine: En
         )
 
 
+def test_from_manifest_validates_config_before_reflecting() -> None:
+    """The resolvers-vs-registry guard fails fast, before any reflection runs.
+
+    The engine has no tables, so reflecting the manifest would raise
+    ``ManifestError``; an invalid resolvers+registry combo must raise
+    ``ConfigurationError`` first — pinning that bad config is rejected before
+    any resolution work touches the database.
+    """
+    empty_engine = create_engine("sqlite://", poolclass=StaticPool)
+    with pytest.raises(ConfigurationError):
+        EffacedStack.from_manifest(
+            sessionmaker(empty_engine),
+            empty_engine,
+            _manifest_payload(),
+            resolvers=(StatefulResolver("crm", set()),),
+            registry=ResolverRegistry(),
+        )
+    empty_engine.dispose()
+
+
+def test_from_base_validates_config_before_collecting(sqlite_engine: Engine) -> None:
+    """The resolvers-vs-registry guard fails fast, before data-map collection."""
+    with pytest.raises(ConfigurationError):
+        EffacedStack.from_base(
+            Base,
+            sessionmaker(sqlite_engine),
+            resolvers=(StatefulResolver("crm", set()),),
+            registry=ResolverRegistry(),
+        )
+
+
 def test_from_manifest_registers_resolvers(sqlite_engine: Engine) -> None:
     resolver = StatefulResolver("crm", {"c-1"})
     stack = _manifest_stack(sqlite_engine, resolvers=(resolver,))

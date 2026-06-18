@@ -174,16 +174,16 @@ class EffacedStack:
         Raises:
             ConfigurationError: If both ``resolvers`` and ``registry`` are
                 given — two sources of truth for "where is my PII" would
-                make the registration ambiguous.
+                make the registration ambiguous. Raised before any data-map
+                collection or graph resolution.
             ManifestError: If the annotations on ``base`` are invalid
                 (propagated from :func:`effaced.collect_data_map`).
         """
+        resolved_registry = _resolve_registry(resolvers, registry)
         data_map = collect_data_map(base.metadata)
         graph = resolve_subject_graph(data_map, base.registry)
         schema = _ResolvedSchema(base.metadata, data_map, graph)
-        return cls._wire(
-            schema, session_factory, _resolve_registry(resolvers, registry), audit_sink
-        )
+        return cls._wire(schema, session_factory, resolved_registry, audit_sink)
 
     @classmethod
     def from_manifest(
@@ -238,21 +238,22 @@ class EffacedStack:
 
         Raises:
             ConfigurationError: If both ``resolvers`` and ``registry`` are
-                given.
+                given. Raised before any manifest load or reflection.
             ManifestError: If the payload is structurally invalid or newer
                 than this library understands (propagated from
-                :meth:`effaced.DataMap.from_payload`).
+                :meth:`effaced.DataMap.from_payload`), or if a manifest
+                table is not found in the reflected database (propagated
+                from :func:`effaced.reflect_metadata`).
             SubjectResolutionError: If the subject graph cannot be resolved
                 from the reflected foreign keys (propagated from
                 :func:`effaced.resolve_subject_graph_from_fk`).
         """
+        resolved_registry = _resolve_registry(resolvers, registry)
         data_map = DataMap.from_payload(dict(manifest_payload))
         metadata = reflect_metadata(engine, only=[entry.name for entry in data_map.tables])
         graph = resolve_subject_graph_from_fk(data_map, metadata)
         schema = _ResolvedSchema(metadata, data_map, graph)
-        return cls._wire(
-            schema, session_factory, _resolve_registry(resolvers, registry), audit_sink
-        )
+        return cls._wire(schema, session_factory, resolved_registry, audit_sink)
 
     @classmethod
     def _wire(

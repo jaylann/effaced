@@ -13,7 +13,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import MetaData
+from sqlalchemy import MetaData, inspect
+from sqlalchemy.exc import InvalidRequestError
+
+from effaced.exceptions import ManifestError
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -40,7 +43,24 @@ def reflect_metadata(engine: Engine, *, only: Sequence[str] | None = None) -> Me
     Returns:
         A fresh ``MetaData`` holding the reflected tables and their
         foreign-key constraints.
+
+    Raises:
+        ManifestError: If a name in ``only`` is not a table in the live
+            database — the manifest names a table the database does not
+            have, so no subject graph can be resolved against it.
     """
     metadata = MetaData()
-    metadata.reflect(bind=engine, only=list(only) if only is not None else None)
+    try:
+        metadata.reflect(bind=engine, only=list(only) if only is not None else None)
+    except InvalidRequestError as exc:
+        # reflect(only=...) raises before populating metadata.tables, so the
+        # available names come from the inspector, not the empty metadata.
+        available = set(inspect(engine).get_table_names())
+        missing = sorted(name for name in only or () if name not in available)
+        names = ", ".join(repr(name) for name in missing)
+        msg = (
+            f"manifest names table(s) not found in the reflected database: {names}; "
+            f"reflect against the database the manifest describes"
+        )
+        raise ManifestError(msg) from exc
     return metadata
