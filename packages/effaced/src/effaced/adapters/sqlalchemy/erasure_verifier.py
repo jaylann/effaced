@@ -9,6 +9,7 @@ from uuid import uuid4
 from sqlalchemy import func, select
 
 from effaced.adapters.sqlalchemy.scoping import lookup_table, subject_scope
+from effaced.annotations import canonical_subject_id
 from effaced.audit.event import AuditEvent
 from effaced.audit.event_type import AuditEventType
 from effaced.categories import ErasureStrategy
@@ -19,6 +20,7 @@ if TYPE_CHECKING:
     from sqlalchemy import MetaData
     from sqlalchemy.orm import Session
 
+    from effaced.annotations import SubjectIdentifier
     from effaced.audit.sink import AuditSink
     from effaced.erasure.plan import ErasureStep
     from effaced.manifest import DataMap, SubjectGraph
@@ -81,7 +83,9 @@ class ErasureVerifier:
         self._metadata = metadata
         self._audit_sink = audit_sink
 
-    def verify_subject_erased(self, session: Session, subject_id: str) -> ErasureVerification:
+    def verify_subject_erased(
+        self, session: Session, subject_id: SubjectIdentifier
+    ) -> ErasureVerification:
         """Read the subject's annotated surface back and record the verdict.
 
         Re-derives the plan's table classification, counts the subject's
@@ -91,8 +95,10 @@ class ErasureVerifier:
 
         Args:
             session: An open database session; used for reads only.
-            subject_id: Identifier on the subject table, coerced to the
-                subject column's python type for typed-parameter drivers.
+            subject_id: The subject identifier — a single-column ``str`` or a
+                composite :class:`~effaced.CompositeSubjectId`; each
+                component is coerced to its subject column's python type for
+                typed-parameter drivers.
 
         Returns:
             The verdict: ``verified`` is true iff every row-deleted table is
@@ -126,7 +132,7 @@ class ErasureVerifier:
         self._audit_sink.append(_event(verification))
         return verification
 
-    def _count(self, session: Session, table_name: str, subject_id: str) -> int:
+    def _count(self, session: Session, table_name: str, subject_id: SubjectIdentifier) -> int:
         """Count one table's subject-scoped rows without touching them."""
         table = lookup_table(self._metadata, table_name)
         predicate = subject_scope(self._metadata, self._graph, table_name, subject_id)
@@ -162,7 +168,7 @@ def _event(verification: ErasureVerification) -> AuditEvent:
     return AuditEvent(
         event_id=uuid4(),
         event_type=event_type,
-        subject_ref=verification.subject_id,
+        subject_ref=canonical_subject_id(verification.subject_id),
         occurred_at=verification.verified_at,
         payload={
             "tables_checked": len(verification.residual) + len(verification.surviving),

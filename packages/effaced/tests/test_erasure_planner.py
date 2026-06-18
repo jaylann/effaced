@@ -159,7 +159,7 @@ def test_mixed_strategy_table_emits_anonymize_then_retain() -> None:
     )
     graph = SubjectGraph(
         subject_table="people",
-        subject_id_column="id",
+        subject_id_columns=("id",),
         accesses=(TableAccessPlan(table="people", fully_pii_owned=True),),
     )
     plan = ErasurePlanner(data_map, graph).plan("42")
@@ -182,7 +182,7 @@ def test_retained_child_under_deleted_subject_raises_retention_violation() -> No
     )
     graph = SubjectGraph(
         subject_table="people",
-        subject_id_column="id",
+        subject_id_columns=("id",),
         accesses=(
             TableAccessPlan(
                 table="contracts",
@@ -207,7 +207,7 @@ def test_unerasable_survivor_under_deleted_parent_raises_manifest_error() -> Non
     )
     graph = SubjectGraph(
         subject_table="people",
-        subject_id_column="id",
+        subject_id_columns=("id",),
         accesses=(
             TableAccessPlan(
                 table="shipments",
@@ -232,7 +232,7 @@ def test_unannotated_not_fully_owned_table_emits_no_step() -> None:
     )
     graph = SubjectGraph(
         subject_table="people",
-        subject_id_column="id",
+        subject_id_columns=("id",),
         accesses=(
             TableAccessPlan(table="logs", hops=(_hop("logs", "people"),), fully_pii_owned=False),
             TableAccessPlan(table="people", fully_pii_owned=False),
@@ -254,7 +254,7 @@ def test_retention_conflict_names_the_retention_reason() -> None:
     )
     graph = SubjectGraph(
         subject_table="people",
-        subject_id_column="id",
+        subject_id_columns=("id",),
         accesses=(
             TableAccessPlan(
                 table="contracts",
@@ -279,7 +279,7 @@ def test_conflict_detection_scans_past_conflict_free_tables() -> None:
     )
     graph = SubjectGraph(
         subject_table="people",
-        subject_id_column="id",
+        subject_id_columns=("id",),
         accesses=(
             TableAccessPlan(table="people", fully_pii_owned=False),
             TableAccessPlan(table="orders", hops=(_hop("orders", "people"),), fully_pii_owned=True),
@@ -298,7 +298,7 @@ def test_mismatched_graph_and_data_map_raise_at_construction() -> None:
     data_map = DataMap(tables=(_entry("people", "", email=ErasureStrategy.DELETE),))
     graph = SubjectGraph(
         subject_table="people",
-        subject_id_column="id",
+        subject_id_columns=("id",),
         accesses=(
             TableAccessPlan(table="logs", hops=(_hop("logs", "people"),)),
             TableAccessPlan(table="people"),

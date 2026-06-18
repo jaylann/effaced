@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
+from effaced.annotations import canonical_subject_id
 from effaced.audit.event import AuditEvent
 from effaced.audit.event_type import AuditEventType
 from effaced.categories import ErasureStrategy
@@ -24,7 +25,7 @@ if TYPE_CHECKING:
 
     from sqlalchemy.orm import Session
 
-    from effaced.annotations import SubjectRef
+    from effaced.annotations import SubjectIdentifier, SubjectRef
     from effaced.audit.sink import AuditSink
     from effaced.erasure.step_executor import StepExecutor
     from effaced.manifest import DataMap, SubjectGraph, TableEntry
@@ -98,14 +99,18 @@ class ErasurePlanner:
         self._outbox = outbox
         self._audit_sink = audit_sink
 
-    def plan(self, subject_id: str, *, refs: tuple[SubjectRef, ...] = ()) -> ErasurePlan:
+    def plan(
+        self, subject_id: SubjectIdentifier, *, refs: tuple[SubjectRef, ...] = ()
+    ) -> ErasurePlan:
         """Compute the erasure programme without executing anything.
 
         A pure function of the manifest and ``refs``: no session, no I/O,
         and calling it twice yields equal plans.
 
         Args:
-            subject_id: Identifier on the subject table.
+            subject_id: The subject identifier — a single-column ``str`` or a
+                composite :class:`~effaced.CompositeSubjectId`; echoed back
+                unchanged on the plan.
             refs: External-system references, recorded on the plan for the
                 resolver steps.
 
@@ -126,7 +131,7 @@ class ErasurePlanner:
     def erase_subject(
         self,
         session: Session,
-        subject_id: str,
+        subject_id: SubjectIdentifier,
         *,
         refs: tuple[SubjectRef, ...] = (),
     ) -> ErasureResult:
@@ -273,7 +278,7 @@ class ErasurePlanner:
         session: Session,
         outbox: Outbox,
         entries: Sequence[OutboxEntry],
-        subject_id: str,
+        subject_id: SubjectIdentifier,
         sink: AuditSink,
     ) -> None:
         """Enqueue external work in the caller's transaction, auditing failure."""
@@ -286,20 +291,27 @@ class ErasurePlanner:
 
 def _event(
     event_type: AuditEventType,
-    subject_id: str,
+    subject_id: SubjectIdentifier,
     payload: dict[str, str | int | bool],
 ) -> AuditEvent:
-    """One audit event for this erasure, stamped now (UTC)."""
+    """One audit event for this erasure, stamped now (UTC).
+
+    The subject reference is the identifier's canonical string, so a
+    composite key and its single-column equivalent are recorded identically
+    (ADR 0025).
+    """
     return AuditEvent(
         event_id=uuid4(),
         event_type=event_type,
-        subject_ref=subject_id,
+        subject_ref=canonical_subject_id(subject_id),
         occurred_at=datetime.now(UTC),
         payload=payload,
     )
 
 
-def _failure(subject_id: str, target: str, strategy: str, exc: Exception) -> AuditEvent:
+def _failure(
+    subject_id: SubjectIdentifier, target: str, strategy: str, exc: Exception
+) -> AuditEvent:
     """The step-failed event.
 
     Carries the exception class only, never its message — database errors

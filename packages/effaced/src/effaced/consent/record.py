@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+
+from effaced.annotations import SubjectIdentifier
+from effaced.annotations.subject_identifier import normalize_subject_id
 
 
 class ConsentRecord(BaseModel):
@@ -16,7 +20,9 @@ class ConsentRecord(BaseModel):
     given, when, and against which policy version*.
 
     Attributes:
-        subject_id: Whose consent this is.
+        subject_id: Whose consent this is — a single-column ``str`` or a
+            composite :class:`~effaced.CompositeSubjectId`, stored as its
+            canonical string (ADR 0025).
         purpose: The processing purpose consented to (e.g. ``"newsletter"``).
         policy_version: Version of the policy text the subject saw.
         granted: ``True`` for a grant, ``False`` for a withdrawal.
@@ -26,7 +32,11 @@ class ConsentRecord(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    subject_id: str = Field(min_length=1, max_length=255)
+    subject_id: Annotated[
+        SubjectIdentifier,
+        BeforeValidator(normalize_subject_id),
+        Field(min_length=1, max_length=255),
+    ]
     purpose: str = Field(min_length=1, max_length=255)
     policy_version: str = Field(min_length=1, max_length=255)
     granted: bool

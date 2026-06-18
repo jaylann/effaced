@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+
+from effaced.annotations import SubjectIdentifier
+from effaced.annotations.subject_identifier import normalize_subject_id
 
 
 class RestrictionRecord(BaseModel):
@@ -21,7 +25,9 @@ class RestrictionRecord(BaseModel):
     record touches only that purpose.
 
     Attributes:
-        subject_id: Whose restriction this is.
+        subject_id: Whose restriction this is — a single-column ``str`` or a
+            composite :class:`~effaced.CompositeSubjectId`, stored as its
+            canonical string (ADR 0025).
         purpose: The processing purpose restricted (e.g. ``"ads"``);
             ``None`` means all processing.
         restricted: ``True`` places a restriction, ``False`` lifts one.
@@ -33,7 +39,11 @@ class RestrictionRecord(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    subject_id: str = Field(min_length=1, max_length=255)
+    subject_id: Annotated[
+        SubjectIdentifier,
+        BeforeValidator(normalize_subject_id),
+        Field(min_length=1, max_length=255),
+    ]
     purpose: str | None = Field(default=None, min_length=1, max_length=255)
     restricted: bool
     reason: str | None = Field(default=None, max_length=255)

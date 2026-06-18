@@ -6,6 +6,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from effaced.annotations import SubjectIdentifier
+
 
 class RectificationResult(BaseModel):
     """Outcome of the local phase of a rectification.
@@ -14,7 +16,9 @@ class RectificationResult(BaseModel):
     audit trail as the saga runner processes the outbox.
 
     Attributes:
-        subject_id: The subject whose data was rectified.
+        subject_id: The subject whose data was rectified — echoed back from
+            the call (single-column ``str`` or composite
+            :class:`~effaced.CompositeSubjectId`).
         completed_at: When the local phase finished (UTC); durable once
             the caller commits.
         rectified: Rows updated, by table. A table matched by several
@@ -27,7 +31,7 @@ class RectificationResult(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    subject_id: str = Field(min_length=1)
+    subject_id: SubjectIdentifier
     completed_at: datetime
     rectified: dict[str, int] = Field(default_factory=dict)
     enqueued_external: tuple[str, ...] = ()

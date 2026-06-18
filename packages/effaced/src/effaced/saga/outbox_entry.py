@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Annotated
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
-from effaced.annotations import Correction, SubjectRef
+from effaced.annotations import Correction, SubjectIdentifier, SubjectRef
+from effaced.annotations.subject_identifier import normalize_subject_id
 from effaced.saga.outbox_operation import OutboxOperation
 from effaced.saga.outbox_status import OutboxStatus
 
@@ -50,7 +52,11 @@ class OutboxEntry(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     entry_id: UUID
-    subject_id: str = Field(min_length=1, max_length=255)
+    subject_id: Annotated[
+        SubjectIdentifier,
+        BeforeValidator(normalize_subject_id),
+        Field(min_length=1, max_length=255),
+    ]
     resolver: str = Field(min_length=1, max_length=255)
     ref: SubjectRef
     operation: OutboxOperation = OutboxOperation.ERASE

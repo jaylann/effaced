@@ -16,6 +16,7 @@ from typing import Any
 
 from effaced.annotations import PiiSpec, RetentionPolicy, SubjectLink
 from effaced.categories import ErasureStrategy, LegalBasis, PiiCategory
+from effaced.exceptions import ConfigurationError
 
 INFO_KEY = "effaced"
 """Key under which effaced metadata is stored in SQLAlchemy ``info`` dicts."""
@@ -58,7 +59,12 @@ def pii(
     return {INFO_KEY: spec}
 
 
-def subject_link(path: str, *, subject_id_column: str = "id") -> dict[str, Any]:
+def subject_link(
+    path: str,
+    *,
+    subject_id_columns: tuple[str, ...] | str = "id",
+    subject_id_column: str | None = None,
+) -> dict[str, Any]:
     """Declare how a table reaches the data subject.
 
     Attach via ``Table.info`` or the mapped class's ``__table_args__``
@@ -66,9 +72,36 @@ def subject_link(path: str, *, subject_id_column: str = "id") -> dict[str, Any]:
 
     Args:
         path: Dotted relationship path to the subject table.
-        subject_id_column: Identifier column on the subject table.
+        subject_id_columns: Ordered identifier column(s) on the subject
+            table. A bare ``str`` is the single-column case (the default,
+            ``"id"``); a tuple declares a composite subject key whose order
+            aligns to the caller's
+            :class:`~effaced.CompositeSubjectId` values (ADR 0025).
+        subject_id_column: Deprecated singular alias for the one-column
+            case; mutually exclusive with ``subject_id_columns``. Kept so
+            existing single-column annotations need no edit.
 
     Returns:
         A dict suitable for SQLAlchemy's table-level ``info`` parameter.
+
+    Raises:
+        ConfigurationError: If both ``subject_id_columns`` and the
+            ``subject_id_column`` alias are passed non-default.
     """
-    return {INFO_KEY: SubjectLink(path=path, subject_id_column=subject_id_column)}
+    columns = _subject_id_columns(subject_id_columns, subject_id_column)
+    return {INFO_KEY: SubjectLink(path=path, subject_id_columns=columns)}
+
+
+def _subject_id_columns(
+    subject_id_columns: tuple[str, ...] | str,
+    subject_id_column: str | None,
+) -> tuple[str, ...]:
+    """Normalize the column argument to a tuple, honouring the singular alias."""
+    if subject_id_column is not None:
+        if subject_id_columns != "id":
+            msg = "pass either subject_id_columns or the subject_id_column alias, not both"
+            raise ConfigurationError(msg)
+        return (subject_id_column,)
+    if isinstance(subject_id_columns, str):
+        return (subject_id_columns,)
+    return subject_id_columns

@@ -6,6 +6,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
+from effaced.annotations import canonical_subject_id
 from effaced.audit.event import AuditEvent
 from effaced.audit.event_type import AuditEventType
 from effaced.exceptions import ConfigurationError, ManifestError, ResolverError
@@ -20,7 +21,7 @@ if TYPE_CHECKING:
 
     from sqlalchemy.orm import Session
 
-    from effaced.annotations import Correction, SubjectRef
+    from effaced.annotations import Correction, SubjectIdentifier, SubjectRef
     from effaced.audit.sink import AuditSink
     from effaced.categories import PiiCategory
     from effaced.manifest import DataMap, SubjectGraph
@@ -95,7 +96,7 @@ class Rectifier:
     def rectify_subject(
         self,
         session: Session,
-        subject_id: str,
+        subject_id: SubjectIdentifier,
         corrections: tuple[Correction, ...],
         *,
         refs: tuple[SubjectRef, ...] = (),
@@ -216,7 +217,7 @@ class Rectifier:
         session: Session,
         executor: RectificationStepExecutor,
         steps: Sequence[RectificationStep],
-        subject_id: str,
+        subject_id: SubjectIdentifier,
         values: dict[PiiCategory, str | int | float | bool],
         sink: AuditSink,
     ) -> dict[str, int]:
@@ -245,7 +246,7 @@ class Rectifier:
         session: Session,
         outbox: Outbox,
         entries: Sequence[OutboxEntry],
-        subject_id: str,
+        subject_id: SubjectIdentifier,
         sink: AuditSink,
     ) -> None:
         """Enqueue external work in the caller's transaction, auditing failure."""
@@ -299,7 +300,7 @@ def _local_steps(
 
 def _outbox_entries(
     registry: ResolverRegistry | None,
-    subject_id: str,
+    subject_id: SubjectIdentifier,
     corrections: tuple[Correction, ...],
     refs: tuple[SubjectRef, ...],
 ) -> tuple[OutboxEntry, ...]:
@@ -345,20 +346,23 @@ def _outbox_entries(
 
 def _event(
     event_type: AuditEventType,
-    subject_id: str,
+    subject_id: SubjectIdentifier,
     payload: dict[str, str | int | bool],
 ) -> AuditEvent:
-    """One audit event for this rectification, stamped now (UTC)."""
+    """One audit event for this rectification, stamped now (UTC).
+
+    The subject reference is the identifier's canonical string (ADR 0025).
+    """
     return AuditEvent(
         event_id=uuid4(),
         event_type=event_type,
-        subject_ref=subject_id,
+        subject_ref=canonical_subject_id(subject_id),
         occurred_at=datetime.now(UTC),
         payload=payload,
     )
 
 
-def _failure(subject_id: str, target: str, exc: Exception) -> AuditEvent:
+def _failure(subject_id: SubjectIdentifier, target: str, exc: Exception) -> AuditEvent:
     """The step-failed event.
 
     Carries the exception class only, never its message — database errors

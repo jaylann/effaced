@@ -6,6 +6,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from effaced.annotations import SubjectIdentifier
+
 
 class ErasureResult(BaseModel):
     """Outcome of the local phase of an erasure.
@@ -14,7 +16,9 @@ class ErasureResult(BaseModel):
     audit trail as the saga runner processes the outbox.
 
     Attributes:
-        subject_id: The subject that was erased.
+        subject_id: The subject that was erased — echoed back from the call
+            (single-column ``str`` or composite
+            :class:`~effaced.CompositeSubjectId`).
         completed_at: When the local phase finished (UTC); durable once
             the caller commits.
         deleted: Record counts deleted, by table.
@@ -25,7 +29,7 @@ class ErasureResult(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    subject_id: str = Field(min_length=1)
+    subject_id: SubjectIdentifier
     completed_at: datetime
     deleted: dict[str, int] = Field(default_factory=dict)
     anonymized: dict[str, int] = Field(default_factory=dict)

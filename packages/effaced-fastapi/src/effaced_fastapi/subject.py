@@ -5,9 +5,14 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from typing import TypeAlias
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict
 
-from effaced import SubjectRef
+# SubjectIdentifier is imported at runtime (not under TYPE_CHECKING) because
+# Subject appears in FastAPI route/dependency signatures: every type there must
+# resolve at runtime, not only for the type checker (python.md FastAPI rule).
+# The alias is str | CompositeSubjectId, so the composite class resolves through
+# it without a second import.
+from effaced import SubjectIdentifier, SubjectRef
 
 __all__ = ["Subject", "SubjectProvider"]
 
@@ -23,14 +28,17 @@ class Subject(BaseModel):
     export and erasure to registered resolvers.
 
     Attributes:
-        subject_id: The id the annotated models key the subject by.
+        subject_id: The id the annotated models key the subject by — a
+            single-column ``str`` or a composite
+            :class:`~effaced.CompositeSubjectId` (ADR 0025), passed through
+            to the engines unchanged.
         refs: Where the subject lives in external systems; each ref's
             ``kind`` names the resolver that handles it (ADR 0008).
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    subject_id: str = Field(min_length=1, max_length=255)
+    subject_id: SubjectIdentifier
     refs: tuple[SubjectRef, ...] = ()
 
 

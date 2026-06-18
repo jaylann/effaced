@@ -33,7 +33,17 @@ from effaced.adapters.sqlalchemy import (
     resolve_subject_graph_from_fk,
     subject_link,
 )
-from effaced.annotations import Correction, PiiSpec, RetentionPolicy, SubjectLink, SubjectRef
+from effaced.annotations import (
+    CompositeSubjectId,
+    Correction,
+    PiiSpec,
+    RetentionPolicy,
+    SubjectIdentifier,
+    SubjectLink,
+    SubjectRef,
+    canonical_subject_id,
+    parse_canonical,
+)
 from effaced.audit import AuditEvent, AuditEventType, AuditSink, DatabaseAuditSink
 from effaced.categories import ErasureStrategy, LegalBasis, PiiCategory
 from effaced.consent import ConsentLedger, ConsentRecord
@@ -125,6 +135,7 @@ __all__ = [
     "BackoffPolicy",
     "ColumnEntry",
     "CompletenessFinding",
+    "CompositeSubjectId",
     "ConfigurationError",
     "ConsentError",
     "ConsentLedger",
@@ -192,6 +203,7 @@ __all__ = [
     "StatusCountsSource",
     "StepExecutor",
     "SubjectGraph",
+    "SubjectIdentifier",
     "SubjectLink",
     "SubjectRef",
     "SubjectResolutionError",
@@ -201,12 +213,14 @@ __all__ = [
     "TableEntry",
     "__version__",
     "bind_tables",
+    "canonical_subject_id",
     "collect_data_map",
     "default_surrogate_registry",
     "fk_safe_deletion_order",
     "lint_completeness",
     "lint_reachability",
     "load_lint_target",
+    "parse_canonical",
     "pii",
     "reflect_metadata",
     "registry_from_settings",

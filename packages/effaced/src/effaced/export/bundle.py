@@ -6,6 +6,7 @@ from datetime import datetime
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
 
+from effaced.annotations import SubjectIdentifier
 from effaced.categories import LegalBasis, PiiCategory
 from effaced.manifest.migration import MANIFEST_SCHEMA_VERSION
 
@@ -42,7 +43,9 @@ class ExportBundle(BaseModel):
     """Everything held on one subject, with the required Art. 15 metadata.
 
     Attributes:
-        subject_id: The identifier the export was requested for.
+        subject_id: The identifier the export was requested for — echoed
+            back from the call (single-column ``str`` or composite
+            :class:`~effaced.CompositeSubjectId`).
         generated_at: When the bundle was assembled (UTC).
         schema_version: Manifest schema version the bundle was built under.
         records: Every exported value, grouped by consumers as they wish.
@@ -52,7 +55,7 @@ class ExportBundle(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    subject_id: str = Field(min_length=1)
+    subject_id: SubjectIdentifier
     generated_at: datetime
     schema_version: int = MANIFEST_SCHEMA_VERSION
     records: tuple[ExportRecord, ...] = ()

@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session
 
+    from effaced.annotations import SubjectIdentifier
     from effaced.manifest import SubjectGraph
     from effaced.rectification.step import RectificationStep
 
@@ -30,7 +31,7 @@ class RectificationStepExecutor(Protocol):
         session: Session,
         graph: SubjectGraph,
         step: RectificationStep,
-        subject_id: str,
+        subject_id: SubjectIdentifier,
         value: str | int | float | bool,
     ) -> int:
         """Run one local step scoped to one subject.
@@ -43,7 +44,8 @@ class RectificationStepExecutor(Protocol):
             session: The caller's open session.
             graph: Resolved hop chains from each table to the subject.
             step: The value-free local step to run.
-            subject_id: Identifier on the subject table.
+            subject_id: The subject identifier (single-column ``str`` or
+                composite :class:`~effaced.CompositeSubjectId`).
             value: The corrected value to write.
 
         Returns:

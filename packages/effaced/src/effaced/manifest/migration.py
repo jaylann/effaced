@@ -12,7 +12,7 @@ from typing import Any
 
 from effaced.exceptions import ManifestError
 
-MANIFEST_SCHEMA_VERSION = 2
+MANIFEST_SCHEMA_VERSION = 3
 """Current manifest schema version. Bump on ANY format change, with a
 matching upgrade branch in :func:`migrate`. Adding a field behind a forward
 migration is MINOR; removing or renaming serialized fields is MAJOR (old
@@ -51,6 +51,15 @@ def migrate(data: dict[str, Any]) -> dict[str, Any]:
                 retention = column.get("spec", {}).get("retention")
                 if retention is not None:
                     retention.setdefault("anchor", None)
-        data["schema_version"] = 2
-    # version 2 is current — future versions add upgrade branches above this line
+        data["schema_version"] = version = 2
+    if version == 2:  # noqa: PLR2004 - the schema version a v3 upgrade lifts from
+        # v3 generalized SubjectLink.subject_id_column (str) to the ordered
+        # subject_id_columns tuple (ADR 0025): lift each old single column
+        # into a one-element list.
+        for table in data.get("tables", ()):
+            link = table.get("subject_link")
+            if link is not None and "subject_id_column" in link:
+                link["subject_id_columns"] = [link.pop("subject_id_column")]
+        data["schema_version"] = 3
+    # version 3 is current — future versions add upgrade branches above this line
     return data

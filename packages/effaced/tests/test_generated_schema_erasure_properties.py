@@ -97,7 +97,7 @@ def test_erasure_on_any_schema_never_bleeds_and_preserves_retained(
         before_subject_2 = snapshot(session, schema, 2)
         retained_before = retained_cells(session, schema, 1)
     with world.session_factory() as session:
-        result = world.planner.erase_subject(session, "1")
+        result = world.planner.erase_subject(session, schema.subject_identity(1))
         session.commit()
     assert result.deleted == {name: schema.rows[name] for name in schema.row_deleted_tables}
     assert result.retained == {name: schema.rows[name] for name in schema.retain_tables}
@@ -130,7 +130,7 @@ def test_erasure_on_any_schema_is_idempotent(schema: GeneratedSchema) -> None:
     world = build_world(schema)
     seed_two_subjects(world, schema)
     with world.session_factory() as session:
-        world.planner.erase_subject(session, "1")
+        world.planner.erase_subject(session, schema.subject_identity(1))
         session.commit()
     with world.session_factory() as session:
         ids_after_first = {
@@ -140,7 +140,7 @@ def test_erasure_on_any_schema_is_idempotent(schema: GeneratedSchema) -> None:
         retained_after_first = retained_cells(session, schema, 1)
         subject_2_after_first = snapshot(session, schema, 2)
     with world.session_factory() as session:
-        rerun = world.planner.erase_subject(session, "1")
+        rerun = world.planner.erase_subject(session, schema.subject_identity(1))
         session.commit()
     assert all(count == 0 for count in rerun.deleted.values())
     assert rerun.retained == {name: schema.rows[name] for name in schema.retain_tables}

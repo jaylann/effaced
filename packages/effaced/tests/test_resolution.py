@@ -66,7 +66,7 @@ def test_subject_graph_rejects_duplicate_tables() -> None:
     with pytest.raises(ValidationError):
         SubjectGraph(
             subject_table="users",
-            subject_id_column="id",
+            subject_id_columns=("id",),
             accesses=(subject, subject),
         )
 
@@ -75,7 +75,7 @@ def test_subject_graph_requires_subject_access() -> None:
     with pytest.raises(ValidationError):
         SubjectGraph(
             subject_table="users",
-            subject_id_column="id",
+            subject_id_columns=("id",),
             accesses=(TableAccessPlan(table="invoices", hops=(hop("invoices", "users"),)),),
         )
 
@@ -84,7 +84,7 @@ def test_subject_graph_rejects_chain_ending_elsewhere() -> None:
     with pytest.raises(ValidationError):
         SubjectGraph(
             subject_table="users",
-            subject_id_column="id",
+            subject_id_columns=("id",),
             accesses=(
                 TableAccessPlan(table="users"),
                 TableAccessPlan(table="order_items", hops=(hop("order_items", "orders"),)),
@@ -95,7 +95,7 @@ def test_subject_graph_rejects_chain_ending_elsewhere() -> None:
 def test_subject_graph_unknown_access_raises() -> None:
     graph = SubjectGraph(
         subject_table="users",
-        subject_id_column="id",
+        subject_id_columns=("id",),
         accesses=(TableAccessPlan(table="users"),),
     )
     with pytest.raises(SubjectResolutionError, match="not in the subject graph"):
@@ -143,7 +143,7 @@ def graph(metadata: MetaData, orm_registry: registry) -> SubjectGraph:
 
 def test_subject_table_resolves_with_no_hops(graph: SubjectGraph) -> None:
     assert graph.subject_table == "users"
-    assert graph.subject_id_column == "id"
+    assert graph.subject_id_columns == ("id",)
     assert graph.access("users").hops == ()
     assert graph.access("users").is_subject_table
 
@@ -238,7 +238,7 @@ def test_many_to_many_path_raises(orm_registry: registry) -> None:
 
 def test_subject_id_column_on_non_subject_table_raises(orm_registry: registry) -> None:
     misplaced = TableEntry(
-        name="invoices", subject_link=SubjectLink(path="user", subject_id_column="uuid")
+        name="invoices", subject_link=SubjectLink(path="user", subject_id_columns=("uuid",))
     )
     with pytest.raises(SubjectResolutionError, match="only meaningful on the subject table"):
         resolve_subject_graph(DataMap(tables=(USERS, misplaced)), orm_registry)
@@ -246,7 +246,7 @@ def test_subject_id_column_on_non_subject_table_raises(orm_registry: registry) -
 
 def test_unknown_subject_id_column_raises(orm_registry: registry) -> None:
     bad_subject = TableEntry(
-        name="users", subject_link=SubjectLink(path="", subject_id_column="uuid")
+        name="users", subject_link=SubjectLink(path="", subject_id_columns=("uuid",))
     )
     with pytest.raises(SubjectResolutionError, match="has no column"):
         resolve_subject_graph(DataMap(tables=(bad_subject,)), orm_registry)

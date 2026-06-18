@@ -237,7 +237,7 @@ def test_uninterpretable_id_column_type_passes_subject_id_through() -> None:
     )
     graph = SubjectGraph(
         subject_table="members",
-        subject_id_column="id",
+        subject_id_columns=("id",),
         accesses=(TableAccessPlan(table="members"),),
     )
     engine = create_engine("sqlite://", poolclass=StaticPool)

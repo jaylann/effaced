@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
+from effaced.annotations import canonical_subject_id
 from effaced.audit.event import AuditEvent
 from effaced.audit.event_type import AuditEventType
 from effaced.categories import ErasureStrategy
@@ -24,6 +25,7 @@ from effaced.saga.backoff_policy import BackoffPolicy
 from effaced.saga.outbox_operation import OutboxOperation
 
 if TYPE_CHECKING:
+    from effaced.annotations import SubjectIdentifier
     from effaced.audit import AuditSink
     from effaced.resolvers import ResolverRegistry
     from effaced.saga.abandoned_hook import AbandonedHook
@@ -288,7 +290,7 @@ class SagaRunner:
             return
         signal = AbandonedSignal(
             entry_id=entry.entry_id,
-            subject_id=entry.subject_id,
+            subject_id=canonical_subject_id(entry.subject_id),
             resolver=entry.resolver,
             operation=entry.operation,
             attempts=entry.attempts,
@@ -308,19 +310,20 @@ class SagaRunner:
 
 def _event(
     event_type: AuditEventType,
-    subject_id: str,
+    subject_id: SubjectIdentifier,
     payload: dict[str, str | int | bool],
 ) -> AuditEvent:
     """One audit event for this saga step, stamped now (UTC).
 
     Payloads carry exception class names only, never messages — provider
     errors embed identifiers, and the trail must stay PII-free. Corrected
-    values never appear in any event.
+    values never appear in any event. The subject reference is the
+    identifier's canonical string (ADR 0025).
     """
     return AuditEvent(
         event_id=uuid4(),
         event_type=event_type,
-        subject_ref=subject_id,
+        subject_ref=canonical_subject_id(subject_id),
         occurred_at=datetime.now(UTC),
         payload=payload,
     )

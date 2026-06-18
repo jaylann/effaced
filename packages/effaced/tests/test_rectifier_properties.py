@@ -82,7 +82,7 @@ def test_rectification_never_bleeds_across_subjects(schema: GeneratedSchema, val
         session.commit()
     with world.session_factory() as session:
         before = all_rows(session, schema)
-        world.rectifier.rectify_subject(session, "1", corrections)
+        world.rectifier.rectify_subject(session, schema.subject_identity(1), corrections)
         session.commit()
     with world.session_factory() as session:
         after = all_rows(session, schema)
@@ -110,12 +110,12 @@ def test_rectification_is_convergent(schema: GeneratedSchema, value: str) -> Non
         schema.seed(session, 1)
         session.commit()
     with world.session_factory() as session:
-        first = world.rectifier.rectify_subject(session, "1", corrections)
+        first = world.rectifier.rectify_subject(session, schema.subject_identity(1), corrections)
         session.commit()
     with world.session_factory() as session:
         state_after_first = all_rows(session, schema)
     with world.session_factory() as session:
-        second = world.rectifier.rectify_subject(session, "1", corrections)
+        second = world.rectifier.rectify_subject(session, schema.subject_identity(1), corrections)
         session.commit()
     with world.session_factory() as session:
         state_after_second = all_rows(session, schema)

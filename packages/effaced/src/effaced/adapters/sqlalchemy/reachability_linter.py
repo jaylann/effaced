@@ -111,12 +111,15 @@ def _subject_id_findings(
         )
         return
     link = subject.subject_link
-    if link is not None and link.subject_id_column not in mapper.local_table.columns:
+    if link is None:
+        return
+    missing = [name for name in link.subject_id_columns if name not in mapper.local_table.columns]
+    if missing:
         yield ReachabilityFinding(
             table=subject.name,
             reason=(
-                f"subject table {subject.name!r} has no column "
-                f"{link.subject_id_column!r} (declared subject_id_column)"
+                f"subject table {subject.name!r} has no column(s) {missing!r} "
+                f"(declared subject_id_columns)"
             ),
         )
 

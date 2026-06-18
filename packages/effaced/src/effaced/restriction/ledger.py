@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
+from effaced.annotations import canonical_subject_id
 from effaced.audit.event import AuditEvent
 from effaced.audit.event_type import AuditEventType
 from effaced.restriction.record import RestrictionRecord
@@ -13,6 +14,7 @@ if TYPE_CHECKING:
     from sqlalchemy import Table
     from sqlalchemy.orm import Session
 
+    from effaced.annotations import SubjectIdentifier
     from effaced.audit.sink import AuditSink
 
 
@@ -71,13 +73,15 @@ class RestrictionLedger:
             AuditEvent(
                 event_id=uuid4(),
                 event_type=event_type,
-                subject_ref=record.subject_id,
+                subject_ref=canonical_subject_id(record.subject_id),
                 occurred_at=record.recorded_at,
                 payload=payload,
             )
         )
 
-    def status(self, session: Session, subject_id: str, purpose: str | None = None) -> bool:
+    def status(
+        self, session: Session, subject_id: SubjectIdentifier, purpose: str | None = None
+    ) -> bool:
         """Whether the subject's processing is currently restricted.
 
         Derived, never stored. The answer considers two events: the latest
@@ -110,7 +114,9 @@ class RestrictionLedger:
             return False
         return self._latest_scope_restricted(session, subject_id, purpose)
 
-    def history(self, session: Session, subject_id: str) -> tuple[RestrictionRecord, ...]:
+    def history(
+        self, session: Session, subject_id: SubjectIdentifier
+    ) -> tuple[RestrictionRecord, ...]:
         """Every restriction event for one subject, oldest first.
 
         Equal ``recorded_at`` values order by ``record_id``. Records come
@@ -122,7 +128,8 @@ class RestrictionLedger:
 
         Args:
             session: An open database session.
-            subject_id: Whose history to read.
+            subject_id: Whose history to read (single-column ``str`` or
+                composite :class:`~effaced.CompositeSubjectId`).
 
         Returns:
             The full, unredacted event sequence.
@@ -130,7 +137,7 @@ class RestrictionLedger:
         columns = self._restriction_records.c
         statement = (
             self._restriction_records.select()
-            .where(columns.subject_id == subject_id)
+            .where(columns.subject_id == canonical_subject_id(subject_id))
             .order_by(columns.recorded_at.asc(), columns.record_id.asc())
         )
         rows = session.execute(statement).mappings()
@@ -147,14 +154,18 @@ class RestrictionLedger:
         )
 
     def _latest_scope_restricted(
-        self, session: Session, subject_id: str, purpose: str | None
+        self, session: Session, subject_id: SubjectIdentifier, purpose: str | None
     ) -> bool:
-        """The ``restricted`` flag of one scope's latest record; restricted wins ties."""
+        """The ``restricted`` flag of one scope's latest record; restricted wins ties.
+
+        The subject id is canonicalized so a composite key reads back the
+        rows its canonical string was stored under (ADR 0025).
+        """
         columns = self._restriction_records.c
         scope = columns.purpose.is_(None) if purpose is None else columns.purpose == purpose
         statement = (
             self._restriction_records.select()
-            .where(columns.subject_id == subject_id, scope)
+            .where(columns.subject_id == canonical_subject_id(subject_id), scope)
             .order_by(
                 columns.recorded_at.desc(), columns.restricted.desc(), columns.record_id.desc()
             )
