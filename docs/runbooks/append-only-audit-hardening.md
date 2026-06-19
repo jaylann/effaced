@@ -9,6 +9,21 @@ If your threat model includes writers outside effaced, add a Postgres
 trigger that rejects mutation at the database itself. This is optional
 hardening of the mechanism — not a compliance determination.
 
+These are complementary, defence-in-depth layers:
+
+- The **hash chain** (ADR 0028, computed by default in `DatabaseAuditSink`)
+  *detects* that a recorded row was modified out of band — each row hashes
+  its content chained to the prior row's hash, and
+  `AuditChainVerifier(...).verify()` recomputes the chain and reports the
+  first break. It does **not** prevent modification: a writer with table
+  access can recompute the chain forward from the row they edit.
+- The **trigger** below *rejects* `UPDATE`/`DELETE` at the database, so the
+  mutation never lands. It can be dropped by a table owner or superuser.
+
+Run both: the trigger raises the bar to rewriting history, the chain makes a
+modification that gets past it (or past a dropped trigger) detectable.
+Verification reads the trail only and writes nothing.
+
 ## Trigger
 
 ```sql
@@ -48,3 +63,14 @@ def downgrade() -> None:
 - Retention of the trail itself (e.g. pruning very old events) then
   requires deliberately dropping the trigger in a migration — which is
   exactly the kind of explicit, reviewable step you want.
+- The hash chain links each row to the one before it. The per-append
+  transaction is the serialization point; under genuinely concurrent
+  appenders two rows may legitimately chain to the same predecessor, which
+  `AuditChainVerifier` reports as a fork (surfaced, never silently healed).
+  The single-writer erasure/consent path is already linear; deployments that
+  want a strictly linear chain serialize their audit writes (one writer, or a
+  Postgres advisory lock around `append`).
+- Rows written before this release, or by a custom sink that does not compute
+  the chain, carry `NULL` hashes; `AuditChainVerifier` treats them as an
+  unchained prefix and verifies from the first row that has a hash — a `NULL`
+  hash is absence of evidence, never evidence of tampering.

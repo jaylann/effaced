@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from effaced.audit.event import AuditEvent
 from effaced.audit.event_type import AuditEventType
+from effaced.audit.hash_chain import compute_event_hash
 from effaced.exceptions import AuditIntegrityError, ConfigurationError
 
 if TYPE_CHECKING:
@@ -25,6 +26,11 @@ class DatabaseAuditSink:
     0006), so an event survives even when the caller's surrounding
     transaction later rolls back — audit evidence is never lost to an
     unrelated failure.
+
+    Each appended row also carries a tamper-evidence hash chain (ADR 0028):
+    its ``event_hash`` binds its content to the prior row's hash, so an
+    out-of-band edit of any recorded row is *detectable* (not *prevented*) by
+    :class:`~effaced.AuditChainVerifier`.
     """
 
     def __init__(
@@ -44,16 +50,36 @@ class DatabaseAuditSink:
         self._audit_events = audit_events
 
     def append(self, event: AuditEvent) -> None:
-        """Durably append one event (insert-only).
+        """Durably append one event (insert-only), extending the hash chain.
 
         Commits immediately in a transaction of its own. A duplicate
         ``event_id`` raises the database's integrity error — an existing
         row is never overwritten.
 
+        Within that same transaction the prior chained row's ``event_hash``
+        is read (the row with the greatest ``occurred_at``, ``event_id``
+        tiebreak — the same total order :meth:`read` uses) and this event's
+        ``prior_hash``/``event_hash`` are computed and written, so the chain
+        extends atomically with the insert (ADR 0028). The per-append
+        transaction is the serialization point; under genuinely concurrent
+        appends two rows may chain to the same predecessor, which
+        :class:`~effaced.AuditChainVerifier` reports as a fork — surfaced,
+        never silently healed.
+
         Args:
             event: The event to persist.
         """
         with self._session_factory.begin() as session:
+            columns = self._audit_events.c
+            prior_statement = (
+                self._audit_events.select()
+                .with_only_columns(columns.event_hash)
+                .where(columns.event_hash.isnot(None))
+                .order_by(columns.occurred_at.desc(), columns.event_id.desc())
+                .limit(1)
+            )
+            prior_hash = session.execute(prior_statement).scalars().first()
+            event_hash = compute_event_hash(event, prior_hash)
             session.execute(
                 self._audit_events.insert().values(
                     event_id=event.event_id,
@@ -61,6 +87,8 @@ class DatabaseAuditSink:
                     subject_ref=event.subject_ref,
                     occurred_at=event.occurred_at,
                     payload=dict(event.payload),
+                    prior_hash=prior_hash,
+                    event_hash=event_hash,
                 )
             )
 

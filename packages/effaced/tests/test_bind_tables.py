@@ -81,11 +81,16 @@ def test_audit_events_columns_mirror_model() -> None:
         "subject_ref",
         "occurred_at",
         "payload",
+        "prior_hash",
+        "event_hash",
     }
     assert [c.name for c in table.primary_key.columns] == ["event_id"]
     for name in ("event_type", "subject_ref", "occurred_at", "payload"):
         assert table.columns[name].nullable is False
     assert table.columns["occurred_at"].type.timezone  # type: ignore[attr-defined]
+    # ADR 0028: hash-chain columns are nullable (unchained legacy rows carry NULL)
+    assert table.columns["prior_hash"].nullable is True
+    assert table.columns["event_hash"].nullable is True
 
 
 def test_consent_records_has_surrogate_uuid_pk_and_no_unique_constraint() -> None:

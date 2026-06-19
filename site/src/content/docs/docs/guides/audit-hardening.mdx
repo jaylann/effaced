@@ -1,6 +1,6 @@
 ---
 title: Hardening the audit trail
-description: Make effaced's append-only audit table append-only at the Postgres layer too, with a trigger and restricted grants.
+description: Detect out-of-band rewrites with the audit hash chain, and enforce append-only at the Postgres layer with a trigger and restricted grants.
 sidebar:
   order: 3
 ---
@@ -21,6 +21,50 @@ This is optional hardening of the mechanism — not a compliance
 determination. Whether your obligations require tamper-resistance at this
 layer is a question for your process, not the library.
 :::
+
+## The hash chain detects rewrites
+
+`DatabaseAuditSink` chains every appended row to the one before it: each
+row stores the SHA-256 hash of its own content together with the prior
+row's hash (`prior_hash` and `event_hash` columns). Editing, deleting, or
+reordering any recorded row changes its recomputed hash and breaks every
+later link, so recomputing the chain reveals exactly where history was
+modified out of band.
+
+`AuditChainVerifier` does the recomputation — it reads the trail, rebuilds
+the chain, and returns a verdict:
+
+```python
+from effaced import AuditChainVerifier, bind_tables
+
+tables = bind_tables(metadata)
+verifier = AuditChainVerifier(session_factory, tables.audit_events)
+
+verdict = verifier.verify()
+if not verdict.verified:
+    # verdict.first_broken_event_id names the earliest modified row
+    alert(f"audit chain broken at {verdict.first_broken_event_id}")
+```
+
+Verification reads only — it writes nothing and appends no event.
+
+:::caution
+The chain **detects** that a recorded row was modified; it does **not
+prevent** modification. A writer with table access can recompute the chain
+forward from any row they edit. Pair it with the trigger below (which
+rejects the write) and restricted grants for defence in depth.
+:::
+
+Rows written before this feature shipped — or by a custom sink that does
+not compute the chain — carry `NULL` hashes. The verifier treats them as
+an *unchained prefix*: it skips them and verifies from the first row that
+has a hash. A missing hash is absence of evidence, never evidence of
+tampering, so an un-upgraded trail never reads as broken.
+
+The two nullable columns are an additive owned-table change: after
+upgrading, re-run `alembic revision --autogenerate` (see the
+[Alembic migrations guide](../alembic-migrations/)) and apply the
+generated `ADD COLUMN`s like any other revision.
 
 ## A trigger that rejects rewrites
 

@@ -44,7 +44,15 @@ from effaced.annotations import (
     canonical_subject_id,
     parse_canonical,
 )
-from effaced.audit import AuditEvent, AuditEventType, AuditSink, DatabaseAuditSink
+from effaced.audit import (
+    AuditChainVerifier,
+    AuditEvent,
+    AuditEventType,
+    AuditSink,
+    ChainVerification,
+    DatabaseAuditSink,
+    compute_event_hash,
+)
 from effaced.categories import ErasureStrategy, LegalBasis, PiiCategory
 from effaced.consent import ConsentLedger, ConsentRecord
 from effaced.erasure import (
@@ -128,11 +136,13 @@ __all__ = [
     "AbandonedSignal",
     "AnonymizationError",
     "AttestingResolver",
+    "AuditChainVerifier",
     "AuditEvent",
     "AuditEventType",
     "AuditIntegrityError",
     "AuditSink",
     "BackoffPolicy",
+    "ChainVerification",
     "ColumnEntry",
     "CompletenessFinding",
     "CompositeSubjectId",
@@ -215,6 +225,7 @@ __all__ = [
     "bind_tables",
     "canonical_subject_id",
     "collect_data_map",
+    "compute_event_hash",
     "default_surrogate_registry",
     "fk_safe_deletion_order",
     "lint_completeness",
