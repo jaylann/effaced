@@ -31,6 +31,7 @@ from effaced.adapters.sqlalchemy.resolution import (
 )
 from effaced.adapters.sqlalchemy.sql_status_counts_source import SqlStatusCountsSource
 from effaced.adapters.sqlalchemy.storage import EffacedTables, bind_tables
+from effaced.adapters.sqlalchemy.subject_erasure_lock import SubjectErasureLock
 
 __all__ = [
     "INFO_KEY",
@@ -41,6 +42,7 @@ __all__ = [
     "LintTarget",
     "RectificationExecutor",
     "SqlStatusCountsSource",
+    "SubjectErasureLock",
     "SurrogateRegistry",
     "bind_tables",
     "collect_data_map",
