@@ -37,7 +37,15 @@ curl 'localhost:8000/me/export' -H 'X-User-Id: 1'
 curl -X DELETE 'localhost:8000/me' -H 'X-User-Id: 1'
 ```
 
-The `X-User-Id` header stands in for your real auth dependency.
+The `X-User-Id` header is a **DEMO ONLY — INSECURE** stand-in: it trusts
+whatever id the caller writes, so any caller could export or erase any
+subject (an IDOR). The router authorizes nothing by design (ADR 0020) —
+your `subject` dependency is the only access control. `app.py` mounts the
+same router a second time at `/secure/me` behind `secure_subject`, which
+derives the subject from a verified bearer token and rejects a forged one;
+copy that, not the header. See the package
+[README's security note](../../packages/effaced-fastapi/README.md) and
+[SECURITY.md](../../SECURITY.md).
 
 ## Configuration
 

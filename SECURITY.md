@@ -24,6 +24,10 @@ Please do not open public issues for vulnerabilities. You'll get an acknowledgem
 - Non-idempotent resolver behaviour that double-executes external effects
 - Classic issues: injection, secrets leakage, dependency CVEs
 
+## The fastapi router performs no authorization
+
+The `effaced-fastapi` router authenticates no one and authorizes nothing (ADR 0020): it exports or erases exactly the `Subject` your dependency returns. **Your `subject` dependency MUST prove the authenticated caller is that subject (or is authorized to act on it).** Resolve the subject from a verified session or token, not from a caller-supplied identifier — otherwise any caller can export or erase any subject (an insecure direct object reference, IDOR). This is a property of the integrating application's auth dependency, not a defect in effaced; the quickstart's `X-User-Id` header is a labelled stand-in, not a pattern to copy.
+
 ## Disclosure
 
 Fixes ship in a patch release with a prominent **Security** section in the changelog — loudly, not buried. Credits given unless you prefer otherwise.
