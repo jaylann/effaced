@@ -137,10 +137,27 @@ class EffacedFastAPI:
         application owns — call :meth:`effaced.Rectifier.rectify_subject`
         from your own route.
 
+        .. warning::
+           **The router authorizes nothing — your ``subject`` dependency
+           is the only access control.** It authenticates no one and never
+           checks that the caller may act on the resolved subject (ADR
+           0020): it exports or erases exactly the
+           :class:`~effaced_fastapi.Subject` the dependency returns. If
+           that dependency reads an identifier the caller supplies
+           (a header, path, query, or body field) without proving the
+           authenticated caller *is* that subject — or is authorized to
+           act on it — any caller can export or erase any subject (an
+           insecure direct object reference). Resolve the subject from a
+           verified session or token, and reject a request whose claimed
+           subject does not match it.
+
         Args:
             subject: Dependency resolving the request's
                 :class:`~effaced_fastapi.Subject` — your auth decides who
-                the subject is and which external refs they carry.
+                the subject is and which external refs they carry. It is
+                the trust boundary: it must prove the authenticated caller
+                is (or may act on) the subject it returns (see the warning
+                above).
             session: Per-router override of :attr:`session_dependency`.
             restriction: Also expose ``POST /restriction`` and
                 ``GET /restriction`` (Art. 18 flag-keeping, ADR 0014).
