@@ -75,6 +75,18 @@ def test_secure_subject_rejects_a_forged_caller(monkeypatch: pytest.MonkeyPatch)
     assert subject.subject_id == "1"
 
 
+def test_secure_subject_accepts_a_dotted_subject_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A dotted subject id (an email) verifies — the signature is the last segment.
+
+    Subject ids routinely contain dots; the token splits off the trailing
+    signature with rpartition, so the id keeps its internal dots and a
+    legitimate dotted subject is not falsely rejected.
+    """
+    module = _fresh_import(monkeypatch)
+    subject = module.secure_subject(_bearer(module, "alice@example.com"))
+    assert subject.subject_id == "alice@example.com"
+
+
 def _assert_consent_recorded(client: TestClient, module: ModuleType) -> None:
     """Trigger point 1: consent (Art. 7)."""
     response = client.post(

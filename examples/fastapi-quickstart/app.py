@@ -87,9 +87,12 @@ SESSION_SECRET = os.environ.get("SESSION_SECRET", "demo-secret-change-me").encod
 
 def _verify_session_token(token: str) -> str:
     """Return the user id a valid token attests to, else reject the request."""
-    user_id, _, signature = token.partition(".")
+    # rpartition, not partition: the signature is the LAST segment, and a subject
+    # id routinely contains dots (an email, a composite key), so splitting on the
+    # first dot would corrupt the user_id and 401 a legitimate dotted subject.
+    user_id, sep, signature = token.rpartition(".")
     expected = hmac.new(SESSION_SECRET, user_id.encode(), hashlib.sha256).hexdigest()
-    if not user_id or not hmac.compare_digest(signature, expected):
+    if not sep or not user_id or not hmac.compare_digest(signature, expected):
         raise HTTPException(status_code=401, detail="invalid session token")
     return user_id
 
