@@ -298,12 +298,16 @@ class SagaRunner:
     def _record_verification(self, entry: OutboxEntry, verification: ResolverVerification) -> None:
         """Audit one independent post-erasure read-back verdict (ADR 0027).
 
-        Appended after the erase is already settled, so it is additional
-        trail over a terminal success: ``ERASURE_EXTERNAL_VERIFIED`` when the
-        read-back confirmed absence, ``ERASURE_EXTERNAL_VERIFICATION_FAILED``
-        when the subject was still present despite the resolver's reported
-        success. A negative verdict is recorded loudly but never reverts the
-        erase or re-opens the entry.
+        Appended *after* the erase is already durably ``SUCCEEDED``, so it is
+        additional trail over a terminal success — never the audit-before-
+        status append the rest of the runner relies on. Unlike those, a sink
+        failure here must not corrupt or block the settled erase: it is
+        isolated so the verdict simply goes unrecorded this run (a later
+        claim can re-observe a still-present subject), and settlement of the
+        rest of the batch proceeds. ``BaseException`` (cancellation) still
+        propagates. ``ERASURE_EXTERNAL_VERIFIED`` records confirmed absence,
+        ``ERASURE_EXTERNAL_VERIFICATION_FAILED`` a subject still present
+        despite the reported success — neither reverts the erase.
         """
         payload: dict[str, str | int | bool] = {
             "target": entry.resolver,
@@ -316,7 +320,8 @@ class SagaRunner:
             if verification.confirmed_absent
             else AuditEventType.ERASURE_EXTERNAL_VERIFICATION_FAILED
         )
-        self._audit.append(_event(event_type, entry.subject_id, payload))
+        with contextlib.suppress(Exception):
+            self._audit.append(_event(event_type, entry.subject_id, payload))
 
     def _park(self, entry: OutboxEntry, *, expires_at: datetime) -> None:
         """Audit the scheduled expiry, then park the entry until the horizon.

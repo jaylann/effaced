@@ -17,6 +17,7 @@ from sqlalchemy.pool import StaticPool
 from effaced import (
     AbandonedHook,
     AbandonedSignal,
+    AuditEvent,
     AuditEventType,
     BackoffPolicy,
     Correction,
@@ -570,6 +571,63 @@ def test_raising_verification_is_isolated_from_the_settled_erase(
     assert events_of(harness, AuditEventType.ERASURE_STEP_SUCCEEDED) != []
     assert events_of(harness, AuditEventType.ERASURE_EXTERNAL_VERIFIED) == []
     assert events_of(harness, AuditEventType.ERASURE_EXTERNAL_VERIFICATION_FAILED) == []
+
+
+def test_verification_audits_per_entry_around_one_completion(harness: RunnerHarness) -> None:
+    """Two entries for one subject each verify; one completion fires for the subject."""
+    harness.registry.register(VerifyScriptedResolver("stripe"))
+    seed(harness, entry(1), entry(2))  # same subject
+
+    assert asyncio.run(runner(harness).run_once()) == 2
+
+    assert all(
+        row["status"] == OutboxStatus.SUCCEEDED.value for row in rows_by_id(harness).values()
+    )
+    assert len(events_of(harness, AuditEventType.ERASURE_EXTERNAL_VERIFIED)) == 2
+    assert events_of(harness, AuditEventType.ERASURE_COMPLETED) == [{}]
+
+
+class VerificationSinkOutage(RecordingAuditSink):
+    """A sink that records every event except the external-verification ones.
+
+    Models a sink outage scoped to the additional verification trail: those
+    appends raise, every other append still lands. Proves the verification
+    append is isolated — its failure must not abort settlement of the batch.
+    """
+
+    def append(self, event: AuditEvent) -> None:
+        if event.event_type in (
+            AuditEventType.ERASURE_EXTERNAL_VERIFIED,
+            AuditEventType.ERASURE_EXTERNAL_VERIFICATION_FAILED,
+        ):
+            msg = "audit sink unreachable for the verification append"
+            raise RuntimeError(msg)
+        super().append(event)
+
+
+def test_verification_append_failure_does_not_abort_batch_settlement(
+    harness: RunnerHarness,
+) -> None:
+    """A sink outage on the verification trail leaves every entry SUCCEEDED."""
+    sink = VerificationSinkOutage()
+    harness.registry.register(VerifyScriptedResolver("stripe"))
+    seed(harness, entry(1), entry(2, subject_id="2"))
+
+    saga = SagaRunner(harness.registry, harness.outbox, sink, backoff=BACKOFF)
+    assert asyncio.run(saga.run_once()) == 2
+
+    # Both entries settled despite the verification append raising for each.
+    assert all(
+        row["status"] == OutboxStatus.SUCCEEDED.value for row in rows_by_id(harness).values()
+    )
+    # The settled-success trail still landed; only the verification trail was lost.
+    step_succeeded = [
+        e for e in sink.events if e.event_type is AuditEventType.ERASURE_STEP_SUCCEEDED
+    ]
+    assert len(step_succeeded) == 2
+    assert [
+        e for e in sink.events if e.event_type is AuditEventType.ERASURE_EXTERNAL_VERIFIED
+    ] == []
 
 
 # --- abandonment hook (#108) -------------------------------------------------
