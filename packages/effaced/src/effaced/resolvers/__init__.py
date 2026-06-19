@@ -16,6 +16,8 @@ from effaced.resolvers.scheduled_erasure import ResolverScheduledErasure
 from effaced.resolvers.spec import ResolverSpec
 from effaced.resolvers.spec_outcome import SpecOutcome
 from effaced.resolvers.surface_exclusion import SurfaceExclusion
+from effaced.resolvers.verification import ResolverVerification
+from effaced.resolvers.verifying import VerifyingResolver
 
 __all__ = [
     "AttestingResolver",
@@ -30,8 +32,10 @@ __all__ = [
     "ResolverRegistry",
     "ResolverScheduledErasure",
     "ResolverSpec",
+    "ResolverVerification",
     "RetentionOnlyResolver",
     "SpecOutcome",
     "SurfaceExclusion",
+    "VerifyingResolver",
     "registry_from_settings",
 ]

@@ -24,7 +24,9 @@ from effaced.resolvers import (
     ResolverExport,
     ResolverRectification,
     ResolverScheduledErasure,
+    ResolverVerification,
     RetentionOnlyResolver,
+    VerifyingResolver,
 )
 
 if TYPE_CHECKING:
@@ -68,6 +70,15 @@ class ResolverConformanceSuite:
     enumeration direction — every declared field is reachable; that test
     skips while the hook returns ``None``. The whole section skips for a
     resolver that does not attest a surface.
+
+    Resolvers implementing the optional
+    :class:`~effaced.VerifyingResolver` capability (ADR 0027) get the
+    post-erasure verification section: override
+    :meth:`make_verifying_resolver` and the suite proves ``verify_absent``
+    reports a held subject present (``confirmed_absent=False``) and an
+    erased one gone (``confirmed_absent=True``). The section skips while the
+    hook returns ``None`` or the resolver does not implement
+    ``verify_absent``.
     """
 
     def make_resolver(self) -> Resolver:
@@ -120,6 +131,18 @@ class ResolverConformanceSuite:
         the enumeration direction: the declared surface contains no field
         the resolver can never emit. Skips while this returns ``None`` or
         the resolver does not attest a surface.
+        """
+        return None
+
+    def make_verifying_resolver(self) -> Resolver | None:
+        """A resolver implementing the optional ``verify_absent`` (ADR 0027).
+
+        Build the system holding the subject behind
+        :meth:`make_present_ref` — the suite proves ``verify_absent``
+        confirms absence after an erase and reports the subject still
+        present (``confirmed_absent=False``) before one. Skips while this
+        returns ``None`` or the resolver does not implement
+        :class:`~effaced.VerifyingResolver`.
         """
         return None
 
@@ -365,3 +388,28 @@ class ResolverConformanceSuite:
                 fnmatch(record.field, covered.field) and record.category == covered.category
                 for record in export.records
             ), f"declared {covered.field} ({covered.category}) is matched by no record"
+
+    def _verifying_resolver(self) -> VerifyingResolver:
+        """The post-erasure verification tests' resolver, or a skip (ADR 0027)."""
+        resolver = self.make_verifying_resolver()
+        if resolver is None:
+            pytest.skip("resolver package provides no verifying-resolver hook")
+        if not isinstance(resolver, VerifyingResolver):
+            pytest.skip("resolver does not implement verify_absent")
+        return resolver
+
+    def test_verify_absent_of_present_subject(self) -> None:
+        """A held subject is reported present — verification is honest both ways."""
+        resolver = self._verifying_resolver()
+        outcome = self._run(resolver.verify_absent(self.make_present_ref()))
+        assert isinstance(outcome, ResolverVerification)
+        assert outcome.resolver == resolver.name
+        assert outcome.confirmed_absent is False
+
+    def test_verify_absent_after_erase_confirms(self) -> None:
+        """After an erase, the independent read-back confirms the subject is gone."""
+        resolver = self._verifying_resolver()
+        ref = self.make_present_ref()
+        self._run(resolver.erase_subject(ref))
+        outcome = self._run(resolver.verify_absent(ref))
+        assert outcome.confirmed_absent is True

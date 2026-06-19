@@ -46,6 +46,9 @@ class TestInMemoryResolverConformance(ResolverConformanceSuite):
     def make_fully_populated_resolver(self) -> InMemoryResolver:
         return InMemoryResolver(records={PRESENT: RECORDS})
 
+    def make_verifying_resolver(self) -> InMemoryResolver:
+        return InMemoryResolver(records={PRESENT: RECORDS})
+
 
 class _HooklessSuite(ResolverConformanceSuite):
     """Implements only the required hooks; fault hooks stay None."""
@@ -161,6 +164,49 @@ def test_attesting_suite_asserts_subset_exclusions_and_enumeration():
     suite.test_export_stays_within_the_declared_surface()
     suite.test_declared_exclusions_never_appear_in_exports()
     suite.test_fully_populated_export_enumerates_the_declared_surface()
+
+
+# --- post-erasure verification (ADR 0027) --------------------------------------
+
+VERIFYING_TESTS = (
+    "test_verify_absent_of_present_subject",
+    "test_verify_absent_after_erase_confirms",
+)
+
+
+class _VerifyingSuite(_HooklessSuite):
+    """The InMemoryResolver verifies, so the verification section runs."""
+
+    def make_verifying_resolver(self) -> InMemoryResolver:
+        return InMemoryResolver(records={PRESENT: RECORDS})
+
+
+class _NonVerifyingSuite(_HooklessSuite):
+    """Provides a verifying hook, but the resolver has no verify_absent."""
+
+    def make_verifying_resolver(self) -> _ErasureOnlyResolver:  # type: ignore[override]
+        return _ErasureOnlyResolver()
+
+
+def test_verification_tests_skip_without_a_verifying_hook():
+    """The verification section skips while no verifying fixture is provided."""
+    for test_name in VERIFYING_TESTS:
+        with pytest.raises(pytest.skip.Exception):
+            getattr(_HooklessSuite(), test_name)()
+
+
+@pytest.mark.parametrize("test_name", VERIFYING_TESTS)
+def test_verification_tests_skip_for_a_non_verifying_resolver(test_name: str):
+    """Capability absence is an honest answer — the suite skips, never fails."""
+    with pytest.raises(pytest.skip.Exception):
+        getattr(_NonVerifyingSuite(), test_name)()
+
+
+def test_verifying_suite_confirms_absence_after_erase_and_presence_before():
+    """A verifying fake passes both directions on real records."""
+    suite = _VerifyingSuite()
+    suite.test_verify_absent_of_present_subject()
+    suite.test_verify_absent_after_erase_confirms()
 
 
 # --- retention-only reference fake (ADR 0018) ----------------------------------

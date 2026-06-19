@@ -17,6 +17,7 @@ from sqlalchemy.pool import StaticPool
 from effaced import (
     AbandonedHook,
     AbandonedSignal,
+    AuditEvent,
     AuditEventType,
     BackoffPolicy,
     Correction,
@@ -31,6 +32,7 @@ from effaced import (
     ResolverExport,
     ResolverRectification,
     ResolverRegistry,
+    ResolverVerification,
     SagaRunner,
     SubjectRef,
     bind_tables,
@@ -448,6 +450,184 @@ def test_already_consistent_is_success(harness: RunnerHarness) -> None:
     assert rows_by_id(harness)[UUID(int=1)]["status"] == OutboxStatus.SUCCEEDED.value
     (payload,) = events_of(harness, AuditEventType.RECTIFICATION_STEP_SUCCEEDED)
     assert payload["already_consistent"] is True
+
+
+# --- post-erasure verification (ADR 0027) ------------------------------------
+
+
+class VerifyScriptedResolver(ScriptedResolver):
+    """A scripted resolver that also implements the ``verify_absent`` read-back.
+
+    ``confirmed`` controls the read-back verdict: ``True`` mimics a provider
+    whose delete took effect, ``False`` a provider that reported success but
+    still holds the record (the discrepancy ADR 0027 audits).
+    """
+
+    def __init__(
+        self,
+        name: str,
+        script: tuple[ResolverErasure | Exception, ...] = (),
+        *,
+        confirmed: bool = True,
+    ) -> None:
+        super().__init__(name, script)
+        self._confirmed = confirmed
+        self.verify_calls: list[SubjectRef] = []
+
+    async def verify_absent(self, ref: SubjectRef) -> ResolverVerification:
+        self.verify_calls.append(ref)
+        return ResolverVerification(resolver=self.name, confirmed_absent=self._confirmed)
+
+
+def test_verifying_resolver_audits_external_verified_after_success(
+    harness: RunnerHarness,
+) -> None:
+    """A verifying resolver re-queries after the erase and audits the verdict."""
+    resolver = VerifyScriptedResolver("stripe")
+    harness.registry.register(resolver)
+    seed(harness, entry(1))
+
+    assert asyncio.run(runner(harness).run_once()) == 1
+
+    assert rows_by_id(harness)[UUID(int=1)]["status"] == OutboxStatus.SUCCEEDED.value
+    ((ref),) = resolver.verify_calls
+    assert ref.value == "cus_1"
+    (payload,) = events_of(harness, AuditEventType.ERASURE_EXTERNAL_VERIFIED)
+    assert payload == {
+        "target": "stripe",
+        "external": True,
+        "confirmed_absent": True,
+        "attempts": 1,
+    }
+    assert events_of(harness, AuditEventType.ERASURE_EXTERNAL_VERIFICATION_FAILED) == []
+
+
+def test_verification_event_follows_the_step_success_and_completion(
+    harness: RunnerHarness,
+) -> None:
+    """The verification verdict is additional trail after the settled success."""
+    harness.registry.register(VerifyScriptedResolver("stripe"))
+    seed(harness, entry(1))
+
+    asyncio.run(runner(harness).run_once())
+
+    types = [e.event_type for e in harness.sink.events]
+    assert types == [
+        AuditEventType.ERASURE_STEP_SUCCEEDED,
+        AuditEventType.ERASURE_COMPLETED,
+        AuditEventType.ERASURE_EXTERNAL_VERIFIED,
+    ]
+
+
+def test_negative_verification_is_audited_but_does_not_revert_the_erase(
+    harness: RunnerHarness,
+) -> None:
+    """A still-present subject audits the discrepancy; the entry stays SUCCEEDED."""
+    resolver = VerifyScriptedResolver("stripe", confirmed=False)
+    harness.registry.register(resolver)
+    seed(harness, entry(1))
+
+    assert asyncio.run(runner(harness).run_once()) == 1
+
+    assert rows_by_id(harness)[UUID(int=1)]["status"] == OutboxStatus.SUCCEEDED.value
+    (payload,) = events_of(harness, AuditEventType.ERASURE_EXTERNAL_VERIFICATION_FAILED)
+    assert payload["confirmed_absent"] is False
+    assert events_of(harness, AuditEventType.ERASURE_EXTERNAL_VERIFIED) == []
+    # The completion still fired — a negative verification never blocks it.
+    assert events_of(harness, AuditEventType.ERASURE_COMPLETED) == [{}]
+
+
+def test_non_verifying_resolver_emits_no_verification_event(harness: RunnerHarness) -> None:
+    """The silent-skip precedent: no verify_absent means no event and no error."""
+    resolver = ScriptedResolver("stripe")  # plain Resolver, no verify_absent
+    harness.registry.register(resolver)
+    seed(harness, entry(1))
+
+    assert asyncio.run(runner(harness).run_once()) == 1
+
+    assert rows_by_id(harness)[UUID(int=1)]["status"] == OutboxStatus.SUCCEEDED.value
+    assert events_of(harness, AuditEventType.ERASURE_EXTERNAL_VERIFIED) == []
+    assert events_of(harness, AuditEventType.ERASURE_EXTERNAL_VERIFICATION_FAILED) == []
+
+
+class RaisingVerifyResolver(ScriptedResolver):
+    """A resolver whose erase succeeds but whose verify_absent read-back raises."""
+
+    async def verify_absent(self, ref: SubjectRef) -> ResolverVerification:
+        msg = "verification backend unreachable"
+        raise RuntimeError(msg)
+
+
+def test_raising_verification_is_isolated_from_the_settled_erase(
+    harness: RunnerHarness,
+) -> None:
+    """A failing read-back never undoes the erase: it stays SUCCEEDED, just unrecorded."""
+    harness.registry.register(RaisingVerifyResolver("stripe"))
+    seed(harness, entry(1))
+
+    assert asyncio.run(runner(harness).run_once()) == 1
+
+    assert rows_by_id(harness)[UUID(int=1)]["status"] == OutboxStatus.SUCCEEDED.value
+    assert events_of(harness, AuditEventType.ERASURE_STEP_SUCCEEDED) != []
+    assert events_of(harness, AuditEventType.ERASURE_EXTERNAL_VERIFIED) == []
+    assert events_of(harness, AuditEventType.ERASURE_EXTERNAL_VERIFICATION_FAILED) == []
+
+
+def test_verification_audits_per_entry_around_one_completion(harness: RunnerHarness) -> None:
+    """Two entries for one subject each verify; one completion fires for the subject."""
+    harness.registry.register(VerifyScriptedResolver("stripe"))
+    seed(harness, entry(1), entry(2))  # same subject
+
+    assert asyncio.run(runner(harness).run_once()) == 2
+
+    assert all(
+        row["status"] == OutboxStatus.SUCCEEDED.value for row in rows_by_id(harness).values()
+    )
+    assert len(events_of(harness, AuditEventType.ERASURE_EXTERNAL_VERIFIED)) == 2
+    assert events_of(harness, AuditEventType.ERASURE_COMPLETED) == [{}]
+
+
+class VerificationSinkOutage(RecordingAuditSink):
+    """A sink that records every event except the external-verification ones.
+
+    Models a sink outage scoped to the additional verification trail: those
+    appends raise, every other append still lands. Proves the verification
+    append is isolated — its failure must not abort settlement of the batch.
+    """
+
+    def append(self, event: AuditEvent) -> None:
+        if event.event_type in (
+            AuditEventType.ERASURE_EXTERNAL_VERIFIED,
+            AuditEventType.ERASURE_EXTERNAL_VERIFICATION_FAILED,
+        ):
+            msg = "audit sink unreachable for the verification append"
+            raise RuntimeError(msg)
+        super().append(event)
+
+
+def test_verification_append_failure_does_not_abort_batch_settlement(
+    harness: RunnerHarness,
+) -> None:
+    """A sink outage on the verification trail leaves every entry SUCCEEDED."""
+    sink = VerificationSinkOutage()
+    harness.registry.register(VerifyScriptedResolver("stripe"))
+    seed(harness, entry(1), entry(2, subject_id="2"))
+
+    saga = SagaRunner(harness.registry, harness.outbox, sink, backoff=BACKOFF)
+    assert asyncio.run(saga.run_once()) == 2
+
+    # Both entries settled despite the verification append raising for each.
+    assert all(
+        row["status"] == OutboxStatus.SUCCEEDED.value for row in rows_by_id(harness).values()
+    )
+    # The settled-success trail still landed; only the verification trail was lost.
+    step_succeeded = [
+        e for e in sink.events if e.event_type is AuditEventType.ERASURE_STEP_SUCCEEDED
+    ]
+    assert len(step_succeeded) == 2
+    assert [
+        e for e in sink.events if e.event_type is AuditEventType.ERASURE_EXTERNAL_VERIFIED
+    ] == []
 
 
 # --- abandonment hook (#108) -------------------------------------------------
