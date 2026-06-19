@@ -18,7 +18,7 @@ from typing import NamedTuple
 
 import pytest
 from conftest import Base, seed_two_subjects
-from sqlalchemy import Engine, MetaData, select, update
+from sqlalchemy import Engine, MetaData, select
 from sqlalchemy.orm import Session, sessionmaker
 
 from effaced import (
@@ -46,6 +46,7 @@ class PgHarness(NamedTuple):
     session_factory: sessionmaker[Session]
     tables: EffacedTables
     planner: ErasurePlanner
+    lock: SubjectErasureLock
 
 
 @pytest.fixture()
@@ -61,6 +62,7 @@ def harness(pg_engine: Engine) -> Iterator[PgHarness]:
             session.commit()
         data_map = collect_data_map(Base.metadata)
         graph = resolve_subject_graph(data_map, Base.registry)
+        lock = SubjectErasureLock(Base.metadata, graph, tables.subject_erasures)
         planner = ErasurePlanner(
             data_map,
             graph,
@@ -68,9 +70,9 @@ def harness(pg_engine: Engine) -> Iterator[PgHarness]:
             executor=ErasureExecutor(Base.metadata),
             outbox=Outbox(session_factory, tables.outbox),
             audit_sink=DatabaseAuditSink(session_factory, tables.audit_events),
-            lock=SubjectErasureLock(Base.metadata, graph, tables.subject_erasures),
+            lock=lock,
         )
-        yield PgHarness(session_factory, tables, planner)
+        yield PgHarness(session_factory, tables, planner, lock)
     finally:
         effaced_metadata.drop_all(pg_engine)
         Base.metadata.drop_all(pg_engine)
@@ -123,29 +125,36 @@ def test_concurrent_same_subject_erasures_serialize(harness: PgHarness) -> None:
     assert comments == []
 
 
-def test_in_flight_write_to_the_subject_blocks_mid_erasure(harness: PgHarness) -> None:
-    """An UPDATE of the subject's anchor row waits while an erasure holds it.
+def test_in_flight_child_insert_blocks_on_the_anchor_lock(harness: PgHarness) -> None:
+    """A new child row for the subject waits on the anchor-row lock alone.
 
-    The erasure locks the subject table's rows ``FOR UPDATE`` for the local
-    phase, so a concurrent application write to the subject's own row blocks
-    until the erasure commits — the INSERT/UPDATE-races-DELETE window closed.
+    This isolates the anchor lock's *distinct* contribution (ADR 0026 race 2):
+    the lock is taken via ``acquire`` directly, so no erasure step has run and
+    the only lock held on ``users.id == 2`` is ``acquire``'s ``FOR UPDATE`` —
+    not the executor's later anonymize UPDATE. A concurrent application INSERT
+    of a child row referencing that subject takes ``FOR KEY SHARE`` on the
+    anchor row to validate its foreign key; ``FOR KEY SHARE`` conflicts with
+    ``FOR UPDATE``, so the INSERT blocks until the lock holder commits. Against
+    a no-op anchor lock the INSERT would not block — that is what makes this a
+    real proof rather than a coincidence of the anonymize step.
     """
-    write_done = threading.Event()
-    users = Base.metadata.tables["users"]
+    insert_done = threading.Event()
+    comments = Base.metadata.tables["comments"]
 
-    def write_subject() -> None:
+    def insert_child() -> None:
         with harness.session_factory() as session, session.begin():
-            session.execute(update(users).where(users.c.id == 2).values(name="changed"))
-        write_done.set()
+            session.execute(comments.insert().values(id=999, user_id=2, parent_id=None))
+        insert_done.set()
 
     with harness.session_factory() as session_a:
         session_a.begin()
-        harness.planner.erase_subject(session_a, "2")
-        worker = threading.Thread(target=write_subject)
+        # Take ONLY the subject-erasure locks — no executor step runs here.
+        harness.lock.acquire(session_a, "2")
+        worker = threading.Thread(target=insert_child)
         worker.start()
         time.sleep(0.5)
-        # The competing write is blocked on the erasure's anchor-row lock.
-        assert not write_done.is_set()
+        # The child INSERT is blocked on the held anchor-row FOR UPDATE.
+        assert not insert_done.is_set()
         session_a.commit()
     worker.join(timeout=10)
-    assert write_done.is_set()
+    assert insert_done.is_set()

@@ -22,10 +22,14 @@ def build_subject_erasures_table(metadata: MetaData) -> Table:
     store, so a composite subject key and its single-column equivalent
     tombstone identically (ADR 0025). The row is the **serialization point**
     for concurrent erasures of one subject: :meth:`~effaced.SubjectLock.
-    acquire` upserts it and takes ``SELECT … FOR UPDATE`` on it, so a second
-    same-subject erasure blocks until the first commits. It is also the
-    **detection surface** a controller can consult before re-creating a
-    subject — effaced serializes and locks, it does not determine that
+    acquire` upserts it (``status=requested``) and takes ``SELECT … FOR
+    UPDATE`` on it, so a second same-subject erasure blocks until the first
+    commits; :meth:`~effaced.SubjectLock.mark_erased` then stamps
+    ``erased_at`` and moves it to ``status=completed`` when the local phase
+    succeeds, in the same transaction. It is also the **detection surface** a
+    controller can consult before re-creating a subject — a ``completed`` row
+    is a finished erasure, a ``requested`` row one still in flight or crashed
+    mid-erasure. effaced serializes and locks, it does not determine that
     re-creation is prevented.
 
     Type choices mirror the other effaced-owned tables: timezone-aware

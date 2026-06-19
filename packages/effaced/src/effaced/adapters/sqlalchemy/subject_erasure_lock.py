@@ -7,10 +7,10 @@ from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.exc import IntegrityError
 
 from effaced.adapters.sqlalchemy.scoping import subject_scope
 from effaced.adapters.sqlalchemy.storage.subject_erasures_table import (
+    SUBJECT_ERASURE_COMPLETED,
     SUBJECT_ERASURE_REQUESTED,
 )
 from effaced.annotations import canonical_subject_id
@@ -89,55 +89,86 @@ class SubjectErasureLock:
         self._lock_tombstone(session, canonical)
         self._lock_anchor_rows(session, subject_ref)
 
+    def mark_erased(self, session: Session, subject_ref: SubjectIdentifier) -> None:
+        """Mark the subject's tombstone completed (see :class:`SubjectLock`).
+
+        Sets ``status=completed`` and stamps ``erased_at`` on the row
+        :meth:`acquire` already inserted and holds ``FOR UPDATE``, so the
+        update is contention-free. Never commits — the completion mark becomes
+        durable exactly when the caller's erasure transaction does.
+
+        Args:
+            session: The caller's open erasure session.
+            subject_ref: The subject identifier (single-column ``str`` or
+                composite :class:`~effaced.CompositeSubjectId`).
+        """
+        canonical = canonical_subject_id(subject_ref)
+        session.execute(
+            self._table.update()
+            .where(self._table.c.subject_ref == canonical)
+            .values(status=SUBJECT_ERASURE_COMPLETED, erased_at=datetime.now(UTC))
+        )
+
     def _upsert_tombstone(self, session: Session, canonical: str) -> None:
         """Insert or refresh the subject's tombstone with a fresh request time.
 
         A first erasure inserts the row; a re-erasure records a fresh
-        ``requested_at`` (the erasure was genuinely re-requested) on the
-        existing row. Dialect-portable: Postgres uses ``INSERT … ON CONFLICT
-        DO UPDATE`` (which also locks the conflicting row); elsewhere an
-        ``INSERT`` is attempted and an ``UPDATE`` falls back on the primary-key
-        conflict inside a SAVEPOINT.
+        ``requested_at`` (the erasure was genuinely re-requested) and re-opens
+        the row to ``requested``. Dialect-portable: Postgres uses ``INSERT …
+        ON CONFLICT DO UPDATE``, which both serializes (it row-locks the
+        conflicting row a concurrent erasure is holding) and refreshes the row
+        in one statement. Other dialects — which do not honour ``FOR UPDATE``
+        and so never run this under real concurrency — read the row and then
+        ``UPDATE`` or ``INSERT`` as plain statements in the caller's
+        transaction, so a caller rollback discards the tombstone with the rest
+        of the erasure (a SAVEPOINT that begins the transaction would instead
+        leak the row past a rollback).
         """
         now = datetime.now(UTC)
-        values = {
-            "subject_ref": canonical,
-            "requested_at": now,
-            "erased_at": None,
-            "status": SUBJECT_ERASURE_REQUESTED,
-        }
         if session.get_bind().dialect.name == "postgresql":
-            statement = pg_insert(self._table).values(**values)
+            statement = pg_insert(self._table).values(
+                subject_ref=canonical,
+                requested_at=now,
+                erased_at=None,
+                status=SUBJECT_ERASURE_REQUESTED,
+            )
             session.execute(
                 statement.on_conflict_do_update(
                     index_elements=[self._table.c.subject_ref],
-                    set_={
-                        "requested_at": now,
-                        "status": SUBJECT_ERASURE_REQUESTED,
-                    },
+                    set_={"requested_at": now, "status": SUBJECT_ERASURE_REQUESTED},
                 )
             )
             return
         self._insert_or_update(session, canonical, now)
 
     def _insert_or_update(self, session: Session, canonical: str, now: datetime) -> None:
-        """Portable upsert fallback: INSERT, then UPDATE on a PK conflict."""
-        try:
-            with session.begin_nested():
-                session.execute(
-                    self._table.insert().values(
-                        subject_ref=canonical,
-                        requested_at=now,
-                        erased_at=None,
-                        status=SUBJECT_ERASURE_REQUESTED,
-                    )
-                )
-        except IntegrityError:
+        """Portable upsert for single-writer dialects: read, then UPDATE or INSERT.
+
+        No SAVEPOINT — those auto-begin (and on release auto-commit) the
+        transaction when ``acquire`` is the first statement on a fresh session,
+        leaking the tombstone past the caller's rollback. A plain read-then-
+        write is correct here because the only dialect that needs concurrency
+        safety (Postgres) takes the ``ON CONFLICT`` path; the rest are
+        single-writer.
+        """
+        exists = session.execute(
+            self._table.select().where(self._table.c.subject_ref == canonical)
+        ).first()
+        if exists is not None:
             session.execute(
                 self._table.update()
                 .where(self._table.c.subject_ref == canonical)
                 .values(requested_at=now, status=SUBJECT_ERASURE_REQUESTED)
             )
+            return
+        session.execute(
+            self._table.insert().values(
+                subject_ref=canonical,
+                requested_at=now,
+                erased_at=None,
+                status=SUBJECT_ERASURE_REQUESTED,
+            )
+        )
 
     def _lock_tombstone(self, session: Session, canonical: str) -> None:
         """Lock the subject's tombstone row ``FOR UPDATE`` (no-op on SQLite)."""

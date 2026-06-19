@@ -169,7 +169,9 @@ class ErasurePlanner:
 
         Concurrency (ADR 0026): when the planner was wired with a
         :class:`~effaced.SubjectLock`, the lock is acquired in ``session``
-        *before* ``ERASURE_REQUESTED`` and the first step. It serializes
+        *before* ``ERASURE_REQUESTED`` and the first step, and marked completed
+        after the local phase succeeds (within the same transaction, so the
+        completion mark is durable exactly when the erasure is). It serializes
         concurrent erasures of the *same* subject (a second one blocks until
         the first commits) and locks the subject's anchor rows for the local
         phase, so an in-flight application write to the subject blocks
@@ -229,6 +231,8 @@ class ErasurePlanner:
         )
         counts = self._run_local_steps(session, executor, plan, sink)
         self._enqueue(session, outbox, entries, subject_id, sink)
+        if self._lock is not None:
+            self._lock.mark_erased(session, subject_id)
         enqueued = tuple(dict.fromkeys(entry.resolver for entry in entries))
         skipped = tuple(step.target for step in plan.external_steps if step.target not in enqueued)
         sink.append(

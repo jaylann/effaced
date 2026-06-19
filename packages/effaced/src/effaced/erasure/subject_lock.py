@@ -32,6 +32,13 @@ class SubjectLock(Protocol):
     effaced serializes and locks the *local* erasure; it does not determine
     that a subject can never be re-created. Post-completion re-insertion is the
     controller's responsibility, with the tombstone as a detection surface.
+
+    The two methods bracket the local phase: :meth:`acquire` takes the locks
+    before the first step, :meth:`mark_erased` records completion after the
+    last one. Both run in the caller's session and never commit, so the
+    completion mark becomes durable exactly when the erasure does (a rollback
+    takes it with it — the tombstone never claims an erasure that did not
+    commit).
     """
 
     def acquire(self, session: Session, subject_ref: SubjectIdentifier) -> None:
@@ -56,5 +63,28 @@ class SubjectLock(Protocol):
             subject_ref: The subject identifier — a single-column ``str`` or
                 a composite :class:`~effaced.CompositeSubjectId`; matched on
                 the whole ordered key (ADR 0025).
+        """
+        ...
+
+    def mark_erased(self, session: Session, subject_ref: SubjectIdentifier) -> None:
+        """Record on the tombstone that the local erasure has completed.
+
+        Called by :meth:`~effaced.ErasurePlanner.erase_subject` after the
+        local phase succeeds, in the same session, so the completion mark
+        commits or rolls back with the erasure — the tombstone never records a
+        completion for an erasure that did not commit. It is what turns the
+        tombstone into a usable detection surface: a row marked completed
+        distinguishes a finished erasure from one still in flight (or one whose
+        process crashed mid-erasure, which stays in the requested state).
+
+        Must run inside the caller's open erasure transaction and never commit
+        or roll back. Requires :meth:`acquire` to have run first for the same
+        subject in this transaction (the row exists and is locked); marking a
+        subject never tombstoned is a no-op.
+
+        Args:
+            session: The caller's open erasure session.
+            subject_ref: The subject identifier — a single-column ``str`` or
+                a composite :class:`~effaced.CompositeSubjectId`.
         """
         ...

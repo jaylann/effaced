@@ -72,12 +72,19 @@ rows for the duration of the local phase.** Two collaborating pieces:
    keyed by the subject's canonical `subject_ref` (`String(255)` primary
    key, the same scalar the audit trail and outbox store — ADR 0025). It
    carries `requested_at`, a nullable `erased_at`, and a `status`. The row
-   is the **serialization point**: a `SubjectLock.acquire` upserts it and
-   takes `SELECT … FOR UPDATE` on it, so a second concurrent erasure of the
-   same subject blocks on the row lock until the first commits. It is also
-   the **detection surface** — a persistent, queryable marker that an
-   erasure was requested/completed for a subject, which a re-creating code
-   path can consult.
+   is the **serialization point**: `SubjectLock.acquire` upserts it
+   (`status=requested`, a fresh `requested_at`) and takes `SELECT … FOR
+   UPDATE` on it, so a second concurrent erasure of the same subject blocks
+   on the row lock until the first commits. It is also the **detection
+   surface**: when the local phase succeeds, `SubjectLock.mark_erased`
+   stamps `erased_at` and moves the row to `status=completed` *in the same
+   transaction*, so the completion mark is durable exactly when the erasure
+   is (a rollback takes it with the row changes — the tombstone never
+   records a completion that did not commit). A re-creating code path can
+   query the row to distinguish a finished erasure (`completed`) from one
+   still in flight or crashed mid-erasure (`requested`); a fresh erasure of
+   a completed subject re-opens it to `requested`, so the surface always
+   reflects the *latest* erasure, never a stale one.
 
 2. **`SELECT … FOR UPDATE` on the subject's anchor rows.** After locking the
    tombstone, `acquire` locks the subject table's rows for this identity,
@@ -102,16 +109,20 @@ gains an optional keyword-only `lock: SubjectLock | None = None`.
 `erase_subject` calls `lock.acquire(session, subject_id)` **before** the
 `ERASURE_REQUESTED` audit event and before the first step, *only when a lock
 is wired*. With the default `lock=None` the method is byte-identical to
-today, so every existing caller is unchanged; the SQLAlchemy
-`SubjectErasureLock` is wired explicitly by callers (and by `EffacedStack`)
-that want the guarantee.
+today, so every existing caller is unchanged; a caller who wants the
+guarantee constructs its own `ErasurePlanner` with a `SubjectErasureLock`
+explicitly. `EffacedStack.from_base`/`from_manifest` deliberately do **not**
+wire the lock by default — auto-wiring would change those facades' behaviour
+for every existing user and widen the breaking surface, so opting in stays an
+explicit, per-planner decision; a future MINOR may add an opt-in flag.
 
 **`SubjectLock` is a core protocol; `SubjectErasureLock` is its SQLAlchemy
 implementation.** `erasure/subject_lock.py` holds the SQLAlchemy-free
-protocol (one method, `acquire(session, subject_ref) -> None`);
-`adapters/sqlalchemy/subject_erasure_lock.py` builds the tombstone upsert and
-the two `FOR UPDATE` statements off the bound `Table` handles, keeping core
-import-clean (ADR 0006/python.md).
+protocol (`acquire(session, subject_ref) -> None` and
+`mark_erased(session, subject_ref) -> None`, the bracket around the local
+phase); `adapters/sqlalchemy/subject_erasure_lock.py` builds the tombstone
+upsert, the two `FOR UPDATE` statements, and the completion update off the
+bound `Table` handles, keeping core import-clean (ADR 0006/python.md).
 
 ### The lock-order invariant
 
@@ -127,7 +138,9 @@ order, every time:
   (`graph.deletion_order`), reaching the anchor (subject) table last —
   already locked, so no new lock-acquisition order is introduced there.
 - The outbox enqueue inserts new rows last; an INSERT takes no pre-existing
-  row lock that could invert against the above.
+  row lock that could invert against the above. `mark_erased` then updates
+  the already-locked tombstone row (the one `acquire` holds `FOR UPDATE`),
+  so it acquires no new lock either.
 
 **Why this cannot deadlock against the saga runner.** `Outbox.mark_succeeded`
 and `Outbox.requeue` take `FOR UPDATE` on `effaced_outbox` rows in a
@@ -143,11 +156,21 @@ serialize there, never each holding one resource the other wants.
 
 `acquire` upserts the tombstone idempotently: a first erasure inserts the
 row, a re-erasure of an already-tombstoned subject records a **fresh
-`requested_at`** (the erasure was genuinely re-requested) and re-locks the
-existing row. The upsert is dialect-portable (`ON CONFLICT` on Postgres, an
-emulated insert-or-lock elsewhere); SQLite ignores `FOR UPDATE` entirely, so
-the serialization and anchor-lock guarantees are provable only on Postgres
-(the integration suite), exactly like the saga's claim locks.
+`requested_at`** (the erasure was genuinely re-requested), re-opens it to
+`requested`, and re-locks the existing row. The upsert is dialect-portable:
+Postgres uses `INSERT … ON CONFLICT DO UPDATE`, which both row-locks the
+conflicting row (serializing a concurrent same-subject erasure) and refreshes
+it in one statement; other dialects — which never run under real concurrency
+because they ignore `FOR UPDATE` — do a plain read-then-`UPDATE`/`INSERT` in
+the caller's transaction. A `SAVEPOINT`-based fallback was rejected: a
+`SAVEPOINT` opened as the *first* statement on a fresh session auto-begins the
+transaction and, on release, can leak the tombstone past the caller's
+rollback — the opposite of the same-transaction durability `mark_erased`
+depends on. SQLite ignores `FOR UPDATE` entirely, so the serialization and
+anchor-lock guarantees are provable only on Postgres (the integration suite),
+exactly like the saga's claim locks; the SQLite unit tests cover the tombstone
+lifecycle (insert → completed, idempotent re-open, rollback-discards) and the
+planner wiring.
 
 ## Consequences
 

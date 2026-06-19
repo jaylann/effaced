@@ -32,6 +32,7 @@ from effaced import (
 )
 from effaced.adapters.sqlalchemy import ErasureExecutor
 from effaced.adapters.sqlalchemy.storage.subject_erasures_table import (
+    SUBJECT_ERASURE_COMPLETED,
     SUBJECT_ERASURE_REQUESTED,
 )
 
@@ -40,16 +41,22 @@ if TYPE_CHECKING:
 
 
 class RecordingLock:
-    """A ``SubjectLock`` spy that records the events present when acquired."""
+    """A ``SubjectLock`` spy recording call order against the audit events."""
 
     def __init__(self, sink: RecordingAuditSink) -> None:
         self._sink = sink
         self.calls: list[SubjectIdentifier] = []
         self.events_at_acquire: list[AuditEventType] = []
+        self.marked: list[SubjectIdentifier] = []
+        self.events_at_mark: list[AuditEventType] = []
 
     def acquire(self, session: Session, subject_ref: SubjectIdentifier) -> None:
         self.calls.append(subject_ref)
         self.events_at_acquire = [event.event_type for event in self._sink.events]
+
+    def mark_erased(self, session: Session, subject_ref: SubjectIdentifier) -> None:
+        self.marked.append(subject_ref)
+        self.events_at_mark = [event.event_type for event in self._sink.events]
 
 
 def _engine_with_tables() -> tuple[sessionmaker[Session], EffacedTables]:
@@ -118,6 +125,43 @@ def test_acquire_is_idempotent_and_refreshes_requested_at() -> None:
     assert rows[0]["status"] == SUBJECT_ERASURE_REQUESTED
 
 
+def test_mark_erased_sets_completed_status_and_erased_at() -> None:
+    """After the local phase, the tombstone records completion with a timestamp."""
+    session_factory, tables = _engine_with_tables()
+    lock = _lock(tables)
+    with session_factory() as session:
+        lock.acquire(session, "1")
+        lock.mark_erased(session, "1")
+        session.commit()
+    with session_factory() as session:
+        rows = _tombstones(session, tables)
+    assert len(rows) == 1
+    assert rows[0]["status"] == SUBJECT_ERASURE_COMPLETED
+    assert rows[0]["erased_at"] is not None
+
+
+def test_re_erasing_a_completed_subject_returns_to_requested() -> None:
+    """A fresh erasure of a completed subject re-opens the tombstone.
+
+    The detection surface tracks the *latest* erasure: a re-request moves the
+    row back to ``requested`` (and clears nothing else here), and marking it
+    again completes it. So a completed row means the most recent erasure
+    finished, never a stale one.
+    """
+    session_factory, tables = _engine_with_tables()
+    lock = _lock(tables)
+    with session_factory() as session:
+        lock.acquire(session, "1")
+        lock.mark_erased(session, "1")
+        session.commit()
+    with session_factory() as session:
+        lock.acquire(session, "1")
+        session.commit()
+    with session_factory() as session:
+        rows = _tombstones(session, tables)
+    assert rows[0]["status"] == SUBJECT_ERASURE_REQUESTED
+
+
 def test_acquire_tombstones_distinct_subjects_separately() -> None:
     session_factory, tables = _engine_with_tables()
     lock = _lock(tables)
@@ -148,7 +192,7 @@ def _planner(
     )
 
 
-def test_planner_acquires_lock_before_the_first_audit_event() -> None:
+def test_planner_acquires_before_first_event_and_marks_after_steps() -> None:
     session_factory, tables = _engine_with_tables()
     sink = RecordingAuditSink()
     lock = RecordingLock(sink)
@@ -157,9 +201,13 @@ def test_planner_acquires_lock_before_the_first_audit_event() -> None:
         planner.erase_subject(session, "1")
         session.commit()
     assert lock.calls == ["1"]
-    # The lock ran before ERASURE_REQUESTED — no event had been appended yet.
+    # acquire ran before ERASURE_REQUESTED — no event had been appended yet.
     assert lock.events_at_acquire == []
     assert sink.events[0].event_type == AuditEventType.ERASURE_REQUESTED
+    # mark_erased ran after the local steps but before ERASURE_LOCAL_COMPLETED.
+    assert lock.marked == ["1"]
+    assert AuditEventType.ERASURE_STEP_SUCCEEDED in lock.events_at_mark
+    assert AuditEventType.ERASURE_LOCAL_COMPLETED not in lock.events_at_mark
 
 
 def test_planner_without_lock_takes_none_and_writes_no_tombstone() -> None:
@@ -174,7 +222,7 @@ def test_planner_without_lock_takes_none_and_writes_no_tombstone() -> None:
     assert sink.events[0].event_type == AuditEventType.ERASURE_REQUESTED
 
 
-def test_planner_wired_lock_records_a_tombstone() -> None:
+def test_planner_wired_lock_records_a_completed_tombstone() -> None:
     session_factory, tables = _engine_with_tables()
     sink = RecordingAuditSink()
     planner = _planner(session_factory, tables, sink, _lock(tables))
@@ -185,4 +233,22 @@ def test_planner_wired_lock_records_a_tombstone() -> None:
         rows = _tombstones(session, tables)
     assert len(rows) == 1
     assert rows[0]["subject_ref"] == "1"
-    assert rows[0]["status"] == SUBJECT_ERASURE_REQUESTED
+    # The successful local phase marked the tombstone completed.
+    assert rows[0]["status"] == SUBJECT_ERASURE_COMPLETED
+    assert rows[0]["erased_at"] is not None
+
+
+def test_rolled_back_erasure_leaves_no_completed_tombstone() -> None:
+    """The completion mark is durable only with the erasure (same transaction).
+
+    A failing local phase that rolls back must leave no completed tombstone —
+    the surface never claims an erasure that did not commit.
+    """
+    session_factory, tables = _engine_with_tables()
+    sink = RecordingAuditSink()
+    planner = _planner(session_factory, tables, sink, _lock(tables))
+    with session_factory() as session:
+        planner.erase_subject(session, "1")
+        session.rollback()
+    with session_factory() as session:
+        assert _tombstones(session, tables) == []
