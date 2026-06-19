@@ -98,9 +98,11 @@ from effaced.resolvers import (
     ResolverRegistry,
     ResolverScheduledErasure,
     ResolverSpec,
+    ResolverVerification,
     RetentionOnlyResolver,
     SpecOutcome,
     SurfaceExclusion,
+    VerifyingResolver,
     registry_from_settings,
 )
 from effaced.restriction import RestrictionLedger, RestrictionRecord
@@ -189,6 +191,7 @@ __all__ = [
     "ResolverRegistry",
     "ResolverScheduledErasure",
     "ResolverSpec",
+    "ResolverVerification",
     "RestrictionLedger",
     "RestrictionRecord",
     "RetentionOnlyResolver",
@@ -211,6 +214,7 @@ __all__ = [
     "SurrogateRegistry",
     "TableAccessPlan",
     "TableEntry",
+    "VerifyingResolver",
     "__version__",
     "bind_tables",
     "canonical_subject_id",
