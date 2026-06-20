@@ -7,9 +7,16 @@ delete's bound and error accumulation.
 
 from __future__ import annotations
 
+import pytest
 from fake_s3_client import FakeS3Client
 
-from effaced_s3 import collect_object_records, collect_version_identifiers, delete_in_batches
+from effaced.exceptions import ResolverError
+from effaced_s3 import (
+    collect_object_records,
+    collect_version_identifiers,
+    delete_in_batches,
+    iter_object_records,
+)
 
 PREFIX = "users/42/"
 
@@ -34,6 +41,61 @@ def test_collect_object_records_head_path_skips_get() -> None:
         fake, "bucket", PREFIX, source="s3", include_content=False, max_object_bytes=None
     )
     assert records
+    assert "GetObject" not in {operation for operation, _ in fake.calls}
+
+
+def test_streaming_yields_records_identical_to_the_materialized_collector() -> None:
+    """Acceptance gate: iter_object_records == collect_object_records, same order."""
+    objects = {f"{PREFIX}f{index:03}.txt": f"body-{index}".encode() for index in range(25)}
+    materialized = collect_object_records(
+        FakeS3Client(objects=dict(objects)),
+        "bucket",
+        PREFIX,
+        source="s3",
+        include_content=True,
+        max_object_bytes=None,
+    )
+    streamed = tuple(
+        iter_object_records(
+            FakeS3Client(objects=dict(objects)),
+            "bucket",
+            PREFIX,
+            source="s3",
+            include_content=True,
+            max_object_bytes=None,
+        )
+    )
+    assert streamed == materialized
+
+
+def test_streaming_fetches_one_object_body_at_a_time() -> None:
+    """Bounded memory: pulling the first record GETs only the first object.
+
+    The materializing collector reads every body before returning; the
+    streaming path must fetch lazily, so peak resident bodies stay at one.
+    """
+    objects = {f"{PREFIX}f{index:03}.txt": f"body-{index}".encode() for index in range(10)}
+    fake = FakeS3Client(objects=dict(objects))
+    stream = iter_object_records(
+        fake, "bucket", PREFIX, source="s3", include_content=True, max_object_bytes=None
+    )
+    next(stream)  # pull the first object's first record
+    gets = [operation for operation, _ in fake.calls if operation == "GetObject"]
+    assert len(gets) == 1  # only the first body has been read so far
+    remaining = list(stream)
+    assert remaining  # the rest still stream out
+    all_gets = [operation for operation, _ in fake.calls if operation == "GetObject"]
+    assert len(all_gets) == len(objects)
+
+
+def test_streaming_oversized_object_fails_loudly() -> None:
+    """The size cap fails the stream before the body is ever read."""
+    fake = FakeS3Client(objects={f"{PREFIX}big.bin": b"x" * 64})
+    stream = iter_object_records(
+        fake, "bucket", PREFIX, source="s3", include_content=True, max_object_bytes=8
+    )
+    with pytest.raises(ResolverError, match="max_object_bytes"):
+        next(stream)
     assert "GetObject" not in {operation for operation, _ in fake.calls}
 
 

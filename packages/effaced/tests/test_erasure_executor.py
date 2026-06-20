@@ -33,6 +33,7 @@ from effaced import (
     resolve_subject_graph,
 )
 from effaced.adapters.sqlalchemy import ErasureExecutor
+from effaced.adapters.sqlalchemy import erasure_executor as executor_module
 
 
 class ExecutorHarness(NamedTuple):
@@ -288,3 +289,56 @@ def test_anonymize_without_a_primary_key_fails_loudly(keyless: HandBuilt) -> Non
     step = ErasureStep(target="scratch", strategy=ErasureStrategy.ANONYMIZE, columns=("blob",))
     with pytest.raises(AnonymizationError, match="primary key"):
         ErasureExecutor(keyless.metadata).execute(keyless.session, keyless.graph, step, "1")
+
+
+def test_batched_anonymize_rewrites_every_row_with_a_fresh_surrogate(
+    notes: HandBuilt, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A subject spanning several batches: each row still gets its own surrogate.
+
+    Shrinking the batch size forces the fetch-and-update loop to span more
+    than one batch; the erased result must be identical to the all-at-once
+    path — every matched row rewritten exactly once, unique constraints
+    intact (one shared surrogate would collide).
+    """
+    monkeypatch.setattr(executor_module, "_BATCH", 3)
+    people, notes_table = notes.metadata.tables["people"], notes.metadata.tables["notes"]
+    count = 10
+    notes.session.execute(people.insert(), [{"id": 1}, {"id": 2}])
+    notes.session.execute(
+        notes_table.insert(),
+        [{"id": index, "person_id": 1, "body": f"alice-{index}"} for index in range(count)]
+        + [{"id": 100 + index, "person_id": 2, "body": f"bob-{index}"} for index in range(count)],
+    )
+    step = ErasureStep(target="notes", strategy=ErasureStrategy.ANONYMIZE, columns=("body",))
+    affected = ErasureExecutor(notes.metadata).execute(notes.session, notes.graph, step, "1")
+
+    assert affected == count
+    erased = rows(notes.session, notes_table)
+    alice = [row["body"] for row in erased if row["person_id"] == 1]
+    bob = [row["body"] for row in erased if row["person_id"] == 2]
+    # Every Alice cell got a distinct fresh surrogate (unique constraint held).
+    assert len(set(alice)) == count
+    assert all(not str(body).startswith("alice-") for body in alice)
+    # No cross-subject bleed: Bob's rows are untouched.
+    assert bob == [f"bob-{index}" for index in range(count)]
+
+
+def test_batched_anonymize_count_matches_unbatched(
+    notes: HandBuilt, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The batch boundary never miscounts: rows at and across the limit all run."""
+    people, notes_table = notes.metadata.tables["people"], notes.metadata.tables["notes"]
+    notes.session.execute(people.insert(), [{"id": 1}])
+    # Exactly one row past a small batch boundary — an off-by-one would drop it.
+    monkeypatch.setattr(executor_module, "_BATCH", 4)
+    notes.session.execute(
+        notes_table.insert(),
+        [{"id": index, "person_id": 1, "body": f"v-{index}"} for index in range(9)],
+    )
+    step = ErasureStep(target="notes", strategy=ErasureStrategy.ANONYMIZE, columns=("body",))
+    affected = ErasureExecutor(notes.metadata).execute(notes.session, notes.graph, step, "1")
+    assert affected == 9
+    bodies = [row["body"] for row in rows(notes.session, notes_table)]
+    assert all(not str(body).startswith("v-") for body in bodies)
+    assert len(set(bodies)) == 9

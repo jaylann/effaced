@@ -4,7 +4,8 @@ The resolver itself is :class:`S3Resolver`. The object-store machinery it
 rides on is public and stable, so S3-compatible stores (Supabase Storage,
 MinIO, R2) can build their own resolvers on the same parts: the client
 protocol :class:`S3ObjectClient`, the prefix guard :func:`checked_prefix`,
-the export collector :func:`collect_object_records`, the listing helpers
+the export collector :func:`collect_object_records` (and its streaming,
+memory-bounded companion :func:`iter_object_records`), the listing helpers
 :func:`iter_current_objects` and :func:`collect_version_identifiers`, the
 batched delete :func:`delete_in_batches`, and the error taxonomy
 (:func:`error_code`, :func:`is_nonretryable`, :data:`NONRETRYABLE_CODES`).
@@ -14,7 +15,7 @@ from importlib.metadata import PackageNotFoundError, version
 
 from effaced_s3.deletion import delete_in_batches
 from effaced_s3.errors import NONRETRYABLE_CODES, error_code, is_nonretryable
-from effaced_s3.export_collection import collect_object_records
+from effaced_s3.export_collection import collect_object_records, iter_object_records
 from effaced_s3.listing import collect_version_identifiers, iter_current_objects
 from effaced_s3.object_client import S3ObjectClient
 from effaced_s3.partial_erase_error import PartialEraseError
@@ -39,4 +40,5 @@ __all__ = [
     "error_code",
     "is_nonretryable",
     "iter_current_objects",
+    "iter_object_records",
 ]

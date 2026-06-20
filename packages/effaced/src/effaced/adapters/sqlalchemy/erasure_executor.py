@@ -19,6 +19,16 @@ if TYPE_CHECKING:
     from effaced.erasure.plan import ErasureStep
     from effaced.manifest import SubjectGraph
 
+_BATCH = 256
+"""Primary keys fetched per round trip when anonymizing a subject's rows.
+
+Bounds the anonymize step's peak resident keys to one batch: a subject with
+a large footprint in one table no longer materializes every matched primary
+key before rewriting. Each batch is fetched ordered and offset by the count
+already rewritten — the anonymized columns are never the ordering key, so
+the matched set stays stable and every row is rewritten exactly once.
+"""
+
 
 class ErasureExecutor:
     """Executes one local erasure step per call, scoped to one subject.
@@ -101,7 +111,20 @@ class ErasureExecutor:
         columns: tuple[str, ...],
         predicate: ColumnElement[bool],
     ) -> int:
-        """Rewrite matched rows one by one with fresh surrogates."""
+        """Rewrite matched rows one by one with fresh surrogates.
+
+        Memory bound: the matched primary keys are fetched in bounded
+        batches (``_BATCH``, ordered and offset by the count already
+        rewritten) rather than all at once, so peak resident keys are one
+        batch — a large-footprint subject's anonymize step never
+        materializes every PK before rewriting. The anonymized columns are
+        never the ordering key, so the matched set stays stable across
+        batches and every row is rewritten exactly once. The erased result
+        is identical to fetching all keys first: the same rows are
+        rewritten, each with its own fresh per-cell surrogate (ADR 0007 —
+        one scoped UPDATE sharing a surrogate would break unique
+        constraints), so this is a memory bound, not a behaviour change.
+        """
         key = list(table.primary_key.columns)
         if not key:
             msg = (
@@ -110,16 +133,22 @@ class ErasureExecutor:
             )
             raise AnonymizationError(msg)
         targets = [_column(table, name) for name in columns]
-        rows = session.execute(select(*key).where(predicate)).all()
-        for row in rows:
-            values = {
-                column.name: self._surrogates.surrogate_for(column.type) for column in targets
-            }
-            matched = table.update().where(
-                *(pk == value for pk, value in zip(key, row, strict=True))
-            )
-            session.execute(matched.values(**values))
-        return len(rows)
+        anonymized = 0
+        while True:
+            batch = session.execute(
+                select(*key).where(predicate).order_by(*key).offset(anonymized).limit(_BATCH)
+            ).all()
+            if not batch:
+                return anonymized
+            for row in batch:
+                values = {
+                    column.name: self._surrogates.surrogate_for(column.type) for column in targets
+                }
+                matched = table.update().where(
+                    *(pk == value for pk, value in zip(key, row, strict=True))
+                )
+                session.execute(matched.values(**values))
+            anonymized += len(batch)
 
 
 def _delete(session: Session, table: Table, predicate: ColumnElement[bool]) -> int:
