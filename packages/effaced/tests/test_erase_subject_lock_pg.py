@@ -34,7 +34,7 @@ from effaced import (
 )
 from effaced.adapters.sqlalchemy import ErasureExecutor
 from effaced.adapters.sqlalchemy.storage.subject_erasures_table import (
-    SUBJECT_ERASURE_REQUESTED,
+    SUBJECT_ERASURE_COMPLETED,
 )
 
 pytestmark = pytest.mark.integration
@@ -121,7 +121,9 @@ def test_concurrent_same_subject_erasures_serialize(harness: PgHarness) -> None:
         ).all()
     assert len(tombstones) == 1
     assert tombstones[0]["subject_ref"] == "1"
-    assert tombstones[0]["status"] == SUBJECT_ERASURE_REQUESTED
+    # Both erasures committed (B serialized after A), so the latest mark_erased
+    # left the single tombstone completed.
+    assert tombstones[0]["status"] == SUBJECT_ERASURE_COMPLETED
     assert comments == []
 
 
