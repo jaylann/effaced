@@ -27,6 +27,7 @@ from effaced.resolvers import (
     ResolverVerification,
     RetentionOnlyResolver,
     VerifyingResolver,
+    scrub_error,
 )
 
 if TYPE_CHECKING:
@@ -245,6 +246,41 @@ class ResolverConformanceSuite:
             self._erase_like(resolver, ref)
         assert not isinstance(export_error.value, ResolverError)
         assert not isinstance(erase_error.value, ResolverError)
+
+    def test_raised_errors_scrub_to_a_pii_free_label(self) -> None:
+        """A resolver's raised errors reduce to a PII-free class label.
+
+        ``scrub_error`` is how the saga runner records a resolver failure in
+        the audit trail and the outbox's ``last_error`` without leaking a
+        message that may embed personal data. Whatever a resolver raises, the
+        scrubbed form is its bare class name — never the message, args, or any
+        chained-exception text. A resolver package with no fault hook skips.
+        """
+        seen = False
+        nonretryable = self.make_nonretryable_resolver()
+        if nonretryable is not None:
+            seen = True
+            with pytest.raises(ResolverError) as nonretryable_error:
+                self._erase_like(nonretryable, self.make_present_ref())
+            self._assert_scrubs_to_class_label(nonretryable_error.value)
+        transient = self.make_transient_resolver()
+        if transient is not None:
+            seen = True
+            resolver, expected = transient
+            with pytest.raises(expected) as transient_error:
+                self._erase_like(resolver, self.make_present_ref())
+            self._assert_scrubs_to_class_label(transient_error.value)
+        if not seen:
+            pytest.skip("resolver package provides no fault hook")
+
+    @staticmethod
+    def _assert_scrubs_to_class_label(exc: BaseException) -> None:
+        """The scrubbed error is the bare class name — no message leaks."""
+        scrubbed = scrub_error(exc)
+        assert scrubbed == type(exc).__name__
+        assert scrubbed
+        assert " " not in scrubbed
+        assert "\n" not in scrubbed
 
     def _rectification_hook(self) -> tuple[RectifyingResolver, tuple[Correction, ...]]:
         """The rectify tests' resolver and corrections, or a skip."""
