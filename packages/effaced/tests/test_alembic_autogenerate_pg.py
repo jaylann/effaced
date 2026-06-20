@@ -209,9 +209,9 @@ def test_legacy_pre_a5_audit_table_migrates_and_verifies_vacuously(
         for diff in diffs:
             assert diff[0] == "add_column"
             assert diff[3].nullable is True, f"column {diff[3].name} must be nullable"
-            assert (
-                diff[3].server_default is None
-            ), f"column {diff[3].name} must have no server_default"
+            assert diff[3].server_default is None, (
+                f"column {diff[3].name} must have no server_default"
+            )
 
         # Apply both columns the way a rendered Alembic revision would.
         with pg_engine.begin() as conn:
