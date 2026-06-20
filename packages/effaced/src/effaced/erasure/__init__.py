@@ -4,6 +4,7 @@ from effaced.erasure.plan import ErasurePlan, ErasureStep
 from effaced.erasure.planner import ErasurePlanner
 from effaced.erasure.result import ErasureResult
 from effaced.erasure.step_executor import StepExecutor
+from effaced.erasure.subject_lock import SubjectLock
 from effaced.erasure.verification import ErasureVerification
 
 __all__ = [
@@ -13,4 +14,5 @@ __all__ = [
     "ErasureStep",
     "ErasureVerification",
     "StepExecutor",
+    "SubjectLock",
 ]

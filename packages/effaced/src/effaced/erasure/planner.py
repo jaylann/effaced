@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from effaced.annotations import SubjectIdentifier, SubjectRef
     from effaced.audit.sink import AuditSink
     from effaced.erasure.step_executor import StepExecutor
+    from effaced.erasure.subject_lock import SubjectLock
     from effaced.manifest import DataMap, SubjectGraph, TableEntry
     from effaced.resolvers import ResolverRegistry
     from effaced.saga.outbox import Outbox
@@ -49,7 +50,7 @@ class ErasurePlanner:
     under widened SemVer.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913  # one collaborator per arg; the optional lock is additive (ADR 0026)
         self,
         data_map: DataMap,
         graph: SubjectGraph,
@@ -58,6 +59,7 @@ class ErasurePlanner:
         executor: StepExecutor | None = None,
         outbox: Outbox | None = None,
         audit_sink: AuditSink | None = None,
+        lock: SubjectLock | None = None,
     ) -> None:
         """Wire the planner to a manifest, its resolved graph, and resolvers.
 
@@ -78,6 +80,13 @@ class ErasurePlanner:
                 the caller's erasure transaction.
             audit_sink: Receives every erasure outcome, including
                 failures.
+            lock: Optional subject-erasure lock (ADR 0026). When wired,
+                :meth:`erase_subject` serializes concurrent erasures of one
+                subject and locks the subject's anchor rows for the local
+                phase. ``None`` (the default) preserves the exact behaviour
+                of every existing caller — no lock is taken. The SQLAlchemy
+                implementation is
+                :class:`~effaced.adapters.sqlalchemy.SubjectErasureLock`.
 
         Raises:
             ManifestError: If the data map and the graph do not describe
@@ -98,6 +107,7 @@ class ErasurePlanner:
         self._executor = executor
         self._outbox = outbox
         self._audit_sink = audit_sink
+        self._lock = lock
 
     def plan(
         self, subject_id: SubjectIdentifier, *, refs: tuple[SubjectRef, ...] = ()
@@ -157,6 +167,20 @@ class ErasurePlanner:
         raise before any event — a malformed call never became a
         data-subject request.
 
+        Concurrency (ADR 0026): when the planner was wired with a
+        :class:`~effaced.SubjectLock`, the lock is acquired in ``session``
+        *before* ``ERASURE_REQUESTED`` and the first step, and marked completed
+        after the local phase succeeds (within the same transaction, so the
+        completion mark is durable exactly when the erasure is). It serializes
+        concurrent erasures of the *same* subject (a second one blocks until
+        the first commits) and locks the subject's anchor rows for the local
+        phase, so an in-flight application write to the subject blocks
+        mid-erasure. Erasures of different subjects never contend. Without a
+        lock (the default) no subject-level lock is taken and behaviour is
+        unchanged. effaced serializes and locks the local erasure; preventing
+        a subject's *re-creation after completion* remains the controller's
+        responsibility, with the tombstone as the detection surface.
+
         Each ref is routed to the resolver whose ``name`` equals the
         ref's ``kind`` (ADR 0008). A registered resolver with no matching
         ref is skipped — recorded in the completion payload's
@@ -192,6 +216,8 @@ class ErasurePlanner:
         executor, outbox, sink = self._require_wiring()
         plan = self.plan(subject_id, refs=refs)
         entries = _outbox_entries(plan)
+        if self._lock is not None:
+            self._lock.acquire(session, subject_id)
         sink.append(
             _event(
                 AuditEventType.ERASURE_REQUESTED,
@@ -205,6 +231,8 @@ class ErasurePlanner:
         )
         counts = self._run_local_steps(session, executor, plan, sink)
         self._enqueue(session, outbox, entries, subject_id, sink)
+        if self._lock is not None:
+            self._lock.mark_erased(session, subject_id)
         enqueued = tuple(dict.fromkeys(entry.resolver for entry in entries))
         skipped = tuple(step.target for step in plan.external_steps if step.target not in enqueued)
         sink.append(

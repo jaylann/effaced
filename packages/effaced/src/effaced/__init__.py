@@ -20,6 +20,7 @@ from effaced.adapters.sqlalchemy import (
     LintTarget,
     RectificationExecutor,
     SqlStatusCountsSource,
+    SubjectErasureLock,
     SurrogateRegistry,
     bind_tables,
     collect_data_map,
@@ -54,6 +55,7 @@ from effaced.erasure import (
     ErasureStep,
     ErasureVerification,
     StepExecutor,
+    SubjectLock,
 )
 from effaced.exceptions import (
     AnonymizationError,
@@ -206,9 +208,11 @@ __all__ = [
     "SqlStatusCountsSource",
     "StatusCountsSource",
     "StepExecutor",
+    "SubjectErasureLock",
     "SubjectGraph",
     "SubjectIdentifier",
     "SubjectLink",
+    "SubjectLock",
     "SubjectRef",
     "SubjectResolutionError",
     "SurfaceExclusion",

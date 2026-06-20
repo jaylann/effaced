@@ -15,6 +15,7 @@ from effaced.adapters.sqlalchemy.resolution import (
 )
 from effaced.adapters.sqlalchemy.sql_status_counts_source import SqlStatusCountsSource
 from effaced.adapters.sqlalchemy.storage.bind_tables import bind_tables
+from effaced.adapters.sqlalchemy.subject_erasure_lock import SubjectErasureLock
 from effaced.audit.database_sink import DatabaseAuditSink
 from effaced.consent.ledger import ConsentLedger
 from effaced.erasure.planner import ErasurePlanner
@@ -104,13 +105,19 @@ class EffacedStack:
         metadata: The application ``MetaData`` the stack was built from.
         data_map: The manifest collected from the annotated models.
         graph: The resolved subject graph used to scope every operation.
-        tables: Handles to the four effaced-owned tables.
+        tables: Handles to the five effaced-owned tables.
         session_factory: The application's session factory, as provided.
         registry: The resolver registry routing external refs.
         audit_sink: The append-only trail every engine records into.
         outbox: The durable queue for external erasure/rectification calls.
         exporter: The Art. 15 export engine.
-        planner: The Art. 17 erasure engine, execution-ready.
+        planner: The Art. 17 erasure engine, execution-ready. Wired with a
+            :class:`~effaced.adapters.sqlalchemy.SubjectErasureLock`, so
+            erasing a subject serializes against concurrent erasures of the
+            same subject and locks its anchor rows for the local phase
+            (ADR 0026) — the ``effaced_subject_erasures`` table must exist
+            (re-run ``alembic revision --autogenerate`` after upgrading, or
+            ``metadata.create_all``).
         rectifier: The Art. 16 rectification engine, execution-ready.
         consent: The Art. 7 consent ledger.
         restriction: The Art. 18 restriction-of-processing ledger.
@@ -298,6 +305,7 @@ class EffacedStack:
                 executor=ErasureExecutor(metadata),
                 outbox=outbox,
                 audit_sink=audit,
+                lock=SubjectErasureLock(metadata, graph, tables.subject_erasures),
             ),
             rectifier=Rectifier(
                 data_map,
