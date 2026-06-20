@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from effaced.audit.event import AuditEvent
 from effaced.audit.event_type import AuditEventType
+from effaced.audit.hash_chain import compute_event_hash
 from effaced.exceptions import AuditIntegrityError, ConfigurationError
 
 if TYPE_CHECKING:
@@ -25,6 +26,11 @@ class DatabaseAuditSink:
     0006), so an event survives even when the caller's surrounding
     transaction later rolls back — audit evidence is never lost to an
     unrelated failure.
+
+    Each appended row also carries a tamper-evidence hash chain (ADR 0028):
+    its ``event_hash`` binds its content to the prior row's hash, so an
+    out-of-band edit of any recorded row is *detectable* (not *prevented*) by
+    :class:`~effaced.AuditChainVerifier`.
     """
 
     def __init__(
@@ -44,16 +50,48 @@ class DatabaseAuditSink:
         self._audit_events = audit_events
 
     def append(self, event: AuditEvent) -> None:
-        """Durably append one event (insert-only).
+        """Durably append one event (insert-only), extending the hash chain.
 
         Commits immediately in a transaction of its own. A duplicate
         ``event_id`` raises the database's integrity error — an existing
         row is never overwritten.
 
+        The hash chain is a pure linked list keyed by *insertion*, never by
+        ``occurred_at`` (ADR 0028): ``occurred_at`` is caller-supplied and
+        backdatable through the consent/restriction ledgers, so it cannot
+        order the chain. Within this same transaction the current **tail** is
+        read — the one chained row whose ``event_hash`` no other row cites as
+        its ``prior_hash`` — and the new event chains to it
+        (``prior_hash = tail.event_hash``); the first chained event chains to
+        ``None``. The chain extends atomically with the insert.
+
+        The per-append transaction is the serialization point. Under
+        genuinely concurrent appends two rows may both read the same tail and
+        chain to it, forking the list; :class:`~effaced.AuditChainVerifier`
+        detects that fork on read — surfaced, never silently healed.
+        Deployments needing a strictly linear chain serialize their audit
+        writes (a single writer, or an advisory lock around append).
+
         Args:
             event: The event to persist.
         """
         with self._session_factory.begin() as session:
+            columns = self._audit_events.c
+            referenced_priors = (
+                self._audit_events.select()
+                .with_only_columns(columns.prior_hash)
+                .where(columns.prior_hash.isnot(None))
+            )
+            tail_statement = (
+                self._audit_events.select()
+                .with_only_columns(columns.event_hash)
+                .where(
+                    columns.event_hash.isnot(None),
+                    columns.event_hash.notin_(referenced_priors),
+                )
+            )
+            prior_hash = session.execute(tail_statement).scalars().first()
+            event_hash = compute_event_hash(event, prior_hash)
             session.execute(
                 self._audit_events.insert().values(
                     event_id=event.event_id,
@@ -61,6 +99,8 @@ class DatabaseAuditSink:
                     subject_ref=event.subject_ref,
                     occurred_at=event.occurred_at,
                     payload=dict(event.payload),
+                    prior_hash=prior_hash,
+                    event_hash=event_hash,
                 )
             )
 

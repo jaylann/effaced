@@ -1,10 +1,12 @@
 """The owned tables ride a host Alembic setup cleanly (ADR 0021).
 
-Three proofs against a real Postgres: autogenerate discovers the owned
+Four proofs against a real Postgres: autogenerate discovers the owned
 tables like first-party models, a re-run after applying is diff-free (no
-perpetual autogenerate noise), and an additive column carrying a server
-default backfills an already-populated table — the ``effaced_outbox.operation``
-precedent (ADR 0013), generalized.
+perpetual autogenerate noise), an additive column carrying a server default
+backfills an already-populated table — the ``effaced_outbox.operation``
+precedent (ADR 0013), generalized — and a legacy pre-A5 audit table (missing
+``prior_hash``/``event_hash``) autogenerates exactly two nullable ``add_column``
+ops and verifies vacuously after they are applied.
 """
 
 from __future__ import annotations
@@ -16,8 +18,9 @@ from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from alembic.operations import Operations
 from sqlalchemy import Column, Connection, Engine, MetaData, inspect, select, text
+from sqlalchemy.orm import sessionmaker
 
-from effaced import bind_tables
+from effaced import AuditChainVerifier, bind_tables
 from effaced.adapters.sqlalchemy.storage.bind_tables import (
     AUDIT_EVENTS_TABLE_NAME,
     CONSENT_RECORDS_TABLE_NAME,
@@ -151,6 +154,84 @@ def test_additive_column_with_server_default_backfills_populated_outbox(
         with pg_engine.connect() as conn:
             operations = conn.execute(select(tables.outbox.c.operation)).scalars().all()
             assert operations == ["erase", "erase"]
+            assert compare_metadata(_migration_ctx(conn), metadata) == []
+    finally:
+        metadata.drop_all(pg_engine)
+
+
+def test_legacy_pre_a5_audit_table_migrates_and_verifies_vacuously(
+    pg_engine: Engine,
+) -> None:
+    """A pre-ADR-0028 table missing the two hash columns migrates cleanly.
+
+    Simulate a deployment that predates the hash chain (prior_hash and
+    event_hash absent), insert legacy rows (hashes implicitly NULL — the
+    columns don't exist yet), let autogenerate propose exactly the two
+    missing nullable columns, apply them as a rendered revision would, and
+    confirm AuditChainVerifier.verify() returns verified=True over the
+    legacy rows (the unchained-prefix rule: NULL event_hash rows are skipped,
+    not failed — absence of a hash is absence of evidence, not tampering).
+    """
+    metadata = MetaData()
+    tables = bind_tables(metadata)
+    metadata.create_all(pg_engine)
+    try:
+        # Drop the two A5 hash columns to simulate a pre-A5 deployment.
+        with pg_engine.begin() as conn:
+            conn.execute(
+                text(
+                    "ALTER TABLE effaced_audit_events "
+                    "DROP COLUMN prior_hash, DROP COLUMN event_hash"
+                )
+            )
+            # Insert two legacy rows (hash columns absent — values implicitly NULL
+            # once the columns are added back).
+            for _ in range(2):
+                conn.execute(
+                    text(
+                        "INSERT INTO effaced_audit_events "
+                        "(event_id, event_type, subject_ref, occurred_at, payload) "
+                        "VALUES (gen_random_uuid(), 'consent_granted', 'subject-legacy', "
+                        "now(), '{}'::jsonb)"
+                    )
+                )
+
+        # Autogenerate must propose exactly the two missing nullable columns.
+        with pg_engine.connect() as conn:
+            diffs = compare_metadata(_migration_ctx(conn), metadata)
+
+        add_col_diffs = [(d[2], d[3].name) for d in diffs if d[0] == "add_column"]
+        assert len(diffs) == 2, f"expected exactly 2 add_column ops, got: {diffs}"
+        assert set(add_col_diffs) == {
+            (AUDIT_EVENTS_TABLE_NAME, "prior_hash"),
+            (AUDIT_EVENTS_TABLE_NAME, "event_hash"),
+        }
+        for diff in diffs:
+            assert diff[0] == "add_column"
+            assert diff[3].nullable is True, f"column {diff[3].name} must be nullable"
+            assert diff[3].server_default is None, (
+                f"column {diff[3].name} must have no server_default"
+            )
+
+        # Apply both columns the way a rendered Alembic revision would.
+        with pg_engine.begin() as conn:
+            op = Operations(MigrationContext.configure(conn))
+            for _, _, _, column in diffs:
+                op.add_column(
+                    AUDIT_EVENTS_TABLE_NAME,
+                    Column(column.name, column.type, nullable=column.nullable),
+                )
+
+        # Legacy rows now have NULL in both hash columns.  The verifier must
+        # skip them (unchained-prefix rule) and return verified=True.
+        factory = sessionmaker(pg_engine)
+        verifier = AuditChainVerifier(factory, tables.audit_events)
+        result = verifier.verify()
+        assert result.verified is True
+        assert result.first_broken_event_id is None
+
+        # A second autogenerate after applying is diff-free.
+        with pg_engine.connect() as conn:
             assert compare_metadata(_migration_ctx(conn), metadata) == []
     finally:
         metadata.drop_all(pg_engine)

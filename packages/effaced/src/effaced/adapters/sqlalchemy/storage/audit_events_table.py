@@ -16,6 +16,14 @@ def build_audit_events_table(metadata: MetaData) -> Table:
     see ``docs/runbooks/append-only-audit-hardening.md`` for an optional
     Postgres trigger that rejects ``UPDATE``/``DELETE`` at the database.
 
+    ``prior_hash`` and ``event_hash`` carry an optional tamper-evidence hash
+    chain (ADR 0028): each chained row hashes its own content together with
+    the prior row's hash, so an out-of-band edit of any recorded row is
+    *detectable* by recomputing the chain — it is not *prevented*. Both
+    columns are nullable: legacy rows and custom sinks that do not compute
+    the chain leave them ``NULL`` and verify as an unchained prefix, never a
+    failure. See :class:`~effaced.AuditChainVerifier`.
+
     Type choices, shared by all effaced-owned tables: UUID primary keys
     (``Uuid`` — native on Postgres, ``CHAR(32)`` elsewhere), timezone-aware
     timestamps (``timestamptz`` on Postgres), and JSON payloads stored as
@@ -38,6 +46,8 @@ def build_audit_events_table(metadata: MetaData) -> Table:
         Column("subject_ref", String(255), nullable=False),
         Column("occurred_at", DateTime(timezone=True), nullable=False),
         Column("payload", JSON().with_variant(JSONB(), "postgresql"), nullable=False, default=dict),
+        Column("prior_hash", String(64), nullable=True),
+        Column("event_hash", String(64), nullable=True),
         Index(
             "ix_effaced_audit_events_subject_ref_occurred_at",
             "subject_ref",
