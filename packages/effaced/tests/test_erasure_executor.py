@@ -291,6 +291,78 @@ def test_anonymize_without_a_primary_key_fails_loudly(keyless: HandBuilt) -> Non
         ErasureExecutor(keyless.metadata).execute(keyless.session, keyless.graph, step, "1")
 
 
+@pytest.fixture()
+def string_keyed() -> Iterator[HandBuilt]:
+    """A subject-linked table whose own String primary key is anonymizable."""
+    metadata = MetaData()
+    Table("people", metadata, Column("id", Integer, primary_key=True))
+    Table(
+        "tokens",
+        metadata,
+        Column("token", String(64), primary_key=True),
+        Column("person_id", Integer, ForeignKey("people.id")),
+    )
+    graph = SubjectGraph(
+        subject_table="people",
+        subject_id_columns=("id",),
+        accesses=(
+            TableAccessPlan(
+                table="tokens",
+                hops=(
+                    JoinHop(
+                        source_table="tokens",
+                        source_columns=("person_id",),
+                        target_table="people",
+                        target_columns=("id",),
+                    ),
+                ),
+            ),
+            TableAccessPlan(table="people"),
+        ),
+    )
+    yield from _hand_built(metadata, graph)
+
+
+def test_anonymizing_a_string_primary_key_skips_no_rows_across_batches(
+    string_keyed: HandBuilt, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Anonymizing the ordering key itself must rewrite every row, never skip.
+
+    A String PK draws a fresh unique surrogate per cell, so paging by an
+    OFFSET over that key would shift the window mid-loop and skip rows — the
+    skipped rows would keep their original key and the PII would survive the
+    erasure. The executor captures all matching keys up-front in this case, so
+    every subject row is rewritten and none keeps its original value (proven
+    across more than one batch by shrinking ``_BATCH``).
+    """
+    monkeypatch.setattr(executor_module, "_BATCH", 3)
+    people = string_keyed.metadata.tables["people"]
+    tokens = string_keyed.metadata.tables["tokens"]
+    count = 10
+    string_keyed.session.execute(people.insert(), [{"id": 1}, {"id": 2}])
+    string_keyed.session.execute(
+        tokens.insert(),
+        [{"token": f"alice-{index}", "person_id": 1} for index in range(count)]
+        + [{"token": f"bob-{index}", "person_id": 2} for index in range(count)],
+    )
+    step = ErasureStep(target="tokens", strategy=ErasureStrategy.ANONYMIZE, columns=("token",))
+    affected = ErasureExecutor(string_keyed.metadata).execute(
+        string_keyed.session, string_keyed.graph, step, "1"
+    )
+
+    assert affected == count
+    erased = rows(string_keyed.session, tokens)
+    alice = [row["token"] for row in erased if row["person_id"] == 1]
+    bob = [row["token"] for row in erased if row["person_id"] == 2]
+    # Every Alice key was rewritten with a fresh unique surrogate — none kept
+    # its original value, so no row was skipped.
+    assert len(alice) == count
+    assert all(not str(token).startswith("alice-") for token in alice)
+    assert len(set(alice)) == count
+    # No cross-subject bleed: Bob's keys are untouched.
+    assert sorted(bob) == sorted(f"bob-{index}" for index in range(count))
+
+
 def test_batched_anonymize_rewrites_every_row_with_a_fresh_surrogate(
     notes: HandBuilt, monkeypatch: pytest.MonkeyPatch
 ) -> None:

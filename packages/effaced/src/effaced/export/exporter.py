@@ -182,11 +182,15 @@ class Exporter:
         Art. 15 envelope (``generated_at``, ``schema_version``,
         ``incomplete_sources``) call :meth:`export_subject` instead.
 
-        Memory bound: peak resident records are one local table's matched
-        rows (the cursor is drained per table, not accumulated) plus one
-        resolver's full :class:`~effaced.resolvers.ResolverExport` at a
-        time. Resolver fan-out still runs concurrently on one internal
-        event loop; only its *consumption* is streamed.
+        Memory bound: this streams the **local** side — peak resident local
+        records are one table's matched rows (the cursor is drained per
+        table, not accumulated). The **external** side is unchanged from
+        :meth:`export_subject`: resolver fan-out runs concurrently on one
+        internal event loop and each resolver's full
+        :class:`~effaced.resolvers.ResolverExport` is gathered before its
+        records are yielded, so a resolver returning a large export is not
+        bounded here. The win is for subjects whose footprint is dominated
+        by local database rows.
 
         Audit semantics match :meth:`export_subject` exactly:
         ``EXPORT_REQUESTED`` is appended once, eagerly, after input
