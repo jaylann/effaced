@@ -19,6 +19,16 @@ if TYPE_CHECKING:
     from effaced.erasure.plan import ErasureStep
     from effaced.manifest import SubjectGraph
 
+_BATCH = 256
+"""Primary keys fetched per round trip when anonymizing a subject's rows.
+
+Bounds the anonymize step's peak resident keys to one batch: a subject with
+a large footprint in one table no longer materializes every matched primary
+key before rewriting. Each batch is fetched ordered and offset by the count
+already rewritten — the anonymized columns are never the ordering key, so
+the matched set stays stable and every row is rewritten exactly once.
+"""
+
 
 class ErasureExecutor:
     """Executes one local erasure step per call, scoped to one subject.
@@ -101,7 +111,25 @@ class ErasureExecutor:
         columns: tuple[str, ...],
         predicate: ColumnElement[bool],
     ) -> int:
-        """Rewrite matched rows one by one with fresh surrogates."""
+        """Rewrite matched rows with a fresh per-cell surrogate (ADR 0007).
+
+        Each matched row is rewritten with its own fresh surrogate per
+        anonymized cell (one scoped UPDATE sharing a surrogate would break a
+        unique constraint), so the erased result is byte-identical to fetching
+        every key first and rewriting row by row — this is a memory/throughput
+        change, never a behaviour change.
+
+        Memory: when the primary key is a single, non-anonymized column the
+        matched keys are walked by a stable keyset cursor (``key > last``), one
+        ``_BATCH`` at a time, so a large-footprint subject never materializes
+        every key — and, unlike an ``OFFSET``/count walk, this stays correct
+        even when anonymizing a non-key column shifts which rows match, because
+        the cursor advances by the key, not by a running count. When the PK is
+        composite, or is itself anonymized (its fresh surrogate would move the
+        cursor mid-walk and skip rows — letting PII survive the erasure), every
+        matching key is captured in one query up-front instead: correct and
+        immune to the in-loop change, at the cost of the prior resident key set.
+        """
         key = list(table.primary_key.columns)
         if not key:
             msg = (
@@ -110,16 +138,38 @@ class ErasureExecutor:
             )
             raise AnonymizationError(msg)
         targets = [_column(table, name) for name in columns]
-        rows = session.execute(select(*key).where(predicate)).all()
-        for row in rows:
-            values = {
-                column.name: self._surrogates.surrogate_for(column.type) for column in targets
-            }
-            matched = table.update().where(
-                *(pk == value for pk, value in zip(key, row, strict=True))
-            )
-            session.execute(matched.values(**values))
-        return len(rows)
+        if len(key) != 1 or key[0].name in columns:
+            rows = session.execute(select(*key).where(predicate)).all()
+            for row in rows:
+                self._rewrite(session, table, key, targets, tuple(row))
+            return len(rows)
+        cursor_column = key[0]
+        anonymized = 0
+        cursor: object | None = None
+        while True:
+            statement = select(*key).where(predicate)
+            if cursor is not None:
+                statement = statement.where(cursor_column > cursor)
+            batch = session.execute(statement.order_by(cursor_column).limit(_BATCH)).all()
+            if not batch:
+                return anonymized
+            for row in batch:
+                self._rewrite(session, table, key, targets, tuple(row))
+            anonymized += len(batch)
+            cursor = batch[-1][0]
+
+    def _rewrite(
+        self,
+        session: Session,
+        table: Table,
+        key: list[Column[Any]],
+        targets: list[Column[Any]],
+        row: tuple[Any, ...],
+    ) -> None:
+        """Rewrite one matched row's anonymized cells with fresh surrogates."""
+        values = {column.name: self._surrogates.surrogate_for(column.type) for column in targets}
+        matched = table.update().where(*(pk == value for pk, value in zip(key, row, strict=True)))
+        session.execute(matched.values(**values))
 
 
 def _delete(session: Session, table: Table, predicate: ColumnElement[bool]) -> int:

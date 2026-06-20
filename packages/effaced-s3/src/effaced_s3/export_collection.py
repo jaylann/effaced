@@ -19,6 +19,8 @@ from effaced_s3.export_records import object_records
 from effaced_s3.listing import iter_current_objects
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from effaced.export import ExportRecord
     from effaced_s3.object_client import S3ObjectClient
 
@@ -81,7 +83,57 @@ def collect_object_records(
             ``max_object_bytes`` — the export fails whole, never a
             silently thinned bundle.
     """
-    records: list[ExportRecord] = []
+    return tuple(
+        iter_object_records(
+            client,
+            bucket,
+            prefix,
+            source=source,
+            include_content=include_content,
+            max_object_bytes=max_object_bytes,
+        )
+    )
+
+
+def iter_object_records(
+    client: S3ObjectClient,
+    bucket: str,
+    prefix: str,
+    *,
+    source: str,
+    include_content: bool,
+    max_object_bytes: int | None,
+) -> Iterator[ExportRecord]:
+    """Stream every current object's records, one object body at a time.
+
+    The streaming companion to :func:`collect_object_records` — it yields
+    the **same** records in the same (listing) order, but never accumulates
+    every object's body in memory: each object is listed, fetched, mapped,
+    and its records yielded before the next object is touched. Peak resident
+    bytes are therefore one object's body (bounded further by
+    ``max_object_bytes`` when set), not the subject's whole prefix.
+    :func:`collect_object_records` simply drains this into a tuple, so the
+    materialized result is byte-identical.
+
+    Args:
+        client: The object-store client to list and fetch with.
+        bucket: The bucket holding the subject's objects.
+        prefix: The subject's key prefix.
+        source: The ``ExportRecord.source`` label every produced record
+            carries — the resolver's name.
+        include_content: Fetch each object's body (GET) or only its
+            metadata (HEAD).
+        max_object_bytes: Refuse (loudly) to export any object larger
+            than this; ``None`` means no cap.
+
+    Yields:
+        Records for each current object under the prefix, in listing order.
+
+    Raises:
+        ResolverError: An object under the prefix exceeds
+            ``max_object_bytes`` — the export fails whole, never a
+            silently thinned bundle.
+    """
     for entry in iter_current_objects(client, bucket, prefix):
         size = entry.get("Size", 0)
         if max_object_bytes is not None and size > max_object_bytes:
@@ -90,13 +142,12 @@ def collect_object_records(
                 f"(size={size}, cap={max_object_bytes})"
             )
         try:
-            records.extend(
-                _fetch_records(
-                    client, bucket, entry["Key"], source=source, include_content=include_content
-                )
+            records = _fetch_records(
+                client, bucket, entry["Key"], source=source, include_content=include_content
             )
         except ClientError as error:
             # Vanished between list and fetch: the system no longer holds it.
             if not is_absent_object(error):
                 raise
-    return tuple(records)
+            continue
+        yield from records

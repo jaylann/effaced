@@ -19,6 +19,8 @@ from effaced.exceptions import ManifestError, ResolverError
 from effaced.export.bundle import ExportBundle, ExportRecord
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from sqlalchemy import MetaData, Select
     from sqlalchemy.orm import Session
 
@@ -26,6 +28,14 @@ if TYPE_CHECKING:
     from effaced.audit.sink import AuditSink
     from effaced.manifest import DataMap, SubjectGraph, TableEntry
     from effaced.resolvers import Resolver, ResolverExport, ResolverRegistry
+
+_ROW_STREAM_SIZE = 256
+"""Rows fetched per round trip when streaming a local table's matched rows.
+
+Bounds peak resident records to roughly one batch per table during a
+streaming export — large enough to amortize round trips, small enough that
+a wide subject footprint never materializes whole.
+"""
 
 
 class Exporter:
@@ -122,12 +132,7 @@ class Exporter:
         ref = canonical_subject_id(subject_id)
         # Validate the identifier (arity + per-component coercion) before the
         # request is recorded: a malformed call never became a request.
-        subject_table = self._metadata.tables[self._graph.subject_table]
-        columns = self._graph.subject_id_columns
-        coerce_subject_values(
-            (subject_table.c[name] for name in columns),
-            subject_values(columns, subject_id),
-        )
+        self._validate_subject_id(subject_id)
         resolvers = self._registry.all() if self._registry is not None else ()
         jobs = _match_refs(resolvers, refs)
         self._append_event(
@@ -156,6 +161,118 @@ class Exporter:
             },
         )
         return bundle
+
+    def iter_subject_records(
+        self,
+        session: Session,
+        subject_id: SubjectIdentifier,
+        *,
+        refs: tuple[SubjectRef, ...] = (),
+    ) -> Iterator[ExportRecord]:
+        """Stream a subject's data record by record, bounding memory (Art. 15).
+
+        The streaming companion to :meth:`export_subject`. It yields the
+        **same** records, in the same order (local sources in data-map
+        order, then external resolvers), but never builds the full
+        :class:`~effaced.ExportBundle` tuple: local rows are fetched and
+        emitted table by table off the database cursor, so peak memory is
+        bounded by the widest single table's row set, not the subject's
+        whole footprint. Use it to export large-footprint subjects without
+        materializing every value at once; consumers that need the bundle's
+        Art. 15 envelope (``generated_at``, ``schema_version``,
+        ``incomplete_sources``) call :meth:`export_subject` instead.
+
+        Memory bound: this streams the **local** side — peak resident local
+        records are one table's matched rows (the cursor is drained per
+        table, not accumulated). The **external** side is unchanged from
+        :meth:`export_subject`: resolver fan-out runs concurrently on one
+        internal event loop and each resolver's full
+        :class:`~effaced.resolvers.ResolverExport` is gathered before its
+        records are yielded, so a resolver returning a large export is not
+        bounded here. The win is for subjects whose footprint is dominated
+        by local database rows.
+
+        Audit semantics match :meth:`export_subject` exactly:
+        ``EXPORT_REQUESTED`` is appended once, eagerly, after input
+        validation and before the first record is yielded;
+        ``EXPORT_COMPLETED`` is appended once the iterator is fully
+        consumed, carrying the same payload keys (``record_count``,
+        ``incomplete_source_count``, ``incomplete_sources``,
+        ``skipped_resolvers``). A consumer that abandons the iterator early
+        (never exhausts it) leaves ``EXPORT_REQUESTED`` without a
+        completion — the same requested-but-never-completed abandonment
+        marker a failed :meth:`export_subject` leaves.
+
+        Blocking call; resolver fan-out runs on an internal event loop, so
+        it must not be invoked on a running event-loop thread — in async
+        web apps dispatch via a threadpool (e.g. FastAPI's
+        ``run_in_threadpool``). See ADR 0006.
+
+        Args:
+            session: An open database session; reads only, never writes.
+            subject_id: The subject identifier — a single-column ``str`` or
+                a composite :class:`~effaced.CompositeSubjectId` aligned to
+                the subject's
+                :attr:`~effaced.SubjectLink.subject_id_columns`.
+            refs: External-system references for resolver fan-out.
+
+        Yields:
+            One :class:`~effaced.ExportRecord` per annotated value, local
+            sources first (data-map order), then external resolvers.
+
+        Raises:
+            SubjectResolutionError: If ``subject_id``'s arity disagrees with
+                the declared subject-id columns, or a component cannot be
+                coerced to its column's type.
+            ResolverError: If a ref's ``kind`` matches no registered
+                resolver — a typo must not silently drop an external
+                source from the answer.
+        """
+        ref = canonical_subject_id(subject_id)
+        self._validate_subject_id(subject_id)
+        resolvers = self._registry.all() if self._registry is not None else ()
+        jobs = _match_refs(resolvers, refs)
+        self._append_event(
+            AuditEventType.EXPORT_REQUESTED,
+            ref,
+            {"ref_count": len(refs), "resolver_count": len(resolvers)},
+        )
+        count = 0
+        for record in _iter_local_records(
+            session, self._data_map, self._graph, self._metadata, subject_id
+        ):
+            count += 1
+            yield record
+        external, incomplete = _collect_external(jobs)
+        for record in external:
+            count += 1
+            yield record
+        matched = {resolver.name for resolver, _ in jobs}
+        skipped = tuple(resolver.name for resolver in resolvers if resolver.name not in matched)
+        self._append_event(
+            AuditEventType.EXPORT_COMPLETED,
+            ref,
+            {
+                "record_count": count,
+                "incomplete_source_count": len(incomplete),
+                "incomplete_sources": ",".join(incomplete),
+                "skipped_resolvers": ",".join(skipped),
+            },
+        )
+
+    def _validate_subject_id(self, subject_id: SubjectIdentifier) -> None:
+        """Validate the identifier (arity + per-component coercion) eagerly.
+
+        A malformed call must raise before ``EXPORT_REQUESTED`` is
+        appended: it never became a data-subject request, so it leaves no
+        audit trace. Shared by both the materializing and streaming paths.
+        """
+        subject_table = self._metadata.tables[self._graph.subject_table]
+        columns = self._graph.subject_id_columns
+        coerce_subject_values(
+            (subject_table.c[name] for name in columns),
+            subject_values(columns, subject_id),
+        )
 
     def _append_event(
         self,
@@ -200,14 +317,30 @@ def _local_records(
     subject_id: SubjectIdentifier,
 ) -> tuple[ExportRecord, ...]:
     """Collect every annotated value reachable from the subject."""
-    records: list[ExportRecord] = []
+    return tuple(_iter_local_records(session, data_map, graph, metadata, subject_id))
+
+
+def _iter_local_records(
+    session: Session,
+    data_map: DataMap,
+    graph: SubjectGraph,
+    metadata: MetaData,
+    subject_id: SubjectIdentifier,
+) -> Iterator[ExportRecord]:
+    """Yield every annotated value reachable from the subject, table by table.
+
+    The lazy core both paths share: :func:`_local_records` drains it into a
+    tuple for the materializing :meth:`Exporter.export_subject`, while
+    :meth:`Exporter.iter_subject_records` yields straight through it. Rows
+    are streamed off the cursor (``yield_per``) so peak resident records are
+    one table's matched rows, never the subject's whole local footprint.
+    """
     for entry in data_map.tables:
         if not entry.columns:
             continue
         statement = _statement_for(entry, graph, metadata, subject_id)
-        for row in session.execute(statement).mappings():
-            records.extend(_row_records(entry, dict(row)))
-    return tuple(records)
+        for row in session.execute(statement).yield_per(_ROW_STREAM_SIZE).mappings():
+            yield from _row_records(entry, dict(row))
 
 
 def _statement_for(
