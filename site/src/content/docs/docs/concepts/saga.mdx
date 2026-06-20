@@ -79,6 +79,19 @@ is ever silently dropped — monitoring abandoned entries is part of
 operating the saga.
 :::
 
+`list_abandoned()` covers the *external-call* half of "stuck erasure". The
+*local* half — a subject whose erasure was requested but whose local phase
+never committed — surfaces through `OverdueErasureReporter`, the read-only
+counterpart over the `effaced_subject_erasures` tombstone (the same row the
+[subject-erasure lock](./erasure/) writes). `EffacedStack`
+wires one as `stack.overdue_erasures`;
+`stack.overdue_erasures.report(timedelta(hours=1))` lists every subject
+whose erasure has been outstanding longer than the threshold, most-overdue
+first, taking no locks and writing nothing. Like every effaced report it is
+a detection signal, not a determination — a long transaction, a crashed
+worker, and a genuinely stuck subject all appear the same way; which need
+attention is your call.
+
 ## Scheduled expiry (ADR 0022)
 
 An erase entry routed to a `RetentionOnlyResolver` — an external system

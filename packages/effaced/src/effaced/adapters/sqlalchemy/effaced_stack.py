@@ -27,6 +27,7 @@ from effaced.resolvers.registry import ResolverRegistry
 from effaced.restriction.ledger import RestrictionLedger
 from effaced.retention.sweeper import RetentionSweeper
 from effaced.saga.outbox import Outbox
+from effaced.saga.overdue_erasure_reporter import OverdueErasureReporter
 from effaced.saga.runner import SagaRunner
 
 if TYPE_CHECKING:
@@ -110,6 +111,10 @@ class EffacedStack:
         registry: The resolver registry routing external refs.
         audit_sink: The append-only trail every engine records into.
         outbox: The durable queue for external erasure/rectification calls.
+        overdue_erasures: The read-only report of subjects whose local
+            erasure was requested but never completed (the
+            ``effaced_subject_erasures`` tombstone, ADR 0026) — the local-phase
+            counterpart of ``outbox.list_abandoned``.
         exporter: The Art. 15 export engine.
         planner: The Art. 17 erasure engine, execution-ready. Wired with a
             :class:`~effaced.adapters.sqlalchemy.SubjectErasureLock`, so
@@ -134,6 +139,7 @@ class EffacedStack:
     registry: ResolverRegistry
     audit_sink: AuditSink
     outbox: Outbox
+    overdue_erasures: OverdueErasureReporter
     exporter: Exporter
     planner: ErasurePlanner
     rectifier: Rectifier
@@ -297,6 +303,7 @@ class EffacedStack:
             registry=registry,
             audit_sink=audit,
             outbox=outbox,
+            overdue_erasures=OverdueErasureReporter(session_factory, tables.subject_erasures),
             exporter=Exporter(data_map, graph, metadata, audit, registry),
             planner=ErasurePlanner(
                 data_map,

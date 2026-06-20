@@ -7,6 +7,9 @@ from effaced.saga.outbox import Outbox
 from effaced.saga.outbox_entry import OutboxEntry
 from effaced.saga.outbox_operation import OutboxOperation
 from effaced.saga.outbox_status import OutboxStatus
+from effaced.saga.overdue_erasure import OverdueErasure
+from effaced.saga.overdue_erasure_report import OverdueErasureReport
+from effaced.saga.overdue_erasure_reporter import OverdueErasureReporter
 from effaced.saga.runner import SagaRunner
 from effaced.saga.status_counts_source import StatusCountsSource
 
@@ -18,6 +21,9 @@ __all__ = [
     "OutboxEntry",
     "OutboxOperation",
     "OutboxStatus",
+    "OverdueErasure",
+    "OverdueErasureReport",
+    "OverdueErasureReporter",
     "SagaRunner",
     "StatusCountsSource",
 ]
