@@ -104,17 +104,26 @@ that decision (the controller can check it before re-creating, or sweep it),
 and it does **not** claim to prevent re-creation. Saying otherwise would be a
 determination effaced does not make.
 
-**Opt-in wiring, default behaviour unchanged.** `ErasurePlanner.__init__`
-gains an optional keyword-only `lock: SubjectLock | None = None`.
-`erase_subject` calls `lock.acquire(session, subject_id)` **before** the
-`ERASURE_REQUESTED` audit event and before the first step, *only when a lock
-is wired*. With the default `lock=None` the method is byte-identical to
-today, so every existing caller is unchanged; a caller who wants the
-guarantee constructs its own `ErasurePlanner` with a `SubjectErasureLock`
-explicitly. `EffacedStack.from_base`/`from_manifest` deliberately do **not**
-wire the lock by default — auto-wiring would change those facades' behaviour
-for every existing user and widen the breaking surface, so opting in stays an
-explicit, per-planner decision; a future MINOR may add an opt-in flag.
+**On by default through `EffacedStack`; opt-in for a hand-built planner.**
+`ErasurePlanner.__init__` gains an optional keyword-only
+`lock: SubjectLock | None = None`. `erase_subject` calls
+`lock.acquire(session, subject_id)` **before** the `ERASURE_REQUESTED` audit
+event and the first step, and `lock.mark_erased(session, subject_id)` after
+the local phase succeeds — *only when a lock is wired*. With `lock=None` the
+method is byte-identical to today, so a caller who constructs the planner by
+hand is unchanged unless they pass a lock.
+
+**`EffacedStack.from_base` and `from_manifest` wire a `SubjectErasureLock` by
+default.** The stack is the supported one-call wiring; the guard is the
+correct default there, so erasing a subject through the stack serializes and
+locks the anchor rows out of the box. This *is* the breaking change: a caller
+upgrading on the stack path now runs the guard, which requires the
+`effaced_subject_erasures` table to exist and changes the concurrency
+contract (erasure can now block on locks). The default is deliberate — the
+race this ADR closes is a data-protection bug, and the stack should not ship
+the un-guarded path as its default. A hand-built planner stays opt-in so a
+caller who cannot yet add the table (un-migrated database) keeps a working
+erasure by constructing the planner without a lock.
 
 **`SubjectLock` is a core protocol; `SubjectErasureLock` is its SQLAlchemy
 implementation.** `erasure/subject_lock.py` holds the SQLAlchemy-free
