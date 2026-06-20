@@ -104,6 +104,7 @@ from effaced.resolvers import (
     SurfaceExclusion,
     VerifyingResolver,
     registry_from_settings,
+    scrub_error,
 )
 from effaced.restriction import RestrictionLedger, RestrictionRecord
 from effaced.retention import RetentionReport, RetentionReportEntry, RetentionSweeper
@@ -230,5 +231,6 @@ __all__ = [
     "registry_from_settings",
     "resolve_subject_graph",
     "resolve_subject_graph_from_fk",
+    "scrub_error",
     "subject_link",
 ]

@@ -20,6 +20,7 @@ from effaced.resolvers import (
     ResolverScheduledErasure,
     RetentionOnlyResolver,
     VerifyingResolver,
+    scrub_error,
 )
 from effaced.saga.abandoned_signal import AbandonedSignal
 from effaced.saga.backoff_policy import BackoffPolicy
@@ -346,11 +347,12 @@ class SagaRunner:
 
     def _abandon(self, entry: OutboxEntry, exc: BaseException) -> None:
         """Audit the abandonment loudly, then mark the entry terminal."""
+        error = scrub_error(exc)
         if entry.operation is OutboxOperation.RECTIFY:
             payload: dict[str, str | int | bool] = {
                 "target": entry.resolver,
                 "external": True,
-                "error": type(exc).__name__,
+                "error": error,
                 "attempts": entry.attempts,
                 "abandoned": True,
             }
@@ -360,13 +362,13 @@ class SagaRunner:
                 "target": entry.resolver,
                 "strategy": ErasureStrategy.DELETE.value,
                 "external": True,
-                "error": type(exc).__name__,
+                "error": error,
                 "attempts": entry.attempts,
                 "abandoned": True,
             }
             event_type = AuditEventType.ERASURE_STEP_FAILED
         self._audit.append(_event(event_type, entry.subject_id, payload))
-        self._outbox.mark_abandoned(entry, error=type(exc).__name__)
+        self._outbox.mark_abandoned(entry, error=error)
         self._notify_abandoned(entry, exc)
 
     def _notify_abandoned(self, entry: OutboxEntry, exc: BaseException) -> None:
@@ -386,7 +388,7 @@ class SagaRunner:
             resolver=entry.resolver,
             operation=entry.operation,
             attempts=entry.attempts,
-            error=type(exc).__name__,
+            error=scrub_error(exc),
         )
         with contextlib.suppress(Exception):
             self._on_abandoned.on_abandoned(signal)
@@ -395,7 +397,7 @@ class SagaRunner:
         """Schedule the next attempt on the backoff curve; not audited."""
         self._outbox.mark_failed(
             entry,
-            error=type(exc).__name__,
+            error=scrub_error(exc),
             next_attempt_at=datetime.now(UTC) + self._backoff.delay(entry.attempts),
         )
 
