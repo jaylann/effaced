@@ -56,29 +56,41 @@ class DatabaseAuditSink:
         ``event_id`` raises the database's integrity error — an existing
         row is never overwritten.
 
-        Within that same transaction the prior chained row's ``event_hash``
-        is read (the row with the greatest ``occurred_at``, ``event_id``
-        tiebreak — the same total order :meth:`read` uses) and this event's
-        ``prior_hash``/``event_hash`` are computed and written, so the chain
-        extends atomically with the insert (ADR 0028). The per-append
-        transaction is the serialization point; under genuinely concurrent
-        appends two rows may chain to the same predecessor, which
-        :class:`~effaced.AuditChainVerifier` reports as a fork — surfaced,
-        never silently healed.
+        The hash chain is a pure linked list keyed by *insertion*, never by
+        ``occurred_at`` (ADR 0028): ``occurred_at`` is caller-supplied and
+        backdatable through the consent/restriction ledgers, so it cannot
+        order the chain. Within this same transaction the current **tail** is
+        read — the one chained row whose ``event_hash`` no other row cites as
+        its ``prior_hash`` — and the new event chains to it
+        (``prior_hash = tail.event_hash``); the first chained event chains to
+        ``None``. The chain extends atomically with the insert.
+
+        The per-append transaction is the serialization point. Under
+        genuinely concurrent appends two rows may both read the same tail and
+        chain to it, forking the list; :class:`~effaced.AuditChainVerifier`
+        detects that fork on read — surfaced, never silently healed.
+        Deployments needing a strictly linear chain serialize their audit
+        writes (a single writer, or an advisory lock around append).
 
         Args:
             event: The event to persist.
         """
         with self._session_factory.begin() as session:
             columns = self._audit_events.c
-            prior_statement = (
+            referenced_priors = (
+                self._audit_events.select()
+                .with_only_columns(columns.prior_hash)
+                .where(columns.prior_hash.isnot(None))
+            )
+            tail_statement = (
                 self._audit_events.select()
                 .with_only_columns(columns.event_hash)
-                .where(columns.event_hash.isnot(None))
-                .order_by(columns.occurred_at.desc(), columns.event_id.desc())
-                .limit(1)
+                .where(
+                    columns.event_hash.isnot(None),
+                    columns.event_hash.notin_(referenced_priors),
+                )
             )
-            prior_hash = session.execute(prior_statement).scalars().first()
+            prior_hash = session.execute(tail_statement).scalars().first()
             event_hash = compute_event_hash(event, prior_hash)
             session.execute(
                 self._audit_events.insert().values(

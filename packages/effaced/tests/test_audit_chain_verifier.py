@@ -1,8 +1,15 @@
 """Tests for AuditChainVerifier — detection of out-of-band row modifications.
 
+The chain is an INSERTION-ORDER linked list (each row chains to the current
+tail via ``prior_hash = tail.event_hash``); the verifier walks it from genesis
+(``prior_hash IS NULL``) following predecessor pointers, never ordering by
+``occurred_at``.
+
 Proves: clean chain verifies; empty trail verifies; tamper at row K is
 localized to K; tamper at the first chained row is reported; unchained-prefix
-rows are skipped; an all-NULL-hash trail verifies vacuously;
+rows are skipped; an all-NULL-hash trail verifies vacuously; a backdated
+append still verifies (and a tamper on it is still localized); a fork (two
+rows sharing a predecessor) and a missing genesis are detected;
 ChainVerification's cross-field validator rejects impossible states.
 """
 
@@ -27,6 +34,7 @@ from effaced import (
     DatabaseAuditSink,
     EffacedTables,
     bind_tables,
+    compute_event_hash,
 )
 
 
@@ -272,3 +280,117 @@ def test_entirely_null_hash_trail_verifies_vacuously(harness: SinkHarness) -> No
     result = harness.verifier.verify()
     assert result.verified is True
     assert result.first_broken_event_id is None
+
+
+# ---------------------------------------------------------------------------
+# Backdated append (insertion-keyed chain, not occurred_at-keyed)
+# ---------------------------------------------------------------------------
+
+
+def test_backdated_append_verifies_clean(harness: SinkHarness) -> None:
+    """A later-inserted event with an earlier occurred_at still verifies.
+
+    Minimal reproduction of the reviewer's false alarm: append A at t2, then B
+    at t1 < t2. The sink chains B.prior_hash = A.event_hash (insertion order).
+    The old occurred_at-ordered verifier read them as [B, A] and reported a
+    break; the linked-list verifier walks A→B and verifies clean.
+    """
+    a = _event(at=_ts(120), subject="subject-a")
+    b = _event(at=_ts(60), subject="subject-b")  # earlier instant, later insert
+    harness.sink.append(a)
+    harness.sink.append(b)
+
+    result = harness.verifier.verify()
+    assert result.verified is True
+    assert result.first_broken_event_id is None
+
+
+def test_backdated_append_then_tamper_breaks_at_tampered_row(harness: SinkHarness) -> None:
+    """A tamper on the backdated row is localized to that row.
+
+    Insertion order is A then B (B backdated); tampering B's content makes B's
+    recomputed hash mismatch, so B is named — occurred_at order is irrelevant.
+    """
+    a = _event(at=_ts(120), subject="subject-a")
+    b = _event(at=_ts(60), subject="subject-b")
+    harness.sink.append(a)
+    harness.sink.append(b)
+
+    tbl = harness.tables.audit_events
+    with harness.session_factory.begin() as session:
+        session.execute(
+            tbl.update().where(tbl.c.event_id == b.event_id).values(subject_ref="tampered")
+        )
+
+    result = harness.verifier.verify()
+    assert result.verified is False
+    assert result.first_broken_event_id == b.event_id
+
+
+# ---------------------------------------------------------------------------
+# Fork and orphan / missing-genesis structural breaks
+# ---------------------------------------------------------------------------
+
+
+def _insert_chained_row(harness: SinkHarness, event: AuditEvent, prior_hash: str | None) -> str:
+    """Insert one chained row with a valid event_hash, returning that hash.
+
+    A test-only raw insert (the sink never forks); the event_hash is computed
+    exactly as the sink would so the row is content-valid — the break under
+    test is the chain *structure* (fork / missing genesis), not a content
+    mismatch.
+    """
+    event_hash = compute_event_hash(event, prior_hash)
+    tbl = harness.tables.audit_events
+    with harness.session_factory.begin() as session:
+        session.execute(
+            tbl.insert().values(
+                event_id=event.event_id,
+                event_type=event.event_type.value,
+                subject_ref=event.subject_ref,
+                occurred_at=event.occurred_at,
+                payload=dict(event.payload),
+                prior_hash=prior_hash,
+                event_hash=event_hash,
+            )
+        )
+    return event_hash
+
+
+def test_fork_two_events_share_a_predecessor_is_detected(harness: SinkHarness) -> None:
+    """Two rows citing the same predecessor (a fork) fail verification.
+
+    Build A as genesis, then C and D that BOTH set prior_hash = A.event_hash,
+    each content-valid. The walk reaches A, finds two children, and reports the
+    fork — the named break is one of the forked children.
+    """
+    a = _event(at=_ts(0), subject="subject-a")
+    a_hash = _insert_chained_row(harness, a, None)
+
+    c = _event(at=_ts(1), subject="subject-c")
+    d = _event(at=_ts(2), subject="subject-d")
+    _insert_chained_row(harness, c, a_hash)
+    _insert_chained_row(harness, d, a_hash)
+
+    result = harness.verifier.verify()
+    assert result.verified is False
+    assert result.first_broken_event_id in {c.event_id, d.event_id}
+
+
+def test_chain_with_no_genesis_is_detected(harness: SinkHarness) -> None:
+    """Chained rows with no genesis (no prior_hash IS NULL row) fail.
+
+    Both rows cite a predecessor that is not present as a genesis, so the list
+    is unreachable from a head — an orphan/missing-genesis structural break.
+    """
+    # Two rows, neither a genesis: each points at a hash that has no NULL-prior
+    # row. They form a chain fragment detached from any head.
+    fake_head_hash = "0" * 64
+    x = _event(at=_ts(0), subject="subject-x")
+    x_hash = _insert_chained_row(harness, x, fake_head_hash)
+    y = _event(at=_ts(1), subject="subject-y")
+    _insert_chained_row(harness, y, x_hash)
+
+    result = harness.verifier.verify()
+    assert result.verified is False
+    assert result.first_broken_event_id is not None

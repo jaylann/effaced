@@ -63,13 +63,15 @@ def downgrade() -> None:
 - Retention of the trail itself (e.g. pruning very old events) then
   requires deliberately dropping the trigger in a migration — which is
   exactly the kind of explicit, reviewable step you want.
-- The hash chain links each row to the one before it. The per-append
-  transaction is the serialization point; under genuinely concurrent
-  appenders two rows may legitimately chain to the same predecessor, which
-  `AuditChainVerifier` reports as a fork (surfaced, never silently healed).
-  The single-writer erasure/consent path is already linear; deployments that
-  want a strictly linear chain serialize their audit writes (one writer, or a
-  Postgres advisory lock around `append`).
+- The hash chain is a linked list keyed by *insertion* order (each row's
+  `prior_hash` points at the previously appended row's `event_hash`); the
+  event timestamp plays no part in ordering it. The per-append transaction is
+  the serialization point; under genuinely concurrent appenders two rows may
+  chain to the same predecessor, forking the list — `AuditChainVerifier`
+  detects that fork (surfaced, never silently healed). The single-writer
+  erasure/consent path is already linear; deployments that want a strictly
+  linear chain serialize their audit writes (one writer, or a Postgres
+  advisory lock around `append`).
 - Rows written before this release, or by a custom sink that does not compute
   the chain, carry `NULL` hashes; `AuditChainVerifier` treats them as an
   unchained prefix and verifies from the first row that has a hash — a `NULL`

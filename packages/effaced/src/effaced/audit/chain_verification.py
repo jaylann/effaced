@@ -17,8 +17,8 @@ class ChainVerification(BaseModel):
     rows read, never a determination that the trail — or the deployment — is
     secure or compliant.
 
-    Legacy rows and custom-sink rows with no stored hash form an *unchained
-    prefix*: they are skipped, not failed. A trail that is entirely unchained
+    Legacy rows and custom-sink rows with no stored hash are *unchained*:
+    they are skipped, not failed. A trail that is entirely unchained
     therefore verifies vacuously (``verified=True``,
     ``first_broken_event_id=None``) — absence of a hash is absence of
     evidence, not evidence of tampering.
