@@ -140,13 +140,14 @@ def test_mark_erased_sets_completed_status_and_erased_at() -> None:
     assert rows[0]["erased_at"] is not None
 
 
-def test_re_erasing_a_completed_subject_returns_to_requested() -> None:
+def test_re_erasing_a_completed_subject_returns_to_requested_and_clears_erased_at() -> None:
     """A fresh erasure of a completed subject re-opens the tombstone.
 
     The detection surface tracks the *latest* erasure: a re-request moves the
-    row back to ``requested`` (and clears nothing else here), and marking it
-    again completes it. So a completed row means the most recent erasure
-    finished, never a stale one.
+    row back to ``requested`` and clears ``erased_at`` to ``NULL``, so an
+    in-flight (or stuck) re-erasure is found by the same ``erased_at IS NULL``
+    predicate as a first one — never masked by the previous completion's
+    timestamp. Marking it again re-completes it.
     """
     session_factory, tables = _engine_with_tables()
     lock = _lock(tables)
@@ -160,6 +161,7 @@ def test_re_erasing_a_completed_subject_returns_to_requested() -> None:
     with session_factory() as session:
         rows = _tombstones(session, tables)
     assert rows[0]["status"] == SUBJECT_ERASURE_REQUESTED
+    assert rows[0]["erased_at"] is None
 
 
 def test_acquire_tombstones_distinct_subjects_separately() -> None:

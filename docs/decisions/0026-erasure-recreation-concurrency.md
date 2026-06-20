@@ -81,10 +81,15 @@ rows for the duration of the local phase.** Two collaborating pieces:
    transaction*, so the completion mark is durable exactly when the erasure
    is (a rollback takes it with the row changes — the tombstone never
    records a completion that did not commit). A re-creating code path can
-   query the row to distinguish a finished erasure (`completed`) from one
-   still in flight or crashed mid-erasure (`requested`); a fresh erasure of
-   a completed subject re-opens it to `requested`, so the surface always
-   reflects the *latest* erasure, never a stale one.
+   query the row to distinguish a finished erasure (`completed`,
+   `erased_at` set) from one still in flight or crashed mid-erasure
+   (`requested`, `erased_at IS NULL`). A fresh erasure of a completed
+   subject re-opens it to `requested` *and clears `erased_at` back to
+   `NULL`*, so the surface always reflects the *latest* erasure: an
+   overdue/stuck erasure — first or re-run — is found by the single
+   predicate `requested_at < now - N AND erased_at IS NULL`, never masked
+   by a prior completion's timestamp (the read surface a later
+   stuck/overdue report builds on).
 
 2. **`SELECT … FOR UPDATE` on the subject's anchor rows.** After locking the
    tombstone, `acquire` locks the subject table's rows for this identity,

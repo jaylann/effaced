@@ -113,8 +113,11 @@ class SubjectErasureLock:
         """Insert or refresh the subject's tombstone with a fresh request time.
 
         A first erasure inserts the row; a re-erasure records a fresh
-        ``requested_at`` (the erasure was genuinely re-requested) and re-opens
-        the row to ``requested``. Dialect-portable: Postgres uses ``INSERT …
+        ``requested_at`` (the erasure was genuinely re-requested), re-opens the
+        row to ``requested``, and **clears ``erased_at`` back to ``NULL``** —
+        so a re-erasure that is in flight (or stuck) is detectable by the same
+        ``erased_at IS NULL`` predicate as a first one, never masked by the
+        previous completion's timestamp. Dialect-portable: Postgres uses ``INSERT …
         ON CONFLICT DO UPDATE``, which both serializes (it row-locks the
         conflicting row a concurrent erasure is holding) and refreshes the row
         in one statement. Other dialects — which do not honour ``FOR UPDATE``
@@ -135,7 +138,11 @@ class SubjectErasureLock:
             session.execute(
                 statement.on_conflict_do_update(
                     index_elements=[self._table.c.subject_ref],
-                    set_={"requested_at": now, "status": SUBJECT_ERASURE_REQUESTED},
+                    set_={
+                        "requested_at": now,
+                        "status": SUBJECT_ERASURE_REQUESTED,
+                        "erased_at": None,
+                    },
                 )
             )
             return
@@ -158,7 +165,7 @@ class SubjectErasureLock:
             session.execute(
                 self._table.update()
                 .where(self._table.c.subject_ref == canonical)
-                .values(requested_at=now, status=SUBJECT_ERASURE_REQUESTED)
+                .values(requested_at=now, status=SUBJECT_ERASURE_REQUESTED, erased_at=None)
             )
             return
         session.execute(
