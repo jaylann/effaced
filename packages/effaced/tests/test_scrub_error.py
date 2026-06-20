@@ -20,6 +20,16 @@ class _Outer:
         """A nested exception — ``__qualname__`` differs from ``__name__``."""
 
 
+class _ChattyError(Exception):
+    """An exception whose ``__str__``/``__repr__`` deliberately leak PII."""
+
+    def __str__(self) -> str:
+        return f"delete failed for {_PII}"
+
+    def __repr__(self) -> str:
+        return f"_ChattyError: {_PII}"
+
+
 @pytest.mark.parametrize(
     "exc",
     [
@@ -52,6 +62,17 @@ def test_uses_bare_name_for_nested_classes() -> None:
     """A nested exception class scrubs to its bare ``__name__``, still PII-free."""
     scrubbed = scrub_error(_Outer.NestedError(_PII))
     assert scrubbed == "NestedError"
+    assert _PII not in scrubbed
+
+
+def test_subclass_with_pii_str_and_repr_still_scrubs_clean() -> None:
+    """A subclass whose ``__str__``/``__repr__`` embed PII still scrubs clean.
+
+    This pins the exact promise the docstring makes — a future refactor to
+    ``str(exc)``/``repr(exc)`` would leak here and fail loudly.
+    """
+    scrubbed = scrub_error(_ChattyError())
+    assert scrubbed == "_ChattyError"
     assert _PII not in scrubbed
 
 
