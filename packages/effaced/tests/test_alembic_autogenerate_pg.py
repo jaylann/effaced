@@ -26,6 +26,7 @@ from effaced.adapters.sqlalchemy.storage.bind_tables import (
     CONSENT_RECORDS_TABLE_NAME,
     OUTBOX_TABLE_NAME,
     RESTRICTION_RECORDS_TABLE_NAME,
+    SUBJECT_ERASURES_TABLE_NAME,
 )
 
 pytestmark = pytest.mark.integration
@@ -36,6 +37,7 @@ OWNED_TABLE_NAMES = frozenset(
         CONSENT_RECORDS_TABLE_NAME,
         OUTBOX_TABLE_NAME,
         RESTRICTION_RECORDS_TABLE_NAME,
+        SUBJECT_ERASURES_TABLE_NAME,
     }
 )
 

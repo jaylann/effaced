@@ -9,20 +9,23 @@ from sqlalchemy import Table
 
 @dataclass(frozen=True, slots=True)
 class EffacedTables:
-    """Handles to the four effaced-owned tables mounted on a ``MetaData``.
+    """Handles to the five effaced-owned tables mounted on a ``MetaData``.
 
     Returned by :func:`effaced.bind_tables` so downstream components (audit
-    sink, consent ledger, outbox, restriction ledger) can reference the
-    tables directly instead of looking them up by name.
+    sink, consent ledger, outbox, restriction ledger, subject-erasure lock)
+    can reference the tables directly instead of looking them up by name.
 
     Attributes:
         audit_events: The append-only audit trail table.
         consent_records: The append-only consent event table.
         outbox: The durable external-call outbox table.
         restriction_records: The append-only restriction event table.
+        subject_erasures: The subject-erasure tombstone table that
+            serializes concurrent erasures of one subject (ADR 0026).
     """
 
     audit_events: Table
     consent_records: Table
     outbox: Table
     restriction_records: Table
+    subject_erasures: Table

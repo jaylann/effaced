@@ -17,6 +17,7 @@ from effaced.adapters.sqlalchemy.storage.bind_tables import (
     CONSENT_RECORDS_TABLE_NAME,
     OUTBOX_TABLE_NAME,
     RESTRICTION_RECORDS_TABLE_NAME,
+    SUBJECT_ERASURES_TABLE_NAME,
 )
 
 ALL_TABLE_NAMES = (
@@ -24,6 +25,7 @@ ALL_TABLE_NAMES = (
     CONSENT_RECORDS_TABLE_NAME,
     OUTBOX_TABLE_NAME,
     RESTRICTION_RECORDS_TABLE_NAME,
+    SUBJECT_ERASURES_TABLE_NAME,
 )
 
 EXPECTED_INDEX_NAMES = {
@@ -34,16 +36,17 @@ EXPECTED_INDEX_NAMES = {
         "ix_effaced_outbox_subject_id",
     },
     RESTRICTION_RECORDS_TABLE_NAME: {"ix_effaced_restriction_records_subject_purpose_recorded_at"},
+    SUBJECT_ERASURES_TABLE_NAME: set(),
 }
 
 
-def test_bind_tables_mounts_all_four_tables() -> None:
+def test_bind_tables_mounts_all_five_tables() -> None:
     metadata = MetaData()
     bind_tables(metadata)
     for name in ALL_TABLE_NAMES:
         assert name in metadata.tables
         assert name.startswith("effaced_")
-    assert len([n for n in metadata.tables if n.startswith("effaced_")]) == 4
+    assert len([n for n in metadata.tables if n.startswith("effaced_")]) == 5
 
 
 def test_bind_tables_returns_table_handles() -> None:
@@ -54,6 +57,7 @@ def test_bind_tables_returns_table_handles() -> None:
     assert tables.consent_records is metadata.tables[CONSENT_RECORDS_TABLE_NAME]
     assert tables.outbox is metadata.tables[OUTBOX_TABLE_NAME]
     assert tables.restriction_records is metadata.tables[RESTRICTION_RECORDS_TABLE_NAME]
+    assert tables.subject_erasures is metadata.tables[SUBJECT_ERASURES_TABLE_NAME]
 
 
 def test_bind_tables_is_idempotent() -> None:
@@ -64,6 +68,7 @@ def test_bind_tables_is_idempotent() -> None:
     assert second.consent_records is first.consent_records
     assert second.outbox is first.outbox
     assert second.restriction_records is first.restriction_records
+    assert second.subject_erasures is first.subject_erasures
 
 
 def test_bind_tables_rejects_partial_collision() -> None:
@@ -112,6 +117,22 @@ def test_restriction_records_has_surrogate_uuid_pk_and_nullable_scope_fields() -
     assert not any(index.unique for index in table.indexes)
 
 
+def test_subject_erasures_tombstone_shape() -> None:
+    table = bind_tables(MetaData()).subject_erasures
+    assert {c.name for c in table.columns} == {
+        "subject_ref",
+        "requested_at",
+        "erased_at",
+        "status",
+    }
+    assert [c.name for c in table.primary_key.columns] == ["subject_ref"]
+    assert table.columns["requested_at"].nullable is False
+    assert table.columns["status"].nullable is False
+    assert table.columns["erased_at"].nullable is True
+    assert table.columns["requested_at"].type.timezone  # type: ignore[attr-defined]
+    assert table.columns["subject_ref"].type.length == 255  # type: ignore[attr-defined]
+
+
 def test_outbox_flattens_subject_ref() -> None:
     table = bind_tables(MetaData()).outbox
     assert {"ref_kind", "ref_value", "ref_extra"} <= {c.name for c in table.columns}
@@ -129,16 +150,20 @@ def test_postgresql_ddl_uses_jsonb_uuid_timestamptz() -> None:
     metadata = MetaData()
     tables = bind_tables(metadata)
     dialect = postgresql.dialect()
-    all_tables = (
+    uuid_tables = (
         tables.audit_events,
         tables.consent_records,
         tables.outbox,
         tables.restriction_records,
     )
-    for table in all_tables:
+    for table in uuid_tables:
         ddl = str(CreateTable(table).compile(dialect=dialect))
         assert "UUID" in ddl
         assert "TIMESTAMP WITH TIME ZONE" in ddl
+    # The subject-erasure tombstone is keyed by the canonical subject_ref
+    # (a String), so it carries no UUID — only the timestamptz columns.
+    erasures_ddl = str(CreateTable(tables.subject_erasures).compile(dialect=dialect))
+    assert "TIMESTAMP WITH TIME ZONE" in erasures_ddl
     assert "JSONB" in str(CreateTable(tables.audit_events).compile(dialect=dialect))
     assert "JSONB" in str(CreateTable(tables.outbox).compile(dialect=dialect))
 
@@ -159,6 +184,7 @@ def test_index_names_are_stable_and_within_pg_limit() -> None:
             tables.consent_records,
             tables.outbox,
             tables.restriction_records,
+            tables.subject_erasures,
         )
         for table in all_tables:
             names = {index.name for index in table.indexes}
@@ -175,6 +201,7 @@ def test_no_server_defaults_except_the_outbox_operation_migration_aid() -> None:
         tables.consent_records,
         tables.outbox,
         tables.restriction_records,
+        tables.subject_erasures,
     )
     for table in all_tables:
         for column in table.columns:

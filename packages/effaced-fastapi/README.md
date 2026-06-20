@@ -36,12 +36,29 @@ That's the whole integration: `POST /me/consent`, `GET /me/export`,
 the part that stays yours — see the
 [quickstart](https://github.com/jaylann/effaced/tree/main/examples/fastapi-quickstart).
 
+## Security: the `subject` dependency is your only access control
+
+> **The router authorizes nothing.** It exports or erases exactly the
+> `Subject` your dependency returns — it authenticates no one and never
+> checks that the caller may act on that subject (ADR 0020). If your
+> dependency reads a caller-supplied identifier (a header, path, query, or
+> body field) without proving the authenticated caller *is* that subject,
+> **any caller can export or erase any subject** — an insecure direct
+> object reference (IDOR). Resolve the subject from a verified session or
+> token and reject a request whose claimed subject does not match it.
+
+The quickstart's `X-User-Id` header is a stand-in for that check, **not**
+a pattern to copy — it trusts the caller's word. See the
+[quickstart](https://github.com/jaylann/effaced/tree/main/examples/fastapi-quickstart)
+for a secure variant next to the insecure demo.
+
 ## What the router does — and deliberately doesn't
 
 - **Your auth stays yours.** The `subject` dependency you pass resolves
   who the request is about (`Subject(subject_id, refs)`); the router
   never authenticates and never guesses where a subject lives in
-  external systems.
+  external systems. That makes it the trust boundary — it must prove the
+  caller is (or may act on) the subject it returns (see above).
 - **Plain `def` routes.** effaced's engines are sync by design (ADR
   0006); FastAPI runs them on its threadpool, so your event loop never
   blocks — your subject provider can still be `async`.

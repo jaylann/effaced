@@ -9,6 +9,7 @@ from effaced.resolvers.covered_surface import CoveredSurface
 from effaced.resolvers.erasure import ResolverErasure
 from effaced.resolvers.export import ResolverExport
 from effaced.resolvers.rectification import ResolverRectification
+from effaced.resolvers.verification import ResolverVerification
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -111,6 +112,29 @@ class InMemoryResolver:
             raise self._error
         present = self._records.pop(ref.value, None) is not None
         return ResolverErasure(resolver=self._name, already_absent=not present)
+
+    async def verify_absent(self, ref: SubjectRef) -> ResolverVerification:
+        """Re-query the store and confirm the subject is gone (ADR 0027).
+
+        A read-back only — it never mutates state. ``confirmed_absent`` is
+        ``True`` when the subject is no longer held (the post-erase case)
+        and ``False`` when records remain. The reference behaviour the
+        conformance suite's verification section is checked against.
+
+        Args:
+            ref: ``kind=<name>``, ``value=<seeded key>``.
+
+        Returns:
+            ``confirmed_absent=True`` when the subject is not held.
+
+        Raises:
+            Exception: The injected ``error``, when one was configured.
+        """
+        if self._error is not None:
+            raise self._error
+        return ResolverVerification(
+            resolver=self._name, confirmed_absent=ref.value not in self._records
+        )
 
     async def rectify_subject(
         self, ref: SubjectRef, corrections: tuple[Correction, ...]

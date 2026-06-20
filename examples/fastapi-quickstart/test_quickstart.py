@@ -3,6 +3,8 @@ trigger points run end-to-end against a real Postgres."""
 
 from __future__ import annotations
 
+import hashlib
+import hmac
 import importlib
 import os
 import sys
@@ -41,6 +43,48 @@ def test_settings_driven_registration_records_the_stripe_skip(
     assert outcome.name == "stripe"
     assert outcome.registered is False
     assert outcome.missing_keys == ("STRIPE_API_KEY",)
+
+
+def _bearer(module: ModuleType, user_id: str) -> str:
+    """Mint a valid `<user_id>.<hmac>` token the way the secure dep verifies it."""
+    signature = hmac.new(module.SESSION_SECRET, user_id.encode(), hashlib.sha256).hexdigest()
+    return f"Bearer {user_id}.{signature}"
+
+
+def test_secure_subject_rejects_a_forged_caller(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The secure variant 401s a forged token before any subject is resolved.
+
+    A request whose signature doesn't match the claimed user id can't reach
+    the engines, so it can't export or erase a subject it isn't — the IDOR
+    guard the naive X-User-Id demo deliberately lacks. The rejection happens
+    in the dependency, so no database or app lifespan is needed.
+    """
+    module = _fresh_import(monkeypatch)
+    client = TestClient(module.app)  # no `with`: lifespan (and Postgres) not started
+
+    tampered = _bearer(module, "1").replace(".", ".0", 1)  # corrupt the signature
+    response = client.get("/secure/me/export", headers={"Authorization": tampered})
+    assert response.status_code == 401
+
+    missing = client.get("/secure/me/export")
+    assert missing.status_code == 422  # Authorization header is required
+
+    # The positive path, checked at the dependency (no DB): a valid token
+    # resolves to exactly the signed subject — never a caller-chosen id.
+    subject = module.secure_subject(_bearer(module, "1"))
+    assert subject.subject_id == "1"
+
+
+def test_secure_subject_accepts_a_dotted_subject_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A dotted subject id (an email) verifies — the signature is the last segment.
+
+    Subject ids routinely contain dots; the token splits off the trailing
+    signature with rpartition, so the id keeps its internal dots and a
+    legitimate dotted subject is not falsely rejected.
+    """
+    module = _fresh_import(monkeypatch)
+    subject = module.secure_subject(_bearer(module, "alice@example.com"))
+    assert subject.subject_id == "alice@example.com"
 
 
 def _assert_consent_recorded(client: TestClient, module: ModuleType) -> None:

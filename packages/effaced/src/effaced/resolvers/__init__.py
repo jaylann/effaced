@@ -13,9 +13,12 @@ from effaced.resolvers.registry_build import RegistryBuild
 from effaced.resolvers.registry_from_settings import registry_from_settings
 from effaced.resolvers.retention_only import RetentionOnlyResolver
 from effaced.resolvers.scheduled_erasure import ResolverScheduledErasure
+from effaced.resolvers.scrub_error import scrub_error
 from effaced.resolvers.spec import ResolverSpec
 from effaced.resolvers.spec_outcome import SpecOutcome
 from effaced.resolvers.surface_exclusion import SurfaceExclusion
+from effaced.resolvers.verification import ResolverVerification
+from effaced.resolvers.verifying import VerifyingResolver
 
 __all__ = [
     "AttestingResolver",
@@ -30,8 +33,11 @@ __all__ = [
     "ResolverRegistry",
     "ResolverScheduledErasure",
     "ResolverSpec",
+    "ResolverVerification",
     "RetentionOnlyResolver",
     "SpecOutcome",
     "SurfaceExclusion",
+    "VerifyingResolver",
     "registry_from_settings",
+    "scrub_error",
 ]

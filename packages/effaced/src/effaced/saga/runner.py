@@ -19,15 +19,18 @@ from effaced.resolvers import (
     ResolverRectification,
     ResolverScheduledErasure,
     RetentionOnlyResolver,
+    VerifyingResolver,
+    scrub_error,
 )
 from effaced.saga.abandoned_signal import AbandonedSignal
 from effaced.saga.backoff_policy import BackoffPolicy
 from effaced.saga.outbox_operation import OutboxOperation
+from effaced.saga.verified_erasure import VerifiedErasure
 
 if TYPE_CHECKING:
     from effaced.annotations import SubjectIdentifier
     from effaced.audit import AuditSink
-    from effaced.resolvers import ResolverRegistry
+    from effaced.resolvers import ResolverRegistry, ResolverVerification
     from effaced.saga.abandoned_hook import AbandonedHook
     from effaced.saga.outbox import Outbox
     from effaced.saga.outbox_entry import OutboxEntry
@@ -121,6 +124,15 @@ class SagaRunner:
         ``verified_expiry``. A vendor that keeps reporting fresh horizons
         re-parks loudly each time — every slip is audited, never silent.
 
+        When an erase entry's resolver implements
+        :class:`~effaced.VerifyingResolver`, the runner re-queries the
+        external system with ``verify_absent`` after the successful erase and
+        appends ``ERASURE_EXTERNAL_VERIFIED`` (read-back confirmed absence)
+        or ``ERASURE_EXTERNAL_VERIFICATION_FAILED`` (still present despite the
+        reported success) — additional trail over the settled success, never
+        a gate that reverts the erase (ADR 0027). Resolvers without the
+        capability are skipped silently: no event, no error.
+
         Awaits resolver calls concurrently but makes blocking database
         calls (claiming, audit appends) between awaits — run it in a
         worker, cron job, or background task, never on a serving event
@@ -141,7 +153,7 @@ class SagaRunner:
 
     async def _execute(
         self, entry: OutboxEntry
-    ) -> ResolverErasure | ResolverRectification | ResolverScheduledErasure:
+    ) -> ResolverErasure | ResolverRectification | ResolverScheduledErasure | VerifiedErasure:
         """One resolver call, dispatched by operation; the gather captures raises.
 
         A rectify entry routed to a resolver without ``rectify_subject``
@@ -152,6 +164,14 @@ class SagaRunner:
         :class:`~effaced.RetentionOnlyResolver` calls ``schedule_erasure``
         instead of ``erase_subject`` — such a resolver cannot delete on
         demand (ADR 0022).
+
+        An erase entry whose resolver implements
+        :class:`~effaced.VerifyingResolver` is re-queried with
+        ``verify_absent`` right after a successful ``erase_subject``, and
+        the pair is returned as a :class:`VerifiedErasure` so settlement can
+        audit the read-back verdict (ADR 0027). Non-verifying resolvers are
+        skipped silently — the bare :class:`~effaced.ResolverErasure` flows
+        through unchanged.
         """
         resolver = self._registry.get(entry.resolver)
         if entry.operation is OutboxOperation.RECTIFY:
@@ -161,20 +181,52 @@ class SagaRunner:
             return await resolver.rectify_subject(entry.ref, entry.corrections)
         if isinstance(resolver, RetentionOnlyResolver):
             return await resolver.schedule_erasure(entry.ref)
-        return await resolver.erase_subject(entry.ref)
+        erasure = await resolver.erase_subject(entry.ref)
+        if isinstance(resolver, VerifyingResolver):
+            verification = await self._verify_absent(resolver, entry)
+            if verification is not None:
+                return VerifiedErasure(erasure=erasure, verification=verification)
+        return erasure
+
+    async def _verify_absent(
+        self, resolver: VerifyingResolver, entry: OutboxEntry
+    ) -> ResolverVerification | None:
+        """Re-query absence, isolated so its failure never undoes the erase.
+
+        The erase already succeeded; verification is an *additional*
+        assurance, never a gate (ADR 0027). A ``verify_absent`` that itself
+        raises is swallowed — exactly as the abandonment hook is isolated —
+        so the entry still settles ``SUCCEEDED``; the discrepancy simply
+        goes unrecorded this run and a later claim can re-observe it.
+        ``BaseException`` (cancellation) still propagates.
+        """
+        try:
+            return await resolver.verify_absent(entry.ref)
+        except Exception:
+            return None
 
     def _settle(
         self,
         entry: OutboxEntry,
-        outcome: ResolverErasure | ResolverRectification | ResolverScheduledErasure | BaseException,
+        outcome: (
+            ResolverErasure
+            | ResolverRectification
+            | ResolverScheduledErasure
+            | VerifiedErasure
+            | BaseException
+        ),
     ) -> None:
         """Book one entry's outcome: succeed, park until horizon, retry, or abandon."""
+        verification: ResolverVerification | None = None
+        if isinstance(outcome, VerifiedErasure):
+            verification = outcome.verification
+            outcome = outcome.erasure
         if isinstance(outcome, ResolverScheduledErasure) and outcome.expires_at is not None:
             self._park(entry, expires_at=outcome.expires_at)
         elif isinstance(
             outcome, ResolverErasure | ResolverRectification | ResolverScheduledErasure
         ):
-            self._succeed(entry, outcome)
+            self._succeed(entry, outcome, verification=verification)
         elif isinstance(outcome, ResolverError):
             self._abandon(entry, outcome)
         elif isinstance(outcome, Exception):
@@ -191,8 +243,19 @@ class SagaRunner:
         self,
         entry: OutboxEntry,
         outcome: ResolverErasure | ResolverRectification | ResolverScheduledErasure,
+        *,
+        verification: ResolverVerification | None = None,
     ) -> None:
-        """Audit the success, then mark it; completion fires on the operation's last entry."""
+        """Audit the success, then mark it; completion fires on the operation's last entry.
+
+        When ``verification`` is present (an erase entry whose resolver
+        implements :class:`~effaced.VerifyingResolver`), the independent
+        read-back verdict is audited *after* the settled success — an
+        additional assurance, never a gate (ADR 0027). A confirmed absence
+        appends ``ERASURE_EXTERNAL_VERIFIED``; a still-present subject
+        appends ``ERASURE_EXTERNAL_VERIFICATION_FAILED``. Neither reverts
+        the erase nor re-opens the entry.
+        """
         if isinstance(outcome, ResolverRectification):
             step_payload: dict[str, str | int | bool] = {
                 "target": entry.resolver,
@@ -230,6 +293,36 @@ class SagaRunner:
                 _event(completed_type, entry.subject_id, {})
             ),
         )
+        if verification is not None:
+            self._record_verification(entry, verification)
+
+    def _record_verification(self, entry: OutboxEntry, verification: ResolverVerification) -> None:
+        """Audit one independent post-erasure read-back verdict (ADR 0027).
+
+        Appended *after* the erase is already durably ``SUCCEEDED``, so it is
+        additional trail over a terminal success — never the audit-before-
+        status append the rest of the runner relies on. Unlike those, a sink
+        failure here must not corrupt or block the settled erase: it is
+        isolated so the verdict simply goes unrecorded this run (a later
+        claim can re-observe a still-present subject), and settlement of the
+        rest of the batch proceeds. ``BaseException`` (cancellation) still
+        propagates. ``ERASURE_EXTERNAL_VERIFIED`` records confirmed absence,
+        ``ERASURE_EXTERNAL_VERIFICATION_FAILED`` a subject still present
+        despite the reported success — neither reverts the erase.
+        """
+        payload: dict[str, str | int | bool] = {
+            "target": entry.resolver,
+            "external": True,
+            "confirmed_absent": verification.confirmed_absent,
+            "attempts": entry.attempts,
+        }
+        event_type = (
+            AuditEventType.ERASURE_EXTERNAL_VERIFIED
+            if verification.confirmed_absent
+            else AuditEventType.ERASURE_EXTERNAL_VERIFICATION_FAILED
+        )
+        with contextlib.suppress(Exception):
+            self._audit.append(_event(event_type, entry.subject_id, payload))
 
     def _park(self, entry: OutboxEntry, *, expires_at: datetime) -> None:
         """Audit the scheduled expiry, then park the entry until the horizon.
@@ -254,11 +347,12 @@ class SagaRunner:
 
     def _abandon(self, entry: OutboxEntry, exc: BaseException) -> None:
         """Audit the abandonment loudly, then mark the entry terminal."""
+        error = scrub_error(exc)
         if entry.operation is OutboxOperation.RECTIFY:
             payload: dict[str, str | int | bool] = {
                 "target": entry.resolver,
                 "external": True,
-                "error": type(exc).__name__,
+                "error": error,
                 "attempts": entry.attempts,
                 "abandoned": True,
             }
@@ -268,13 +362,13 @@ class SagaRunner:
                 "target": entry.resolver,
                 "strategy": ErasureStrategy.DELETE.value,
                 "external": True,
-                "error": type(exc).__name__,
+                "error": error,
                 "attempts": entry.attempts,
                 "abandoned": True,
             }
             event_type = AuditEventType.ERASURE_STEP_FAILED
         self._audit.append(_event(event_type, entry.subject_id, payload))
-        self._outbox.mark_abandoned(entry, error=type(exc).__name__)
+        self._outbox.mark_abandoned(entry, error=error)
         self._notify_abandoned(entry, exc)
 
     def _notify_abandoned(self, entry: OutboxEntry, exc: BaseException) -> None:
@@ -294,7 +388,7 @@ class SagaRunner:
             resolver=entry.resolver,
             operation=entry.operation,
             attempts=entry.attempts,
-            error=type(exc).__name__,
+            error=scrub_error(exc),
         )
         with contextlib.suppress(Exception):
             self._on_abandoned.on_abandoned(signal)
@@ -303,7 +397,7 @@ class SagaRunner:
         """Schedule the next attempt on the backoff curve; not audited."""
         self._outbox.mark_failed(
             entry,
-            error=type(exc).__name__,
+            error=scrub_error(exc),
             next_attempt_at=datetime.now(UTC) + self._backoff.delay(entry.attempts),
         )
 

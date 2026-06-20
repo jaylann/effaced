@@ -20,6 +20,7 @@ from effaced.adapters.sqlalchemy import (
     LintTarget,
     RectificationExecutor,
     SqlStatusCountsSource,
+    SubjectErasureLock,
     SurrogateRegistry,
     bind_tables,
     collect_data_map,
@@ -62,6 +63,7 @@ from effaced.erasure import (
     ErasureStep,
     ErasureVerification,
     StepExecutor,
+    SubjectLock,
 )
 from effaced.exceptions import (
     AnonymizationError,
@@ -106,10 +108,13 @@ from effaced.resolvers import (
     ResolverRegistry,
     ResolverScheduledErasure,
     ResolverSpec,
+    ResolverVerification,
     RetentionOnlyResolver,
     SpecOutcome,
     SurfaceExclusion,
+    VerifyingResolver,
     registry_from_settings,
+    scrub_error,
 )
 from effaced.restriction import RestrictionLedger, RestrictionRecord
 from effaced.retention import RetentionReport, RetentionReportEntry, RetentionSweeper
@@ -199,6 +204,7 @@ __all__ = [
     "ResolverRegistry",
     "ResolverScheduledErasure",
     "ResolverSpec",
+    "ResolverVerification",
     "RestrictionLedger",
     "RestrictionRecord",
     "RetentionOnlyResolver",
@@ -212,15 +218,18 @@ __all__ = [
     "SqlStatusCountsSource",
     "StatusCountsSource",
     "StepExecutor",
+    "SubjectErasureLock",
     "SubjectGraph",
     "SubjectIdentifier",
     "SubjectLink",
+    "SubjectLock",
     "SubjectRef",
     "SubjectResolutionError",
     "SurfaceExclusion",
     "SurrogateRegistry",
     "TableAccessPlan",
     "TableEntry",
+    "VerifyingResolver",
     "__version__",
     "bind_tables",
     "canonical_subject_id",
@@ -237,5 +246,6 @@ __all__ = [
     "registry_from_settings",
     "resolve_subject_graph",
     "resolve_subject_graph_from_fk",
+    "scrub_error",
     "subject_link",
 ]
