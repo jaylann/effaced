@@ -4,28 +4,28 @@ members = ["packages/*"]
 
 [dependency-groups]
 dev = [
-    "pytest>=9.1.0",
+    "pytest>=9.1.1",
     "pytest-cov>=5.0",
-    "hypothesis>=6.155.3",
+    "hypothesis>=6.155.7",
     "mypy>=1.10",
-    "ruff>=0.15.17",
+    "ruff>=0.15.20",
     "pre-commit>=4.0",
     "psycopg[binary]>=3.3.4",
     "mutmut>=3.6",
     # autogenerate-coexistence proofs for the owned tables (ADR 0021)
-    "alembic>=1.13",
+    "alembic>=1.18.5",
     # typed boto3 client + type_defs for effaced-s3 (boto3 ships no types)
     "types-boto3[s3]>=1.43.32",
     # the runnable FastAPI example + its tests (examples/fastapi-quickstart)
-    "fastapi>=0.137.1",
+    "fastapi>=0.138.2",
     "httpx>=0.28",
     "uvicorn>=0.30",
     # Django adapter (effaced-django) + its type stubs for mypy --strict
     "django>=4.2",
-    "django-stubs>=5.0",
+    "django-stubs>=6.0.6",
 ]
 docs = [
-    "griffe>=1.5",
+    "griffe>=2.1.0",
 ]
 
 [tool.uv]
