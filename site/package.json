@@ -11,14 +11,14 @@
     "check": "astro check"
   },
   "dependencies": {
-    "@astrojs/starlight": "^0.40.0",
+    "@astrojs/starlight": "^0.41.3",
     "@fontsource-variable/public-sans": "^5.2.7",
     "@fontsource/ibm-plex-mono": "^5.2.7",
     "astro": "^6.4.6",
-    "sharp": "^0.34.5",
-    "starlight-versions": "^0.9.0"
+    "sharp": "^0.35.3",
+    "starlight-versions": "^0.9.1"
   },
   "devDependencies": {
-    "shiki": "^4.2.0"
+    "shiki": "^4.3.1"
   }
 }
