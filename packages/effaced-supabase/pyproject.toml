@@ -34,7 +34,7 @@ dependencies = [
 [project.optional-dependencies]
 storage = [
     "effaced-s3",
-    "boto3>=1.35",
+    "boto3>=1.43.53",
 ]
 
 [project.urls]
