@@ -21,7 +21,7 @@ dev = [
     "httpx>=0.28",
     "uvicorn>=0.30",
     # Django adapter (effaced-django) + its type stubs for mypy --strict
-    "django>=4.2",
+    "django>=5.2.16",
     "django-stubs>=5.0",
 ]
 docs = [
