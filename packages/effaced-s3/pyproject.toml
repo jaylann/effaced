@@ -24,7 +24,7 @@ classifiers = [
 ]
 dependencies = [
     "effaced",
-    "boto3>=1.35",
+    "boto3>=1.43.72",
 ]
 
 [project.urls]

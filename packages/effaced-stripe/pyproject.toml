@@ -25,7 +25,7 @@ classifiers = [
 dependencies = [
     "effaced",
     # client.v1 service namespace exists only since stripe-python 12.5.0
-    "stripe>=12.5",
+    "stripe>=15.5.0",
 ]
 
 [project.urls]
